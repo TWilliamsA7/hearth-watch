@@ -14,11 +14,31 @@ from datetime import datetime
 from pathlib import Path
 
 from hearth_schema.models import GroundTruth, Heartbeat, Observation
+from pydantic import BaseModel, ConfigDict
 
 from hearth.sim.generator import SIM_EPOCH, NoiseConfig, ObservationGenerator
-from hearth.sim.scenario import Scenario
+from hearth.sim.scenario import Scenario, Scene
 
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[3] / "recordings" / "sim"
+
+
+class RunInfo(BaseModel):
+    """Run metadata (<run>.run.json). The dashboard uses it to draw the room and place
+    events on the scenario clock (t = timestamp - start)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    scenario_id: str
+    title: str
+    seed: int
+    start: datetime
+    duration: float
+    fps: float
+    room_id: str
+    scene: Scene
+    observations: int
+    heartbeats: int
 
 
 @dataclass(frozen=True)
@@ -36,6 +56,13 @@ class SimRun:
     @property
     def observations(self) -> list[Observation]:
         return [i for i in self.items if isinstance(i, Observation)]
+
+    def info(self) -> RunInfo:
+        sc = self.scenario
+        n_obs = len(self.observations)
+        return RunInfo(run_id=self.name, scenario_id=sc.scenario_id, title=sc.title, seed=self.seed,
+                       start=self.start, duration=sc.duration, fps=sc.fps, room_id=sc.room_id, scene=sc.scene,
+                       observations=n_obs, heartbeats=len(self.items) - n_obs)  # fmt: skip
 
 
 def run_headless(
@@ -60,17 +87,5 @@ def write_run(run: SimRun, out_dir: str | Path = DEFAULT_OUT_DIR) -> dict[str, P
     }
     paths["stream"].write_text("".join(stream_line(i) + "\n" for i in run.items), encoding="utf-8")
     paths["truth"].write_text("".join(gt.model_dump_json() + "\n" for gt in run.ground_truth), encoding="utf-8")
-    meta = {
-        "scenario_id": run.scenario.scenario_id,
-        "title": run.scenario.title,
-        "seed": run.seed,
-        "start": run.start.isoformat().replace("+00:00", "Z"),
-        "duration": run.scenario.duration,
-        "fps": run.scenario.fps,
-        "room_id": run.scenario.room_id,
-        "scene": run.scenario.scene.model_dump(mode="json"),
-        "observations": len(run.observations),
-        "heartbeats": len(run.items) - len(run.observations),
-    }
-    paths["run"].write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    paths["run"].write_text(run.info().model_dump_json(indent=2) + "\n", encoding="utf-8")
     return paths
