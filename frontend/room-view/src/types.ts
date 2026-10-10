@@ -1,0 +1,16 @@
+// Contract and API types used by this package. All generated: see scripts/gen-types.mjs.
+export type {
+  Event,
+  GroundTruth,
+  Heartbeat,
+  Keypoint,
+  Observation,
+  ServerMessage,
+  SourceStatus,
+} from "./generated/contract";
+export type { EvaluationReport, RunInfo, Scene, SceneObject } from "./generated/sim";
+
+import type { Observation } from "./generated/contract";
+
+export type SourceType = Observation["source_type"];
+export type KeypointName = NonNullable<Observation["keypoints"]>[number]["name"];

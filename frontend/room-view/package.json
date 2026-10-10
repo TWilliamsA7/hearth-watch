@@ -1,0 +1,31 @@
+{
+  "name": "@hearth/room-view",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Camera-view renderer for Hearth: draws a room and the observed skeleton from contract Observations, for simulated, replayed and live sources alike.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "vite",
+    "gen:types": "node scripts/gen-types.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "json-schema-to-typescript": "^16.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
