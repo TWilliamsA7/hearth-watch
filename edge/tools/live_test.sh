@@ -88,8 +88,10 @@ fi
 edge_started=1
 say "5/5 starting run_edge.py on the Jetson (lines start with [edge ...]); Ctrl+C to stop"
 # -tt sends Ctrl+C to the Jetson program itself, which then shuts down cleanly.
-# The grep keeps our own log lines and drops NVIDIA's setup messages.
-ssh -tt "$JETSON" "cd ~/hearth-watch/edge && python3 -u run_edge.py ${stream[*]} ${edge_args[*]} 2>&1 >/dev/null | grep --line-buffered -aE '\[edge'"
+# The grep keeps our own log lines and drops NVIDIA's setup messages. It ignores Ctrl+C
+# (trap '' INT) so it keeps reading until run_edge.py has finished shutting down; otherwise
+# it dies first and run_edge.py loses its output mid-shutdown.
+ssh -tt "$JETSON" "cd ~/hearth-watch/edge && python3 -u run_edge.py ${stream[*]} ${edge_args[*]} 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
 
 say "edge stopped; backend keeps listening 5 s - watch for 'jetson-01 -> source_offline'"
 sleep 5

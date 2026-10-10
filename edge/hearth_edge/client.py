@@ -26,8 +26,11 @@ from hearth_edge import contract
 
 
 def _default_log(msg):
-    sys.stderr.write("[edge-client %s] %s\n" % (time.strftime("%H:%M:%S"), msg))
-    sys.stderr.flush()
+    try:  # never let a closed stderr (ssh gone) kill a sender thread
+        sys.stderr.write("[edge-client %s] %s\n" % (time.strftime("%H:%M:%S"), msg))
+        sys.stderr.flush()
+    except (IOError, OSError, ValueError):
+        pass
 
 
 def read_mem_used_mb(path="/proc/meminfo"):

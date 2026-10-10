@@ -62,3 +62,16 @@ def test_defaults_come_from_config():
     assert args.source == config.SOURCE_ID and args.room == config.ROOM_ID
     assert args.obs_hz == config.OBS_HZ and not args.dry_run
     assert run_edge.parse_args(["--dry-run", "--obs-hz", "5"]).obs_hz == 5.0
+
+
+def test_log_survives_a_closed_stderr(monkeypatch):
+    # Ctrl+C over ssh can close our stderr pipe first; logging must not crash the shutdown.
+    class Broken(object):
+        def write(self, _):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self):
+            raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(run_edge.sys, "stderr", Broken())
+    run_edge.log("stopping")  # must not raise

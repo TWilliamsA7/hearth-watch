@@ -90,3 +90,13 @@ def test_summary_line_shows_features_and_offline():
     assert "obs/s 10" in line and "torso 3" in line and "hip 0.55" in line and "face null" in line
     s["online"], s["seconds_since_last_message"] = False, 4.2
     assert "OFFLINE (no data for 4.2 s)" in stub.summary_line("jetson-01", s, 0)
+
+
+def test_empty_body_is_rejected_with_a_clear_reason(server):
+    url, state, _ = server
+    req = request.Request(url + "/ingest/observations", data=b"",
+                          headers={"Content-Type": "application/json"})
+    with pytest.raises(error.HTTPError) as exc:
+        request.urlopen(req, timeout=2)
+    assert exc.value.code == 422
+    assert "empty or cut-off" in json.loads(exc.value.read())["detail"]

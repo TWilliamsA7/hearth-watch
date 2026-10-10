@@ -83,8 +83,13 @@ def observation_for_frame(ids, frame, pose, feats, source, room_id,
 
 
 def log(msg):
-    sys.stderr.write("[edge %s] %s\n" % (time.strftime("%H:%M:%S"), msg))
-    sys.stderr.flush()
+    """Status line to stderr. Never raises: if whoever reads our output has gone away
+    (closed ssh, killed pipe), logging must not crash the program before it shuts down."""
+    try:
+        sys.stderr.write("[edge %s] %s\n" % (time.strftime("%H:%M:%S"), msg))
+        sys.stderr.flush()
+    except (IOError, OSError, ValueError):
+        pass
 
 
 def reserve_stdout_for_json():
@@ -186,9 +191,11 @@ def main(argv=None):
                 frames = with_person = 0
     finally:
         log("stopping")
-        if client is not None:
-            client.stop()
-        cam.close()
+        try:
+            if client is not None:
+                client.stop()  # sends what's queued while the backend is reachable
+        finally:
+            cam.close()        # always release /dev/video0 for the next program
     return 0
 
 

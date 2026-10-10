@@ -30,6 +30,13 @@ except ImportError:  # still usable, just without contract checks
 OFFLINE_AFTER_S = 3.0
 
 
+def emit(msg):
+    """Print one line. On a terminal end it with \\r\\n: when live_test.sh runs `ssh -tt` the
+    terminal is in raw mode, and a bare \\n would make each line start where the last ended."""
+    sys.stdout.write(msg + ("\r\n" if sys.stdout.isatty() else "\n"))
+    sys.stdout.flush()
+
+
 def source_online(last_seen, now, timeout=OFFLINE_AFTER_S):
     return last_seen is not None and now - last_seen <= timeout
 
@@ -98,7 +105,7 @@ def make_handler(state):
         def _reject(self, detail):
             with state.lock:
                 state.invalid += 1
-            print("INVALID %s: %s" % (self.path, detail), flush=True)
+            emit("INVALID %s: %s" % (self.path, detail))
             self._reply(422, {"detail": detail})
 
         def do_GET(self):
@@ -108,9 +115,13 @@ def make_handler(state):
                 self._reply(404, {"detail": "not found"})
 
         def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(length) if length else b""
+            if len(raw) < length or not raw:
+                return self._reject("empty or cut-off request body (%d of %d bytes); the sender "
+                                    "probably disconnected mid-request" % (len(raw), length))
             try:
-                length = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(length) or b"null")
+                body = json.loads(raw)
             except ValueError as e:
                 return self._reject("body is not JSON: %s" % e)
             try:
@@ -173,11 +184,11 @@ def print_loop(state, stop):
         stamp = time.strftime("%H:%M:%S")
         for name, s in sorted(snap["sources"].items()):
             if was_online.get(name) != s["online"]:
-                print("[%s] %s -> %s" % (stamp, name, "source_online" if s["online"] else "source_offline"), flush=True)
+                emit("[%s] %s -> %s" % (stamp, name, "source_online" if s["online"] else "source_offline"))
                 was_online[name] = s["online"]
-            print("[%s] %s" % (stamp, summary_line(name, s, windows.get(name, 0))), flush=True)
+            emit("[%s] %s" % (stamp, summary_line(name, s, windows.get(name, 0))))
         if snap["invalid"]:
-            print("[%s] invalid messages so far: %d" % (stamp, snap["invalid"]), flush=True)
+            emit("[%s] invalid messages so far: %d" % (stamp, snap["invalid"]))
 
 
 def main(argv=None):
@@ -194,8 +205,8 @@ def main(argv=None):
     server = make_server(state, args.host, args.port)
     stop = threading.Event()
     threading.Thread(target=print_loop, args=(state, stop), daemon=True).start()
-    print("stub backend (NOT the real backend) listening on %s:%d - Ctrl+C to stop"
-          % (args.host, args.port), flush=True)
+    emit("stub backend (NOT the real backend) listening on %s:%d - Ctrl+C to stop"
+         % (args.host, args.port))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
