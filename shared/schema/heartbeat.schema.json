@@ -30,6 +30,30 @@
       "title": "Room Id",
       "type": "string"
     },
+    "scenario_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Id"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
     "fps": {
       "anyOf": [
         {
@@ -76,6 +100,8 @@
     "source",
     "source_type",
     "room_id",
+    "scenario_id",
+    "run_id",
     "fps",
     "inference_ms",
     "mem_used_mb"

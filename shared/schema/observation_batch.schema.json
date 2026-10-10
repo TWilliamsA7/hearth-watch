@@ -104,6 +104,19 @@
           "default": null,
           "title": "Scenario Id"
         },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique replay/run id; change on reset.",
+          "title": "Run Id"
+        },
         "person_detected": {
           "title": "Person Detected",
           "type": "boolean"
@@ -170,6 +183,7 @@
         "source_type",
         "room_id",
         "scenario_id",
+        "run_id",
         "person_detected",
         "keypoints",
         "features",
@@ -274,6 +288,8 @@
       "items": {
         "$ref": "#/$defs/Observation"
       },
+      "maxItems": 500,
+      "minItems": 1,
       "title": "Observations",
       "type": "array"
     }

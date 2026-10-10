@@ -45,6 +45,18 @@
       "default": null,
       "title": "Scenario Id"
     },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
     "event_type": {
       "enum": [
         "possible_fall",
@@ -55,7 +67,8 @@
         "face_absent",
         "source_offline",
         "source_online",
-        "alert_acknowledged"
+        "alert_acknowledged",
+        "alert_resolved"
       ],
       "title": "Event Type",
       "type": "string"
@@ -88,6 +101,7 @@
     "source_type",
     "room_id",
     "scenario_id",
+    "run_id",
     "event_type",
     "confidence",
     "metadata"

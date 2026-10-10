@@ -1,5 +1,8 @@
 from .models import (
     SCHEMA_VERSION,
+    Alert,
+    AlertMessage,
+    RoomSnapshot,
     Event,
     EventMessage,
     EventType,
@@ -20,6 +23,9 @@ from .models import (
 
 __all__ = [
     "SCHEMA_VERSION",
+    "Alert",
+    "AlertMessage",
+    "RoomSnapshot",
     "Event",
     "EventMessage",
     "EventType",

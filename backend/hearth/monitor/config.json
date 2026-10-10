@@ -1,0 +1,20 @@
+{
+  "room_id": "room-01",
+  "floor_hold_seconds": 3.0,
+  "max_observation_gap_seconds": 1.0,
+  "source_timeout_seconds": 3.0,
+  "health_poll_seconds": 0.25,
+  "upright_angle_max_deg": 30.0,
+  "floor_angle_min_deg": 60.0,
+  "floor_angle_max_deg": 120.0,
+  "floor_head_y_min": 0.65,
+  "floor_hip_y_min": 0.65,
+  "floor_bbox_aspect_min": 1.0,
+  "descending_velocity_min": 0.15,
+  "zone_keypoint_confidence_min": 0.5,
+  "event_capacity": 10000,
+  "dedupe_capacity": 20000,
+  "websocket_queue_capacity": 512,
+  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+  "zones": []
+}

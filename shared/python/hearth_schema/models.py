@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 SCHEMA_VERSION = "1"
 
@@ -55,6 +55,7 @@ EventType = Literal[
     "source_offline",
     "source_online",
     "alert_acknowledged",
+    "alert_resolved",
 ]
 
 TruthLabel = Literal[
@@ -74,7 +75,8 @@ Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 
 class _Model(BaseModel):
     # Serialization schema marks defaulted fields required: the server always sends them.
-    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False,
+                              json_schema_serialization_defaults_required=True)
 
 
 class Keypoint(_Model):
@@ -105,11 +107,12 @@ class PostureFeatures(_Model):
 class Observation(_Model):
     schema_version: Literal["1"] = SCHEMA_VERSION
     obs_id: str
-    timestamp: datetime
+    timestamp: AwareDatetime
     source: str = Field(description="Device or generator id, e.g. 'jetson-01' or 'sim'.")
     source_type: SourceType
     room_id: str
     scenario_id: str | None = None
+    run_id: str | None = Field(default=None, description="Unique replay/run id; change on reset.")
     person_detected: bool
     keypoints: list[Keypoint] | None = None
     features: PostureFeatures | None = None
@@ -122,11 +125,12 @@ class Observation(_Model):
 class Event(_Model):
     schema_version: Literal["1"] = SCHEMA_VERSION
     event_id: str
-    timestamp: datetime
+    timestamp: AwareDatetime
     source: str
     source_type: SourceType
     room_id: str
     scenario_id: str | None = None
+    run_id: str | None = None
     event_type: EventType
     confidence: Unit | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -149,10 +153,12 @@ class Heartbeat(_Model):
     """Sent by every source about once per second; also carries edge performance metrics."""
 
     schema_version: Literal["1"] = SCHEMA_VERSION
-    timestamp: datetime
+    timestamp: AwareDatetime
     source: str
     source_type: SourceType
     room_id: str
+    scenario_id: str | None = None
+    run_id: str | None = None
     fps: Annotated[float, Field(ge=0.0)] | None = None
     inference_ms: Annotated[float, Field(ge=0.0)] | None = None
     mem_used_mb: Annotated[float, Field(ge=0.0)] | None = None
@@ -161,18 +167,47 @@ class Heartbeat(_Model):
 class ObservationBatch(_Model):
     """Body of POST /ingest/observations."""
 
-    observations: list[Observation]
+    observations: list[Observation] = Field(min_length=1, max_length=500)
 
 
 class SourceStatus(_Model):
     source: str
     source_type: SourceType
     room_id: str
+    scenario_id: str | None = None
+    run_id: str | None = None
     online: bool
     last_seen: datetime | None = None
+    last_observation_at: datetime | None = None
+    observation_stale: bool = True
     fps: float | None = None
     inference_ms: float | None = None
     mem_used_mb: float | None = None
+
+
+class Alert(_Model):
+    alert_id: str
+    event_id: str
+    source: str
+    source_type: SourceType
+    room_id: str
+    scenario_id: str | None = None
+    run_id: str | None = None
+    status: Literal["open", "acknowledged", "resolved"] = "open"
+    severity: Literal["warning", "info"] = "warning"
+    opened_at: AwareDatetime
+    acknowledged_at: AwareDatetime | None = None
+    resolved_at: AwareDatetime | None = None
+    recovered_at: AwareDatetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RoomSnapshot(_Model):
+    room_id: str
+    observations: list[Observation]
+    events: list[Event]
+    alerts: list[Alert]
+    sources: list[SourceStatus]
 
 
 # --- WebSocket messages, server -> dashboard (WS /ws/room/{room_id}) ---
@@ -193,7 +228,12 @@ class SourceStatusMessage(_Model):
     data: SourceStatus
 
 
+class AlertMessage(_Model):
+    type: Literal["alert"] = "alert"
+    data: Alert
+
+
 ServerMessage = Annotated[
-    Union[ObservationMessage, EventMessage, SourceStatusMessage],
+    Union[ObservationMessage, EventMessage, SourceStatusMessage, AlertMessage],
     Field(discriminator="type"),
 ]
