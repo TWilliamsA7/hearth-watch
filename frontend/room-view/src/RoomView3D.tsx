@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { DEFAULT_THEME, type Theme } from "./draw";
-import { buildRoom, buildRoute, disposeTree, stickFigureRig, type PersonRig, type RigFactory } from "./scene3d";
+import { buildRoom3D, setupRenderer, type Room3D } from "./room3d";
+import { buildRoute, stickFigureRig, type PersonRig, type RigFactory } from "./scene3d";
 import type { WorldTrack } from "./types";
 import { routesAt, sampleWorld } from "./world";
 
@@ -52,21 +53,19 @@ export function RoomView3D({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    setupRenderer(renderer);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color();
     const camera = new THREE.PerspectiveCamera(45, 4 / 3, 0.05, 50);
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(2, 5, 3);
-    scene.add(sun);
+    controls.maxPolarAngle = Math.PI * 0.49;
 
     const rigs = new Map<string | null, PersonRig>();
     let roomOf: WorldTrack | null = null;
     let roomTheme: Theme | null = null;
     let rigsFrom: RigFactory | null = null;
-    let room: THREE.Group | null = null;
+    let room: Room3D | null = null;
 
     const clearRigs = () => {
       for (const rig of rigs.values()) {
@@ -93,20 +92,20 @@ export function RoomView3D({
       if (p.world !== roomOf || p.theme !== roomTheme) {
         const newRun = p.world?.scenario_id !== roomOf?.scenario_id || p.world?.seed !== roomOf?.seed;
         if (room) {
-          scene.remove(room);
-          disposeTree(room);
+          scene.remove(room.group);
+          room.dispose();
           room = null;
         }
         clearRigs();
         if (p.world) {
-          room = buildRoom(p.world.room, p.theme);
+          room = buildRoom3D(p.world.room, p.theme);
           for (const r of p.world.routes ?? []) {
             const line = buildRoute(r, p.theme);
             line.visible = false;
             line.userData.route = r;
-            room.add(line);
+            room.group.add(line);
           }
-          scene.add(room);
+          scene.add(room.group);
           if (newRun) frameRoom(camera, controls, p.world.room);
         }
         roomOf = p.world;
@@ -120,7 +119,7 @@ export function RoomView3D({
 
       const now = p.time();
       const walking = new Set(p.showRoutes ? routesAt(p.world, now) : []);
-      for (const child of room?.children ?? []) {
+      for (const child of room?.group.children ?? []) {
         if (child.userData.route) child.visible = walking.has(child.userData.route);
       }
 
@@ -145,6 +144,7 @@ export function RoomView3D({
       }
 
       controls.update();
+      room?.update(camera);
       renderer.render(scene, camera);
       raf = requestAnimationFrame(render);
     };
@@ -153,7 +153,7 @@ export function RoomView3D({
     return () => {
       cancelAnimationFrame(raf);
       clearRigs();
-      if (room) disposeTree(room);
+      room?.dispose();
       controls.dispose();
       renderer.dispose();
     };
