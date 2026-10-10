@@ -115,10 +115,15 @@ def body_pose(name: PoseName, gait_phase: float | None = None, gait_amount: floa
     return pose
 
 
-def project(pose: BodyPose, facing: Facing, root_x: float, base_y: float, scene: Scene) -> ImagePose:
-    """Place a body-unit pose in the frame with its root at (root_x, base_y)."""
-    sx = scene.person_height / scene.frame_aspect  # body unit -> normalized x
-    sy = scene.person_height  # body unit -> normalized y
+def project(
+    pose: BodyPose, facing: Facing, root_x: float, base_y: float, scene: Scene, height: float | None = None
+) -> ImagePose:
+    """Place a body-unit pose in the frame with its root at (root_x, base_y).
+
+    height: the person's standing height as a fraction of frame height (default: scene.person_height).
+    """
+    sy = scene.person_height if height is None else height  # body unit -> normalized y
+    sx = sy / scene.frame_aspect  # body unit -> normalized x
     out: ImagePose = {}
     for joint, (f, v) in pose.items():
         lat = LATERAL[joint]

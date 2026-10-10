@@ -16,13 +16,17 @@ def test_scenario_library_loads():
 
 @pytest.mark.parametrize("scenario", load_all().values(), ids=lambda s: s.scenario_id)
 def test_ground_truth_covers_scenario_contiguously(scenario: Scenario):
+    """Every resident's truth runs from 0 to the end of the scenario without gaps."""
     truth = scenario.ground_truth()
-    assert len(truth) == len(scenario.segments)
-    assert truth[0].t_start == 0.0
-    assert truth[-1].t_end == pytest.approx(scenario.realize().duration)
-    for prev, nxt in zip(truth, truth[1:]):
-        assert prev.t_end == nxt.t_start
+    duration = scenario.realize().duration
+    assert len(truth) == sum(len(r.segments) for r in scenario.cast())
     assert len({gt.segment_id for gt in truth}) == len(truth)
+    for resident in scenario.cast():
+        mine = [gt for gt in truth if gt.person_id == resident.resident_id]
+        assert mine[0].t_start == 0.0
+        assert mine[-1].t_end == pytest.approx(duration)
+        for prev, nxt in zip(mine, mine[1:]):
+            assert prev.t_end == nxt.t_start
 
 
 def test_only_falls_expect_alerts_by_default():
@@ -76,3 +80,35 @@ def test_off_screen_positions_are_not_jittered():
         v = scenario.realize(seed)
         assert v.start_x == scenario.start_x == -0.15
         assert v.segments[-2].x == 1.15
+
+
+def test_single_person_truth_has_no_person_id():
+    assert {gt.person_id for gt in load_all()["possible-fall-01"].ground_truth()} == {None}
+
+
+def test_multi_person_truth_is_per_resident():
+    scenario = load_all()["day-room-01"]
+    truth = scenario.ground_truth()
+    assert {gt.person_id for gt in truth} == {"p1", "p2", "p3", "p4"}
+    alerts = [gt for gt in truth if gt.expects_alert]
+    assert [(gt.person_id, gt.truth_label) for gt in alerts] == [("p3", "fall")]
+
+
+def test_residents_vary_independently_per_seed():
+    base = load_all()["day-room-01"]
+    a, b = base.realize(1), base.realize(2)
+    assert a.residents[0].segments != b.residents[0].segments or a.residents[2].segments != b.residents[2].segments
+    assert base.realize(1) == base.realize(1)
+
+
+@pytest.mark.parametrize("bad", [
+    {},  # neither
+    {"segments": [{"label": "standing", "duration": 1}],
+     "residents": [{"resident_id": "p1", "segments": [{"label": "standing", "duration": 1}]}]},  # both
+    {"residents": [{"resident_id": "p1", "segments": [{"label": "standing", "duration": 1}]},
+                   {"resident_id": "p1", "segments": [{"label": "standing", "duration": 1}]}]},  # duplicate ids
+    {"residents": [{"segments": [{"label": "standing", "duration": 1}]}]},  # missing id
+])
+def test_cast_must_be_unambiguous(bad):
+    with pytest.raises(ValidationError):
+        Scenario.model_validate({"scenario_id": "x", "title": "x", **bad})

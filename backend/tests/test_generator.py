@@ -59,12 +59,13 @@ def test_figure_moves_continuously(scenario):
     """The visual feed must never teleport: bounded joint movement between frames."""
     gen = ObservationGenerator(scenario, noise=NoiseConfig.off())
     prev = None
-    for _, t, i in gen.frame_times():
-        pose = gen.pose_at(i, t - gen.scenario.segment_times()[i][0])
+    for _, t in gen.frame_times():
+        poses = [p.pose for p in gen.people_at(t)]
         if prev is not None:
-            jump = max(abs(pose[j][0] - prev[j][0]) + abs(pose[j][1] - prev[j][1]) for j in pose)
-            assert jump < 0.2, f"t={t:.2f}s joint jump {jump:.3f}"
-        prev = pose
+            for person, (pose, before) in enumerate(zip(poses, prev)):
+                jump = max(abs(pose[j][0] - before[j][0]) + abs(pose[j][1] - before[j][1]) for j in pose)
+                assert jump < 0.2, f"person {person} t={t:.2f}s joint jump {jump:.3f}"
+        prev = poses
 
 
 def test_camera_outage_is_silent():
@@ -125,3 +126,64 @@ def test_custom_start_time_shifts_timestamps_only():
     a = list(ObservationGenerator(sc).stream())
     b = list(ObservationGenerator(sc, start=later).stream())
     assert [i.timestamp + timedelta(hours=3) for i in a] == [i.timestamp for i in b]
+
+
+# --- several residents ---
+
+
+def frames_by_time(scenario, noise=None):
+    by_t = {}
+    for o in observations(scenario, noise):
+        by_t.setdefault(seconds(o), []).append(o)
+    return by_t
+
+
+def test_one_observation_per_visible_person_per_frame():
+    sc = SCENARIOS["day-room-01"]
+    for t, frame in frames_by_time(sc).items():
+        ids = [o.person_id for o in frame]
+        assert len(ids) == len(set(ids)), f"duplicate person at t={t}"
+        if None in ids:  # "nobody visible" is only ever reported alone
+            assert ids == [None] and not frame[0].person_detected
+        else:
+            assert all(o.person_detected and o.obs_id.endswith(o.person_id) for o in frame)
+
+
+def test_absent_residents_are_not_reported():
+    sc = SCENARIOS["day-room-01"]
+    gen = ObservationGenerator(sc)
+    absent = next(g for g in gen.scenario.ground_truth() if g.person_id == "p2" and g.truth_label == "absent")
+    reported = [o for o in observations(sc) if o.person_id == "p2" and absent.t_start <= seconds(o) < absent.t_end]
+    assert reported == []
+
+
+def test_people_in_front_hide_people_behind():
+    """p2 walks along the back wall behind the others, so loses keypoints only while passing behind someone."""
+    sc = SCENARIOS["day-room-01"]
+    gen = ObservationGenerator(sc, noise=NoiseConfig.off())
+    hidden_while_behind = visible_in_open = 0
+    for o in observations(sc, NoiseConfig.off()):
+        if o.person_id != "p2":
+            continue
+        people = gen.people_at(seconds(o))
+        me = next(p for p in people if p.track.person_id == "p2")
+        in_frame = sum(0 <= x <= 1 and 0 <= y <= 1 for x, y in me.pose.values())
+        if len(o.keypoints) < in_frame:
+            hidden_while_behind += 1
+        elif in_frame == 18:
+            visible_in_open += 1
+    assert hidden_while_behind > 10 and visible_in_open > 10
+
+
+def test_multi_person_runs_are_deterministic():
+    sc = SCENARIOS["day-room-02"]
+    assert dump(ObservationGenerator(sc)) == dump(ObservationGenerator(sc))
+
+
+def test_fast_sit_is_a_genuine_false_alarm_risk():
+    """The day-room-02 quick sit should drop the hips fast enough to test a velocity rule."""
+    sc = SCENARIOS["day-room-02"]
+    off = observations(sc, NoiseConfig.off())
+    gt = next(g for g in sc.ground_truth() if g.person_id == "p3" and g.truth_label == "sitting")
+    peak = max(o.features.vertical_velocity or 0 for o in off if o.person_id == "p3" and gt.t_start <= seconds(o) < gt.t_end)
+    assert peak > 0.3

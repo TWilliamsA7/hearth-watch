@@ -318,6 +318,13 @@
         "scene": {
           "$ref": "#/$defs/Scene"
         },
+        "residents": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Residents",
+          "type": "array"
+        },
         "observations": {
           "title": "Observations",
           "type": "integer"
@@ -337,6 +344,7 @@
         "fps",
         "room_id",
         "scene",
+        "residents",
         "observations",
         "heartbeats"
       ],
@@ -348,7 +356,7 @@
       "properties": {
         "floor_y": {
           "default": 0.92,
-          "description": "Frame y of the floor line under the person.",
+          "description": "Frame y of the floor line under a person at the front.",
           "maximum": 1.0,
           "minimum": 0.0,
           "title": "Floor Y",
@@ -356,7 +364,7 @@
         },
         "person_height": {
           "default": 0.62,
-          "description": "Standing height as a fraction of frame height.",
+          "description": "Standing height at the front, as a fraction of frame height.",
           "maximum": 1.0,
           "minimum": 0.0,
           "title": "Person Height",
@@ -367,6 +375,22 @@
           "description": "Simulated camera width / height.",
           "exclusiveMinimum": 0.0,
           "title": "Frame Aspect",
+          "type": "number"
+        },
+        "depth_rise": {
+          "default": 0.14,
+          "description": "How far the floor line rises in the frame for a person at depth 1 (back wall).",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Depth Rise",
+          "type": "number"
+        },
+        "depth_shrink": {
+          "default": 0.3,
+          "description": "How much smaller a person at depth 1 appears than one at depth 0.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Depth Shrink",
           "type": "number"
         },
         "objects": {
@@ -381,6 +405,8 @@
         "floor_y",
         "person_height",
         "frame_aspect",
+        "depth_rise",
+        "depth_shrink",
         "objects"
       ],
       "title": "Scene",
@@ -394,6 +420,7 @@
           "enum": [
             "bed",
             "chair",
+            "couch",
             "mat",
             "occluder"
           ],

@@ -4,12 +4,18 @@ Output is Observations and Heartbeats only, built as plain dicts the way the edg
 builds them and validated against the shared contract. Ground truth is produced
 separately by Scenario.ground_truth() and never travels in this stream.
 
+Several residents: each frame yields one Observation per person the camera can see,
+tagged with person_id. People further back are hidden where someone nearer the camera
+stands in front of them, as one camera really would. A frame where nobody is visible
+yields a single Observation with person_detected = false and no person_id.
+
 Determinism: one random.Random(seed) per run, consumed in a fixed order, and timestamps
 from a virtual clock. The same scenario and seed always produce identical output.
 """
 
 from __future__ import annotations
 
+import bisect
 import math
 import random
 from collections.abc import Iterator
@@ -30,7 +36,7 @@ from hearth.sim.pose import (
     project,
     smoothstep,
 )
-from hearth.sim.scenario import Facing, PoseName, Scenario, Segment
+from hearth.sim.scenario import Facing, PoseName, Resident, Scenario, Scene, Segment
 
 SIM_EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 """Default virtual start time for headless runs, so output doesn't depend on the wall clock."""
@@ -48,6 +54,11 @@ LABEL_POSE: dict[str, PoseName] = {
 """Labels not listed (occluded, absent, camera_outage) hold the previous pose."""
 
 MIN_VISIBLE_KEYPOINTS = 4
+
+BOX_PADDING = 0.01
+"""How far around a nearer person's keypoints their body hides people behind them."""
+
+Box = tuple[float, float, float, float]  # x0, y0, x1, y1
 
 
 @dataclass(frozen=True)
@@ -80,7 +91,106 @@ class _Plan:
     facing: Facing
     x_start: float
     x_end: float
-    base_y: float
+    depth_start: float
+    depth_end: float
+
+
+@dataclass(frozen=True)
+class PersonState:
+    """One resident at one instant: the noise-free truth of where their body is."""
+
+    track: ResidentTrack
+    plan: _Plan
+    pose: ImagePose
+    depth: float
+
+    @property
+    def label(self) -> str:
+        return self.plan.segment.label
+
+
+class ResidentTrack:
+    """One resident's motion on the scenario clock. Pure geometry, no randomness."""
+
+    def __init__(self, resident: Resident, scene: Scene) -> None:
+        self.resident = resident
+        self.scene = scene
+        self.plans = self._plan_segments()
+        self._starts = [p.t_start for p in self.plans]
+        self._start_poses: dict[int, ImagePose] = {}
+
+    @property
+    def person_id(self) -> str | None:
+        return self.resident.resident_id
+
+    def _plan_segments(self) -> list[_Plan]:
+        res = self.resident
+        plans: list[_Plan] = []
+        pose: PoseName = "standing"
+        facing: Facing = res.start_facing
+        x, depth = res.start_x, res.start_depth
+        for seg, (t0, _) in zip(res.segments, res.segment_times()):
+            pose = seg.pose or LABEL_POSE.get(seg.label, pose)
+            x_end = x if seg.x is None else seg.x
+            depth_end = depth if seg.depth is None else seg.depth
+            if seg.facing is not None:
+                facing = seg.facing
+            elif seg.label == "walking" and x_end != x:
+                facing = "right" if x_end > x else "left"
+            if pose in SIDE_ONLY_POSES and facing == "camera":
+                facing = "right"
+            plans.append(_Plan(seg, t0, pose, facing, x, x_end, depth, depth_end))
+            x, depth = x_end, depth_end
+        return plans
+
+    def segment_index(self, t: float) -> int:
+        return max(0, bisect.bisect_right(self._starts, t + 1e-9) - 1)
+
+    def _progress(self, i: int, tau: float) -> float:
+        """How far segment i has moved towards its target position (0..1)."""
+        seg = self.plans[i].segment
+        if seg.label == "walking":
+            return min(tau / seg.duration, 1.0)
+        return smoothstep(tau / seg.transition if seg.transition else 1.0)
+
+    def depth_at(self, i: int, tau: float) -> float:
+        p = self.plans[i]
+        return p.depth_start + (p.depth_end - p.depth_start) * self._progress(i, tau)
+
+    def _target_pose(self, i: int, tau: float) -> ImagePose:
+        """Where segment i's motion puts the body at local time tau, before blending in."""
+        p = self.plans[i]
+        seg = p.segment
+        k = self._progress(i, tau)
+        x = p.x_start + (p.x_end - p.x_start) * k
+        depth = self.depth_at(i, tau)
+        gait = 2.0 * math.pi * STEP_HZ * tau if seg.label == "walking" else None
+        base_y = self.scene.floor_at(depth) if seg.surface_y is None else seg.surface_y
+        height = self.scene.height_at(depth, self.resident.height)
+        return project(body_pose(p.pose, gait), p.facing, x, base_y, self.scene, height)
+
+    def _start_pose(self, i: int) -> ImagePose:
+        if i not in self._start_poses:
+            if i == 0:
+                self._start_poses[i] = self._target_pose(0, 0.0)
+            else:
+                self._start_poses[i] = self.pose_at(i - 1, self.plans[i - 1].segment.duration)
+        return self._start_poses[i]
+
+    def pose_at(self, i: int, tau: float) -> ImagePose:
+        """Ideal (noise-free) pose during segment i at local time tau."""
+        seg = self.plans[i].segment
+        tau = min(tau, seg.duration)  # after their script ends, a resident holds their last pose
+        target = self._target_pose(i, tau)
+        if i == 0 or seg.transition == 0.0 or tau >= seg.transition:
+            return target
+        ease = ease_in if seg.label == "fall" else smoothstep
+        return blend(self._start_pose(i), target, ease(tau / seg.transition))
+
+    def state_at(self, t: float) -> PersonState:
+        i = self.segment_index(t)
+        tau = t - self.plans[i].t_start
+        return PersonState(self, self.plans[i], self.pose_at(i, tau), self.depth_at(i, min(tau, self.plans[i].segment.duration)))
 
 
 class ObservationGenerator:
@@ -98,95 +208,66 @@ class ObservationGenerator:
         self.start = start
         self.noise = noise or NoiseConfig()
         self.source = source
-        self._plans = self._plan_segments()
-        self._start_poses: dict[int, ImagePose] = {}
+        self.tracks = [ResidentTrack(r, self.scenario.scene) for r in self.scenario.cast()]
 
-    # --- scene geometry, no randomness ---
-
-    def _plan_segments(self) -> list[_Plan]:
-        sc = self.scenario
-        plans: list[_Plan] = []
-        pose: PoseName = "standing"
-        facing: Facing = sc.start_facing
-        x = sc.start_x
-        for seg, (t0, _) in zip(sc.segments, sc.segment_times()):
-            pose = seg.pose or LABEL_POSE.get(seg.label, pose)
-            x_end = x if seg.x is None else seg.x
-            if seg.facing is not None:
-                facing = seg.facing
-            elif seg.label == "walking" and x_end != x:
-                facing = "right" if x_end > x else "left"
-            if pose in SIDE_ONLY_POSES and facing == "camera":
-                facing = "right"
-            base_y = sc.scene.floor_y if seg.surface_y is None else seg.surface_y
-            plans.append(_Plan(seg, t0, pose, facing, x, x_end, base_y))
-            x = x_end
-        return plans
-
-    def _target_pose(self, i: int, tau: float) -> ImagePose:
-        """Where segment i's motion puts the body at local time tau, before blending in."""
-        p = self._plans[i]
-        seg = p.segment
-        if seg.label == "walking":
-            x = p.x_start + (p.x_end - p.x_start) * (tau / seg.duration)
-            gait = 2.0 * math.pi * STEP_HZ * tau
-        else:
-            x = p.x_start + (p.x_end - p.x_start) * smoothstep(tau / seg.transition if seg.transition else 1.0)
-            gait = None
-        return project(body_pose(p.pose, gait), p.facing, x, p.base_y, self.scenario.scene)
-
-    def _start_pose(self, i: int) -> ImagePose:
-        if i not in self._start_poses:
-            if i == 0:
-                self._start_poses[i] = self._target_pose(0, 0.0)
-            else:
-                prev = self._plans[i - 1].segment
-                self._start_poses[i] = self.pose_at(i - 1, prev.duration)
-        return self._start_poses[i]
-
-    def pose_at(self, i: int, tau: float) -> ImagePose:
-        """Ideal (noise-free) pose during segment i at local time tau."""
-        seg = self._plans[i].segment
-        target = self._target_pose(i, tau)
-        if i == 0 or seg.transition == 0.0 or tau >= seg.transition:
-            return target
-        ease = ease_in if seg.label == "fall" else smoothstep
-        return blend(self._start_pose(i), target, ease(tau / seg.transition))
-
-    # --- the stream ---
-
-    def frame_times(self) -> Iterator[tuple[int, float, int]]:
-        """(frame index, seconds from start, segment index) for every frame slot."""
+    def frame_times(self) -> Iterator[tuple[int, float]]:
+        """(frame index, seconds from start) for every frame slot."""
         fps, total = self.scenario.fps, self.scenario.duration
-        i, n = 0, 0
+        n = 0
         while (t := n / fps) < total - 1e-9:
-            while i + 1 < len(self._plans) and t >= self._plans[i + 1].t_start - 1e-9:
-                i += 1
-            yield n, t, i
+            yield n, t
             n += 1
+
+    def people_at(self, t: float) -> list[PersonState]:
+        """Every resident's noise-free state at scenario time t (truth, not observation)."""
+        return [track.state_at(t) for track in self.tracks]
 
     def stream(self) -> Iterator[Observation | Heartbeat]:
         """Every Observation and Heartbeat in timestamp order."""
         rng = random.Random(self.seed)
         next_heartbeat = 0.0
-        prev_hip: tuple[float, float] | None = None  # (t, hip_y) of the last observation with hips
+        prev_hip: dict[str | None, tuple[float, float]] = {}  # person -> (t, hip_y) of their last hips
 
-        for n, t, i in self.frame_times():
-            plan = self._plans[i]
-            if plan.segment.label == "camera_outage":
+        for n, t in self.frame_times():
+            people = self.people_at(t)
+            if any(p.label == "camera_outage" for p in people):
                 # Silence: no observations, no heartbeats. Resume the heartbeat cadence afterwards.
                 next_heartbeat = t
-                prev_hip = None
+                prev_hip.clear()
                 continue
             if t >= next_heartbeat - 1e-9:
                 yield self._heartbeat(t)
                 next_heartbeat += 1.0
             if rng.random() < self.noise.frame_drop:
                 continue
-            obs = self._observation(rng, n, t, i, prev_hip)
+            yield from self._frame(rng, n, t, people, prev_hip)
+
+    def _frame(
+        self, rng: random.Random, n: int, t: float, people: list[PersonState],
+        prev_hip: dict[str | None, tuple[float, float]],
+    ) -> Iterator[Observation]:  # fmt: skip
+        if not self.scenario.multi_person:
+            obs = self._observation(rng, n, t, people[0], [], prev_hip.get(None)) or self._nobody(n, t)
             if obs.features is not None and obs.features.hip_y is not None:
-                prev_hip = (t, obs.features.hip_y)
+                prev_hip[None] = (t, obs.features.hip_y)
             yield obs
+            return
+
+        present = [p for p in people if p.label != "absent"]
+        emitted = False
+        for person in people:  # cast order keeps random draws stable
+            if person.label == "absent":
+                continue
+            in_front = [_body_box(q.pose) for q in present if q.depth < person.depth - 0.05]
+            obs = self._observation(rng, n, t, person, in_front, prev_hip.get(person.track.person_id))
+            if obs is None:
+                continue
+            if obs.features is not None and obs.features.hip_y is not None:
+                prev_hip[person.track.person_id] = (t, obs.features.hip_y)
+            emitted = True
+            yield obs
+        if not emitted:
+            yield self._nobody(n, t)
 
     def _timestamp(self, t: float) -> datetime:
         return self.start + timedelta(seconds=round(t, 6))
@@ -200,31 +281,38 @@ class ObservationGenerator:
             fps=self.scenario.fps,
         )
 
-    def _observation(
-        self, rng: random.Random, n: int, t: float, i: int, prev_hip: tuple[float, float] | None
-    ) -> Observation:
-        plan = self._plans[i]
-        seg = plan.segment
-        obs = {
-            "obs_id": f"sim-{self.scenario.scenario_id}-s{self.seed}-{n:06d}",
+    def _base(self, n: int, t: float, person_id: str | None) -> dict:
+        suffix = f"-{person_id}" if person_id else ""
+        return {
+            "obs_id": f"sim-{self.scenario.scenario_id}-s{self.seed}-{n:06d}{suffix}",
             "timestamp": self._timestamp(t),
             "source": self.source,
             "source_type": "simulation",
             "room_id": self.scenario.room_id,
             "scenario_id": self.scenario.scenario_id,
+            "person_id": person_id,
             "person_detected": False,
             "face_present": False,
         }
-        if seg.label == "absent":
-            return Observation.model_validate(obs)
 
-        keypoints = self._keypoints(rng, self.pose_at(i, t - plan.t_start), plan)
+    def _nobody(self, n: int, t: float) -> Observation:
+        return Observation.model_validate(self._base(n, t, None))
+
+    def _observation(
+        self, rng: random.Random, n: int, t: float, person: PersonState, in_front: list[Box],
+        prev_hip: tuple[float, float] | None,
+    ) -> Observation | None:  # fmt: skip
+        """One person's observation, or None if the camera can't make them out."""
+        if person.label == "absent":
+            return None
+        keypoints = self._keypoints(rng, person, in_front)
         if len(keypoints) < MIN_VISIBLE_KEYPOINTS:
-            return Observation.model_validate(obs)
+            return None
 
         prev_y, dt = (prev_hip[1], t - prev_hip[0]) if prev_hip else (None, None)
         features = compute_features(keypoints, self.scenario.scene.frame_aspect, prev_y, dt)
-        face_present, face_conf = self._face(rng, keypoints, plan)
+        face_present, face_conf = self._face(rng, keypoints, person.plan)
+        obs = self._base(n, t, person.track.person_id)
         obs.update(
             person_detected=True,
             keypoints=keypoints,
@@ -234,8 +322,9 @@ class ObservationGenerator:
         )
         return Observation.model_validate(obs)
 
-    def _keypoints(self, rng: random.Random, pose: ImagePose, plan: _Plan) -> list[dict]:
+    def _keypoints(self, rng: random.Random, person: PersonState, in_front: list[Box]) -> list[dict]:
         nz = self.noise
+        plan = person.plan
         lying = plan.pose in SIDE_ONLY_POSES
         jitter = nz.jitter * (1.5 if lying else 1.0)
         conf_mean = nz.confidence_mean - (nz.lying_penalty if lying else 0.0)
@@ -243,12 +332,14 @@ class ObservationGenerator:
 
         out = []
         for joint in JOINTS:
-            x, y = pose[joint]
+            x, y = person.pose[joint]
             # Draw every random number for every joint, visible or not, so one hidden joint
             # doesn't shift the noise of all the others.
             dx, dy = rng.gauss(0.0, jitter), rng.gauss(0.0, jitter)
             conf = rng.gauss(conf_mean, nz.confidence_sd)
             dropped = rng.random() < nz.keypoint_dropout
+            if any(bx0 <= x <= bx1 and by0 <= y <= by1 for bx0, by0, bx1, by1 in in_front):
+                continue  # behind someone nearer the camera
             x, y = x + dx, y + dy
             if dropped or not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
                 continue
@@ -270,3 +361,10 @@ class ObservationGenerator:
         if not any(k["name"] == "nose" for k in keypoints) or roll >= rate:
             return False, None
         return True, round(conf, 3)
+
+
+def _body_box(pose: ImagePose) -> Box:
+    """The region a person's body covers in the frame (padded keypoint bounding box)."""
+    xs = [x for x, _ in pose.values()]
+    ys = [y for _, y in pose.values()]
+    return (min(xs) - BOX_PADDING, min(ys) - BOX_PADDING, max(xs) + BOX_PADDING, max(ys) + BOX_PADDING)

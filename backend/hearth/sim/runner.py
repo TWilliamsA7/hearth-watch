@@ -37,6 +37,7 @@ class RunInfo(BaseModel):
     fps: float
     room_id: str
     scene: Scene
+    residents: list[str]  # person_ids in a multi-person run; empty for a single-person run
     observations: int
     heartbeats: int
 
@@ -62,6 +63,7 @@ class SimRun:
         n_obs = len(self.observations)
         return RunInfo(run_id=self.name, scenario_id=sc.scenario_id, title=sc.title, seed=self.seed,
                        start=self.start, duration=sc.duration, fps=sc.fps, room_id=sc.room_id, scene=sc.scene,
+                       residents=[r.resident_id for r in sc.cast() if r.resident_id],
                        observations=n_obs, heartbeats=len(self.items) - n_obs)  # fmt: skip
 
 
