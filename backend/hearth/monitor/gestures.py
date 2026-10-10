@@ -5,7 +5,7 @@ from datetime import datetime
 from hearth_schema import Event, Observation
 
 from .config import MonitorConfig
-from .detector import SourceKey, make_event, source_key
+from .detector import TrackKey, make_event, track_key
 
 
 @dataclass
@@ -23,9 +23,9 @@ class GestureState:
 class HelpGestureDetector:
     def __init__(self, config: MonitorConfig):
         self.config = config
-        self.states: dict[SourceKey, GestureState] = {}
+        self.states: dict[TrackKey, GestureState] = {}
 
-    def invalidate(self, key: SourceKey):
+    def invalidate(self, key: TrackKey):
         if state := self.states.get(key):
             state.since = state.released_since = None
             # Missing frames cannot re-arm an already sent request.
@@ -51,7 +51,7 @@ class HelpGestureDetector:
         return result
 
     def process(self, obs: Observation) -> list[Event]:
-        key = source_key(obs)
+        key = track_key(obs)
         state = self.states.setdefault(key, GestureState())
         if state.last_timestamp is not None:
             gap = (obs.timestamp - state.last_timestamp).total_seconds()

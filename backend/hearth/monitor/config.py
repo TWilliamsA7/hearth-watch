@@ -56,7 +56,8 @@ class MonitorConfig(BaseModel):
     event_capacity: int = Field(default=10000, gt=0)
     dedupe_capacity: int = Field(default=20000, gt=0)
     websocket_queue_capacity: int = Field(default=512, gt=0)
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"])
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173",
+                                                          "http://localhost:5174", "http://127.0.0.1:5174"])
     zones: list[Zone] = Field(default_factory=list)
 
     @model_validator(mode="after")

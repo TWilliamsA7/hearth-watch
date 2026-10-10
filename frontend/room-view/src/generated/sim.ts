@@ -123,6 +123,8 @@ export interface SegmentResult {
         | "source_offline"
         | "source_online"
         | "alert_acknowledged"
+        | "alert_resolved"
+        | "help_requested"
       )
     | null;
   /**
@@ -157,7 +159,9 @@ export interface TimelineEvent {
     | "face_absent"
     | "source_offline"
     | "source_online"
-    | "alert_acknowledged";
+    | "alert_acknowledged"
+    | "alert_resolved"
+    | "help_requested";
   /**
    * Resident the record concerns; None in single-person runs.
    */

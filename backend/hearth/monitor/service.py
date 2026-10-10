@@ -13,7 +13,7 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat, 
                            SourceStatus, SourceStatusMessage)
 
 from .config import MonitorConfig
-from .detector import FallDetector, SourceKey, make_event, source_key
+from .detector import FallDetector, SourceKey, TrackKey, make_event, source_key, track_key
 from .gestures import HelpGestureDetector
 
 
@@ -33,10 +33,14 @@ class MonitorService:
         self.detector = FallDetector(config)
         self.gestures = HelpGestureDetector(config)
         self.events: deque[Event] = deque(maxlen=config.event_capacity)
+        self.event_listeners: list[Callable[[Event], None]] = []
+        # API control may explicitly pause a simulated observation clock.
+        # Live producers always retain the usual stale-evidence behavior.
+        self.observation_clock_paused: Callable[[SourceKey], bool] = lambda key: False
         self.alerts: dict[str, Alert] = {}
         self.event_alerts: dict[str, str] = {}
         self.health: dict[SourceKey, HealthEntry] = {}
-        self.observations: dict[SourceKey, Observation] = {}
+        self.observations: dict[TrackKey, Observation] = {}
         self.seen: OrderedDict[tuple, None] = OrderedDict()
         self.subscribers: set[asyncio.Queue] = set()
         self.subscription_rooms: dict[asyncio.Queue, str] = {}
@@ -104,6 +108,8 @@ class MonitorService:
     def record(self, event: Event) -> None:
         self.events.append(event)
         self.publish(EventMessage(data=event))
+        for listener in tuple(self.event_listeners):
+            listener(event)
 
     def validate_room(self, room_id: str) -> None:
         if room_id not in self.config.room_ids:
@@ -147,7 +153,7 @@ class MonitorService:
             entry.status.posture_confidence = prediction.confidence if reliable else None
             entry.status.posture_model = prediction.model_id if prediction else None
             if prediction is None and self.config.posture_mode == "pose_fallback":
-                state = self.detector.states.get(key)
+                state = self.detector.states.get(track_key(record))
                 entry.status.posture = {"upright": "standing", "floor_level": "fallen",
                                         "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
         if isinstance(record, Heartbeat):
@@ -173,21 +179,26 @@ class MonitorService:
                     and now - entry.last_observation_receipt >= self.config.source_timeout_seconds):
                 entry.status.observation_stale = True
                 entry.status.posture, entry.status.posture_confidence = "unknown", None
-                self.detector.invalidate(key)
-                self.gestures.invalidate(key)
+                if not self.observation_clock_paused(key):
+                    self.invalidate_source(key)
                 changed = True
             if entry.status.online and now - entry.last_receipt >= self.config.source_timeout_seconds:
                 entry.status.online = False
                 entry.status.observation_stale = True
                 entry.status.posture, entry.status.posture_confidence = "unknown", None
-                self.detector.invalidate(key)
-                self.gestures.invalidate(key)
+                self.invalidate_source(key)
                 event = make_event(entry.status, "source_offline", timestamp=self.utcnow(),
                                    clock="backend_receipt", reason="source_silent")
                 self.offline_alerts[key] = self.open_alert(event).alert_id
                 changed = True
             if changed:
                 self.publish(SourceStatusMessage(data=entry.status))
+
+    def invalidate_source(self, key, *, tracked_only=False):
+        for detector in (self.detector, self.gestures):
+            for tracked in tuple(detector.states):
+                if tracked[:5] == key and (not tracked_only or len(tracked) > 5):
+                    detector.invalidate(tracked)
 
     def ingest(self, batch: list[Observation]) -> dict[str, int]:
         # Validate the complete batch before applying anything.
@@ -197,7 +208,7 @@ class MonitorService:
         counts = dict.fromkeys(self.ingest_totals, 0)
         received_at = self.utcnow()
         for obs in batch:
-            key = source_key(obs)
+            key = track_key(obs)
             identity = (*key, obs.obs_id)
             if identity in self.seen:
                 counts["duplicates"] += 1
@@ -220,6 +231,10 @@ class MonitorService:
             if len(self.seen) > self.config.dedupe_capacity:
                 self.seen.popitem(last=False)
             events = self.detector.process(obs) + self.gestures.process(obs)
+            if not obs.person_detected and obs.person_id is None:
+                # Clear disappeared resident tracks. The untracked gesture
+                # detector may still have a valid hand even without a body.
+                self.invalidate_source(source_key(obs), tracked_only=True)
             self.touch(obs, observation=True)
             self.observations[key] = obs
             self.publish(ObservationMessage(data=obs))

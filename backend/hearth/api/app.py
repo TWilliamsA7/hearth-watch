@@ -16,10 +16,28 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            SourceStatus, SourceStatusMessage)
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+from hearth.sim.controller import SimController
+from hearth.sim.api import create_sim_router
+from hearth.eval.api import create_eval_router
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
+    async def ingest_simulation(items):
+        for item in items:
+            if isinstance(item, Heartbeat):
+                monitor.heartbeat(item)
+            else:
+                monitor.ingest([item])
+        # Events are observed by the listener below, including health checks
+        # triggered by HTTP reads and the background ticker.
+        return []
+
+    controller = SimController(ingest_simulation)
+    monitor.event_listeners.append(lambda event: controller.observe([event]))
+    monitor.observation_clock_paused = lambda key: (
+        key[1:3] == ("simulation", "sim") and controller.state == "paused"
+        and key[4] == controller.status().run_id)
 
     async def check_health():
         while True:
@@ -32,13 +50,16 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
         try:
             yield
         finally:
+            await controller.close()
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
-    # Person 3 can include a scenario router here and use the same service.
     app.state.monitor = monitor
+    app.state.sim_controller = controller
+    app.include_router(create_sim_router(controller), prefix="/sim")
+    app.include_router(create_eval_router(controller), prefix="/eval")
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
     static = Path(__file__).with_name("static")

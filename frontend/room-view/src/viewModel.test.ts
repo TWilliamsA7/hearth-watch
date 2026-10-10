@@ -18,7 +18,8 @@ const observation = (data: Partial<Observation> = {}): ServerMessage => ({ type:
 const status = (online: boolean, source = EDGE.source): ServerMessage => ({
   type: "source_status",
   data: { source, source_type: "edge", room_id: "room-01", online, last_seen: null, fps: null, inference_ms: null,
-    mem_used_mb: null } satisfies SourceStatus,
+    mem_used_mb: null, scenario_id: null, run_id: null, last_observation_at: null,
+    observation_stale: true, posture: "unknown", posture_confidence: null, posture_model: null } satisfies SourceStatus,
 });
 
 describe("status: silence is never safety", () => {

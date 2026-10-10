@@ -403,8 +403,37 @@ Changes to `shared/` affect everyone; coordinate them through the monitoring-cor
 
 ### Posture determination
 
-Model-only mode (`posture_mode: "model") is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. `pose_fallback` is an explicit legacy test option. A sustained lying classification still requires the configured hold before a possible-fall alert.
+Model-only mode (`posture_mode: "model"`) is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. The default `pose_fallback` mode supports calibrated Jetson pose observations. A sustained lying classification still requires the configured hold before a possible-fall alert.
 
 ### Live edge/model integration
 
 The live config now uses `pose_fallback`: supplied Hugging Face posture predictions remain authoritative, while rotated-poseNet observations without predictions use calibrated pose thresholds. Floor head/hips are 0.40/0.45 for the reported mid-frame mat camera; upright uses its independent `upright_hip_y_max` of 0.65 so standing at hip_y 0.60 can recover incidents. Separate sources are not implicitly fused. See `docs/gaston-edge-integration.md` and `edge/tools/check_rules.py` for clip validation.
+
+Pose-only upright detection can include sitting: it is not a three-class posture classifier. Use the laptop model runner for the Standing/Sitting/Lying demo. `recordings/config_framing.json` explicitly uses `pose_fallback` and the independent upright bound, so the recorded mat clips work with that profile too.
+
+### Test the integrated simulator and evaluator
+
+Start the backend using the laptop setup above, then open <http://127.0.0.1:8000/docs>:
+
+1. Execute `GET /sim/scenarios`; it should list the scenario library.
+2. Execute `POST /sim/load` with `{"scenario_id":"possible-fall-01","seed":42}`.
+3. Execute `POST /sim/play`. Watch `/room` or `/nurses` for a visibly **SIMULATED** source and a possible-fall alert. Select room-01 and fall alerts in the nurse page.
+4. Once `GET /sim/status` says `ended`, copy its `run_id`. `GET /eval/runs/{run_id}` returns the actual-versus-observed report. `GET /alerts?run_id=...` isolates that run's alerts.
+5. `POST /sim/reset`, then play again; a new run ID prevents old observations or incidents from contaminating the replay. `/sim/pause` and `/sim/speed` (body `{"speed":4}`) control playback.
+
+For repeatable headless evaluation, run from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m hearth.eval batch --seeds 1 --scenarios possible-fall-01 camera-outage-01
+Get-Content recordings/eval/summary.md
+
+# Run the backend and edge suites separately (they share test filenames):
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+.\.venv\Scripts\python.exe -m pytest edge/tests -q
+```
+
+The default factory uses the real monitor with a virtual receipt clock; no test stub or simulator truth is used to decide alerts. `HEARTH_CONFIG` selects the same profile for the API and evaluator. Synthetic results measure behavior on those scenarios, not real-world accuracy. `GET /eval/summary` becomes available after the batch writes its default output. Files and live alert state are session-scoped as described above.
+
+The real monitor can alert on intentional lying too: sustained floor posture is a **possible** fall, not proof of an accident. The evaluator reports those false positives rather than hiding them. Calibrated bed/chair polygons downgrade alerts but do not remove them; scenario room-meter geometry is not automatically converted into camera-frame suppression polygons.
+
+The React room-view development page on port 5174 currently plays **recorded** runs; the live pages are `/room` and `/nurses` on the backend. The simulator and evaluation APIs are connected, while a combined React scenario/evaluation control page remains dashboard work. Both frontend development ports 5173 and 5174 are allowed by the default backend CORS config. See [component interfaces](docs/interfaces.md) for the clocks, ingestion seam and routes.

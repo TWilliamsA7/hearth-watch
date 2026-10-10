@@ -9,6 +9,8 @@
   "gesture_keypoint_confidence_min": 0.5,
   "gesture_raise_margin": 0.08,
   "floor_hold_seconds": 3.0,
+  "posture_mode": "pose_fallback",
+  "upright_hip_y_max": 0.65,
   "fall_model_id": "melihuzunoglu/human-fall-detection",
   "model_confidence_min": 0.65,
   "model_standing_hold_seconds": 1.0,
@@ -28,7 +30,9 @@
   "websocket_queue_capacity": 512,
   "cors_origins": [
     "http://localhost:5173",
-    "http://127.0.0.1:5173"
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174"
   ],
   "zones": []
 }

@@ -575,6 +575,7 @@ class ObservationGenerator:
             source=self.source,
             source_type="simulation",
             room_id=self.scenario.room_id,
+            scenario_id=self.scenario.scenario_id,
             fps=self.scenario.fps,
         )
 

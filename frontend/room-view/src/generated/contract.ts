@@ -4,21 +4,69 @@
  * This interface was referenced by `HearthContract`'s JSON-Schema
  * via the `definition` "ServerMessage".
  */
-export type ServerMessage = ObservationMessage | EventMessage | SourceStatusMessage;
+export type ServerMessage =
+  ObservationMessage | EventMessage | SourceStatusMessage | AlertMessage | NurseSnapshotMessage;
 
 export interface HearthContract {
+  Alert?: Alert;
+  BoundingBox?: BoundingBox;
   Event?: Event;
   GroundTruth?: GroundTruth;
+  HandGesturePrediction?: HandGesturePrediction;
   Heartbeat?: Heartbeat;
+  HelpRequest?: HelpRequest;
   Keypoint?: Keypoint;
+  NurseAction?: NurseAction;
+  NursePreferences?: NursePreferences;
+  NurseProfile?: NurseProfile;
+  NurseSnapshot?: NurseSnapshot;
   Observation?: Observation;
   ObservationBatch?: ObservationBatch;
   PostureFeatures?: PostureFeatures;
+  PosturePrediction?: PosturePrediction;
+  RoomSnapshot?: RoomSnapshot;
   SourceStatus?: SourceStatus;
+  AlertMessage?: AlertMessage;
   EventMessage?: EventMessage;
+  NurseSnapshotMessage?: NurseSnapshotMessage;
   ObservationMessage?: ObservationMessage;
   SourceStatusMessage?: SourceStatusMessage;
   ServerMessage?: ServerMessage;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "Alert".
+ */
+export interface Alert {
+  alert_id: string;
+  event_id: string;
+  kind: "possible_fall" | "help_requested" | "source_offline";
+  source: string;
+  source_type: "edge" | "simulation" | "replay" | "manual";
+  room_id: string;
+  scenario_id: string | null;
+  run_id: string | null;
+  status: "open" | "acknowledged" | "resolved";
+  severity: "warning" | "info";
+  opened_at: string;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  recovered_at: string | null;
+  accepted_by: string | null;
+  accepted_by_name: string | null;
+  metadata: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "BoundingBox".
+ */
+export interface BoundingBox {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 }
 /**
  * This interface was referenced by `HearthContract`'s JSON-Schema
@@ -29,9 +77,10 @@ export interface Event {
   event_id: string;
   timestamp: string;
   source: string;
-  source_type: "edge" | "simulation" | "replay";
+  source_type: "edge" | "simulation" | "replay" | "manual";
   room_id: string;
   scenario_id: string | null;
+  run_id: string | null;
   /**
    * Anonymous per-session track id of the person the event concerns (e.g. 'p1'). Not an identity. None = single-person source.
    */
@@ -45,7 +94,9 @@ export interface Event {
     | "face_absent"
     | "source_offline"
     | "source_online"
-    | "alert_acknowledged";
+    | "alert_acknowledged"
+    | "alert_resolved"
+    | "help_requested";
   confidence: number | null;
   metadata: {
     [k: string]: unknown;
@@ -81,6 +132,32 @@ export interface GroundTruth {
   expects_alert: boolean;
 }
 /**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "HandGesturePrediction".
+ */
+export interface HandGesturePrediction {
+  model_id: string;
+  model_revision: string;
+  label:
+    | "like"
+    | "palm"
+    | "fist"
+    | "peace"
+    | "ok"
+    | "one"
+    | "three"
+    | "four"
+    | "call"
+    | "point"
+    | "grip"
+    | "middle_finger"
+    | "unknown";
+  confidence: number | null;
+  bbox: BoundingBox | null;
+  detection_count: number;
+  uncertainty_reason: ("no_detection" | "multiple_hands" | "unsupported_label") | null;
+}
+/**
  * Sent by every source about once per second; also carries edge performance metrics.
  *
  * This interface was referenced by `HearthContract`'s JSON-Schema
@@ -90,11 +167,21 @@ export interface Heartbeat {
   schema_version: "1";
   timestamp: string;
   source: string;
-  source_type: "edge" | "simulation" | "replay";
+  source_type: "edge" | "simulation" | "replay" | "manual";
   room_id: string;
+  scenario_id: string | null;
+  run_id: string | null;
   fps: number | null;
   inference_ms: number | null;
   mem_used_mb: number | null;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "HelpRequest".
+ */
+export interface HelpRequest {
+  request_id: string;
+  room_id: string;
 }
 /**
  * Coordinates are normalized to the frame: (0, 0) top-left, (1, 1) bottom-right.
@@ -124,7 +211,99 @@ export interface Keypoint {
     | "neck";
   x: number;
   y: number;
-  confidence: number;
+  /**
+   * Measured keypoint confidence, when available; null is unknown, not zero or certainty.
+   */
+  confidence: number | null;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "NurseAction".
+ */
+export interface NurseAction {
+  nurse_id: string;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "NursePreferences".
+ */
+export interface NursePreferences {
+  display_name: string;
+  /**
+   * @minItems 1
+   * @maxItems 100
+   */
+  room_ids: [string, ...string[]];
+  /**
+   * @minItems 1
+   * @maxItems 3
+   */
+  alert_kinds:
+    | ["possible_fall" | "help_requested" | "source_offline"]
+    | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+    | [
+        "possible_fall" | "help_requested" | "source_offline",
+        "possible_fall" | "help_requested" | "source_offline",
+        "possible_fall" | "help_requested" | "source_offline"
+      ];
+  on_duty: boolean;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "NurseProfile".
+ */
+export interface NurseProfile {
+  display_name: string;
+  /**
+   * @minItems 1
+   * @maxItems 100
+   */
+  room_ids: [string, ...string[]];
+  /**
+   * @minItems 1
+   * @maxItems 3
+   */
+  alert_kinds:
+    | ["possible_fall" | "help_requested" | "source_offline"]
+    | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+    | [
+        "possible_fall" | "help_requested" | "source_offline",
+        "possible_fall" | "help_requested" | "source_offline",
+        "possible_fall" | "help_requested" | "source_offline"
+      ];
+  on_duty: boolean;
+  nurse_id: string;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "NurseSnapshot".
+ */
+export interface NurseSnapshot {
+  nurse: NurseProfile;
+  alerts: Alert[];
+  events: Event[];
+  sources: SourceStatus[];
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "SourceStatus".
+ */
+export interface SourceStatus {
+  source: string;
+  source_type: "edge" | "simulation" | "replay" | "manual";
+  room_id: string;
+  scenario_id: string | null;
+  run_id: string | null;
+  online: boolean;
+  last_seen: string | null;
+  last_observation_at: string | null;
+  observation_stale: boolean;
+  posture: "standing" | "sitting" | "fallen" | "unknown";
+  posture_confidence: number | null;
+  posture_model: string | null;
+  fps: number | null;
+  inference_ms: number | null;
+  mem_used_mb: number | null;
 }
 /**
  * This interface was referenced by `HearthContract`'s JSON-Schema
@@ -138,9 +317,13 @@ export interface Observation {
    * Device or generator id, e.g. 'jetson-01' or 'sim'.
    */
   source: string;
-  source_type: "edge" | "simulation" | "replay";
+  source_type: "edge" | "simulation" | "replay" | "manual";
   room_id: string;
   scenario_id: string | null;
+  /**
+   * Unique replay/run id; change on reset.
+   */
+  run_id: string | null;
   /**
    * Anonymous per-session track id when a source reports several people (e.g. 'p1'). Not an identity. None = single-person source.
    */
@@ -148,6 +331,8 @@ export interface Observation {
   person_detected: boolean;
   keypoints: Keypoint[] | null;
   features: PostureFeatures | null;
+  posture_prediction: PosturePrediction | null;
+  hand_gesture_prediction: HandGesturePrediction | null;
   /**
    * None = face detection did not run on this frame.
    */
@@ -183,27 +368,50 @@ export interface PostureFeatures {
   vertical_velocity: number | null;
 }
 /**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "PosturePrediction".
+ */
+export interface PosturePrediction {
+  model_id: string;
+  model_revision: string;
+  input_processing: "original" | "clahe";
+  label: "standing" | "sitting" | "fallen" | "unknown";
+  confidence: number | null;
+  bbox: BoundingBox | null;
+  detection_count: number;
+  uncertainty_reason: ("no_detection" | "multiple_people" | "unsupported_label") | null;
+}
+/**
  * Body of POST /ingest/observations.
  *
  * This interface was referenced by `HearthContract`'s JSON-Schema
  * via the `definition` "ObservationBatch".
  */
 export interface ObservationBatch {
-  observations: Observation[];
+  /**
+   * @minItems 1
+   * @maxItems 500
+   */
+  observations: [Observation, ...Observation[]];
 }
 /**
  * This interface was referenced by `HearthContract`'s JSON-Schema
- * via the `definition` "SourceStatus".
+ * via the `definition` "RoomSnapshot".
  */
-export interface SourceStatus {
-  source: string;
-  source_type: "edge" | "simulation" | "replay";
+export interface RoomSnapshot {
   room_id: string;
-  online: boolean;
-  last_seen: string | null;
-  fps: number | null;
-  inference_ms: number | null;
-  mem_used_mb: number | null;
+  observations: Observation[];
+  events: Event[];
+  alerts: Alert[];
+  sources: SourceStatus[];
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "AlertMessage".
+ */
+export interface AlertMessage {
+  type: "alert";
+  data: Alert;
 }
 /**
  * This interface was referenced by `HearthContract`'s JSON-Schema
@@ -212,6 +420,14 @@ export interface SourceStatus {
 export interface EventMessage {
   type: "event";
   data: Event;
+}
+/**
+ * This interface was referenced by `HearthContract`'s JSON-Schema
+ * via the `definition` "NurseSnapshotMessage".
+ */
+export interface NurseSnapshotMessage {
+  type: "nurse_snapshot";
+  data: NurseSnapshot;
 }
 /**
  * This interface was referenced by `HearthContract`'s JSON-Schema
