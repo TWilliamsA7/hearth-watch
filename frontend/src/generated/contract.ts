@@ -5,13 +5,34 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type SchemaVersion = "1";
+export type AlertId = string;
 export type EventId = string;
-export type Timestamp = string;
+export type Kind = "possible_fall" | "help_requested" | "source_offline";
 export type Source = string;
-export type SourceType = "edge" | "simulation" | "replay";
+export type SourceType = "edge" | "simulation" | "replay" | "manual";
 export type RoomId = string;
 export type ScenarioId = string | null;
+export type RunId = string | null;
+export type Status = "open" | "acknowledged" | "resolved";
+export type Severity = "warning" | "info";
+export type OpenedAt = string;
+export type AcknowledgedAt = string | null;
+export type ResolvedAt = string | null;
+export type RecoveredAt = string | null;
+export type AcceptedBy = string | null;
+export type AcceptedByName = string | null;
+export type X1 = number;
+export type Y1 = number;
+export type X2 = number;
+export type Y2 = number;
+export type SchemaVersion = "1";
+export type EventId1 = string;
+export type Timestamp = string;
+export type Source1 = string;
+export type SourceType1 = "edge" | "simulation" | "replay" | "manual";
+export type RoomId1 = string;
+export type ScenarioId1 = string | null;
+export type RunId1 = string | null;
 export type EventType =
   | "possible_fall"
   | "recovered"
@@ -21,10 +42,12 @@ export type EventType =
   | "face_absent"
   | "source_offline"
   | "source_online"
-  | "alert_acknowledged";
+  | "alert_acknowledged"
+  | "alert_resolved"
+  | "help_requested";
 export type Confidence = number | null;
 export type SchemaVersion1 = "1";
-export type ScenarioId1 = string;
+export type ScenarioId2 = string;
 export type Seed = number;
 export type SegmentId = string;
 export type TStart = number;
@@ -40,14 +63,37 @@ export type TruthLabel =
   | "camera_outage"
   | "absent";
 export type ExpectsAlert = boolean;
+export type ModelId = string;
+export type ModelRevision = string;
+export type Label =
+  | "like"
+  | "palm"
+  | "fist"
+  | "peace"
+  | "ok"
+  | "one"
+  | "three"
+  | "four"
+  | "call"
+  | "point"
+  | "grip"
+  | "middle_finger"
+  | "unknown";
+export type Confidence1 = number | null;
+export type DetectionCount = number;
+export type UncertaintyReason = ("no_detection" | "multiple_hands" | "unsupported_label") | null;
 export type SchemaVersion2 = "1";
 export type Timestamp1 = string;
-export type Source1 = string;
-export type SourceType1 = "edge" | "simulation" | "replay";
-export type RoomId1 = string;
+export type Source2 = string;
+export type SourceType2 = "edge" | "simulation" | "replay" | "manual";
+export type RoomId2 = string;
+export type ScenarioId3 = string | null;
+export type RunId2 = string | null;
 export type Fps = number | null;
 export type InferenceMs = number | null;
 export type MemUsedMb = number | null;
+export type RequestId = string;
+export type RoomId3 = string;
 export type Name =
   | "nose"
   | "left_eye"
@@ -69,17 +115,82 @@ export type Name =
   | "neck";
 export type X = number;
 export type Y = number;
-export type Confidence1 = number;
+/**
+ * Measured keypoint confidence, when available; null is unknown, not zero or certainty.
+ */
+export type Confidence2 = number | null;
+export type NurseId = string;
+export type DisplayName = string;
+/**
+ * @minItems 1
+ * @maxItems 100
+ */
+export type RoomIds = [string, ...string[]];
+/**
+ * @minItems 1
+ * @maxItems 3
+ */
+export type AlertKinds =
+  | ["possible_fall" | "help_requested" | "source_offline"]
+  | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+  | [
+      "possible_fall" | "help_requested" | "source_offline",
+      "possible_fall" | "help_requested" | "source_offline",
+      "possible_fall" | "help_requested" | "source_offline"
+    ];
+export type OnDuty = boolean;
+export type DisplayName1 = string;
+/**
+ * @minItems 1
+ * @maxItems 100
+ */
+export type RoomIds1 = [string, ...string[]];
+/**
+ * @minItems 1
+ * @maxItems 3
+ */
+export type AlertKinds1 =
+  | ["possible_fall" | "help_requested" | "source_offline"]
+  | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+  | [
+      "possible_fall" | "help_requested" | "source_offline",
+      "possible_fall" | "help_requested" | "source_offline",
+      "possible_fall" | "help_requested" | "source_offline"
+    ];
+export type OnDuty1 = boolean;
+export type NurseId1 = string;
+export type Alerts = Alert[];
+export type Events = Event[];
+export type Source3 = string;
+export type SourceType3 = "edge" | "simulation" | "replay" | "manual";
+export type RoomId4 = string;
+export type ScenarioId4 = string | null;
+export type RunId3 = string | null;
+export type Online = boolean;
+export type LastSeen = string | null;
+export type LastObservationAt = string | null;
+export type ObservationStale = boolean;
+export type Posture = "standing" | "sitting" | "fallen" | "unknown";
+export type PostureConfidence = number | null;
+export type PostureModel = string | null;
+export type Fps1 = number | null;
+export type InferenceMs1 = number | null;
+export type MemUsedMb1 = number | null;
+export type Sources = SourceStatus[];
 export type SchemaVersion3 = "1";
 export type ObsId = string;
 export type Timestamp2 = string;
 /**
  * Device or generator id, e.g. 'jetson-01' or 'sim'.
  */
-export type Source2 = string;
-export type SourceType2 = "edge" | "simulation" | "replay";
-export type RoomId2 = string;
-export type ScenarioId2 = string | null;
+export type Source4 = string;
+export type SourceType4 = "edge" | "simulation" | "replay" | "manual";
+export type RoomId5 = string;
+export type ScenarioId5 = string | null;
+/**
+ * Unique replay/run id; change on reset.
+ */
+export type RunId4 = string | null;
 export type PersonDetected = boolean;
 export type Keypoints = Keypoint[] | null;
 /**
@@ -102,31 +213,78 @@ export type BboxAspect = number | null;
  * Change in hip_y per second; positive = moving down.
  */
 export type VerticalVelocity = number | null;
+export type ModelId1 = string;
+export type ModelRevision1 = string;
+export type InputProcessing = "original" | "clahe";
+export type Label1 = "standing" | "sitting" | "fallen" | "unknown";
+export type Confidence3 = number | null;
+export type DetectionCount1 = number;
+export type UncertaintyReason1 = ("no_detection" | "multiple_people" | "unsupported_label") | null;
 /**
  * None = face detection did not run on this frame.
  */
 export type FacePresent = boolean | null;
 export type FaceConfidence = number | null;
-export type Observations = Observation[];
-export type Source3 = string;
-export type SourceType3 = "edge" | "simulation" | "replay";
-export type RoomId3 = string;
-export type Online = boolean;
-export type LastSeen = string | null;
-export type Fps1 = number | null;
-export type InferenceMs1 = number | null;
-export type MemUsedMb1 = number | null;
-export type Type = "event";
-export type Type1 = "observation";
-export type Type2 = "source_status";
+/**
+ * @minItems 1
+ * @maxItems 500
+ */
+export type Observations = [Observation, ...Observation[]];
+export type RoomId6 = string;
+export type Observations1 = Observation[];
+export type Events1 = Event[];
+export type Alerts1 = Alert[];
+export type Sources1 = SourceStatus[];
+export type Type = "alert";
+export type Type1 = "event";
+export type Type2 = "nurse_snapshot";
+export type Type3 = "observation";
+export type Type4 = "source_status";
 /**
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
  * via the `definition` "ServerMessage".
  */
-export type ServerMessage = ObservationMessage | EventMessage | SourceStatusMessage;
+export type ServerMessage =
+  ObservationMessage | EventMessage | SourceStatusMessage | AlertMessage | NurseSnapshotMessage;
 
 export interface HearthContractV1 {
   [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "Alert".
+ */
+export interface Alert {
+  alert_id: AlertId;
+  event_id: EventId;
+  kind: Kind;
+  source: Source;
+  source_type: SourceType;
+  room_id: RoomId;
+  scenario_id: ScenarioId;
+  run_id: RunId;
+  status: Status;
+  severity: Severity;
+  opened_at: OpenedAt;
+  acknowledged_at: AcknowledgedAt;
+  resolved_at: ResolvedAt;
+  recovered_at: RecoveredAt;
+  accepted_by: AcceptedBy;
+  accepted_by_name: AcceptedByName;
+  metadata: Metadata;
+}
+export interface Metadata {
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "BoundingBox".
+ */
+export interface BoundingBox {
+  x1: X1;
+  y1: Y1;
+  x2: X2;
+  y2: Y2;
 }
 /**
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
@@ -134,17 +292,18 @@ export interface HearthContractV1 {
  */
 export interface Event {
   schema_version: SchemaVersion;
-  event_id: EventId;
+  event_id: EventId1;
   timestamp: Timestamp;
-  source: Source;
-  source_type: SourceType;
-  room_id: RoomId;
-  scenario_id: ScenarioId;
+  source: Source1;
+  source_type: SourceType1;
+  room_id: RoomId1;
+  scenario_id: ScenarioId1;
+  run_id: RunId1;
   event_type: EventType;
   confidence: Confidence;
-  metadata: Metadata;
+  metadata: Metadata1;
 }
-export interface Metadata {
+export interface Metadata1 {
   [k: string]: unknown;
 }
 /**
@@ -155,13 +314,26 @@ export interface Metadata {
  */
 export interface GroundTruth {
   schema_version: SchemaVersion1;
-  scenario_id: ScenarioId1;
+  scenario_id: ScenarioId2;
   seed: Seed;
   segment_id: SegmentId;
   t_start: TStart;
   t_end: TEnd;
   truth_label: TruthLabel;
   expects_alert: ExpectsAlert;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "HandGesturePrediction".
+ */
+export interface HandGesturePrediction {
+  model_id: ModelId;
+  model_revision: ModelRevision;
+  label: Label;
+  confidence: Confidence1;
+  bbox: BoundingBox | null;
+  detection_count: DetectionCount;
+  uncertainty_reason: UncertaintyReason;
 }
 /**
  * Sent by every source about once per second; also carries edge performance metrics.
@@ -172,12 +344,22 @@ export interface GroundTruth {
 export interface Heartbeat {
   schema_version: SchemaVersion2;
   timestamp: Timestamp1;
-  source: Source1;
-  source_type: SourceType1;
-  room_id: RoomId1;
+  source: Source2;
+  source_type: SourceType2;
+  room_id: RoomId2;
+  scenario_id: ScenarioId3;
+  run_id: RunId2;
   fps: Fps;
   inference_ms: InferenceMs;
   mem_used_mb: MemUsedMb;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "HelpRequest".
+ */
+export interface HelpRequest {
+  request_id: RequestId;
+  room_id: RoomId3;
 }
 /**
  * Coordinates are normalized to the frame: (0, 0) top-left, (1, 1) bottom-right.
@@ -189,7 +371,66 @@ export interface Keypoint {
   name: Name;
   x: X;
   y: Y;
-  confidence: Confidence1;
+  confidence: Confidence2;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "NurseAction".
+ */
+export interface NurseAction {
+  nurse_id: NurseId;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "NursePreferences".
+ */
+export interface NursePreferences {
+  display_name: DisplayName;
+  room_ids: RoomIds;
+  alert_kinds: AlertKinds;
+  on_duty: OnDuty;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "NurseProfile".
+ */
+export interface NurseProfile {
+  display_name: DisplayName1;
+  room_ids: RoomIds1;
+  alert_kinds: AlertKinds1;
+  on_duty: OnDuty1;
+  nurse_id: NurseId1;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "NurseSnapshot".
+ */
+export interface NurseSnapshot {
+  nurse: NurseProfile;
+  alerts: Alerts;
+  events: Events;
+  sources: Sources;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "SourceStatus".
+ */
+export interface SourceStatus {
+  source: Source3;
+  source_type: SourceType3;
+  room_id: RoomId4;
+  scenario_id: ScenarioId4;
+  run_id: RunId3;
+  online: Online;
+  last_seen: LastSeen;
+  last_observation_at: LastObservationAt;
+  observation_stale: ObservationStale;
+  posture: Posture;
+  posture_confidence: PostureConfidence;
+  posture_model: PostureModel;
+  fps: Fps1;
+  inference_ms: InferenceMs1;
+  mem_used_mb: MemUsedMb1;
 }
 /**
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
@@ -199,13 +440,16 @@ export interface Observation {
   schema_version: SchemaVersion3;
   obs_id: ObsId;
   timestamp: Timestamp2;
-  source: Source2;
-  source_type: SourceType2;
-  room_id: RoomId2;
-  scenario_id: ScenarioId2;
+  source: Source4;
+  source_type: SourceType4;
+  room_id: RoomId5;
+  scenario_id: ScenarioId5;
+  run_id: RunId4;
   person_detected: PersonDetected;
   keypoints: Keypoints;
   features: PostureFeatures | null;
+  posture_prediction: PosturePrediction | null;
+  hand_gesture_prediction: HandGesturePrediction | null;
   face_present: FacePresent;
   face_confidence: FaceConfidence;
 }
@@ -223,6 +467,20 @@ export interface PostureFeatures {
   vertical_velocity: VerticalVelocity;
 }
 /**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "PosturePrediction".
+ */
+export interface PosturePrediction {
+  model_id: ModelId1;
+  model_revision: ModelRevision1;
+  input_processing: InputProcessing;
+  label: Label1;
+  confidence: Confidence3;
+  bbox: BoundingBox | null;
+  detection_count: DetectionCount1;
+  uncertainty_reason: UncertaintyReason1;
+}
+/**
  * Body of POST /ingest/observations.
  *
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
@@ -233,32 +491,45 @@ export interface ObservationBatch {
 }
 /**
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
- * via the `definition` "SourceStatus".
+ * via the `definition` "RoomSnapshot".
  */
-export interface SourceStatus {
-  source: Source3;
-  source_type: SourceType3;
-  room_id: RoomId3;
-  online: Online;
-  last_seen: LastSeen;
-  fps: Fps1;
-  inference_ms: InferenceMs1;
-  mem_used_mb: MemUsedMb1;
+export interface RoomSnapshot {
+  room_id: RoomId6;
+  observations: Observations1;
+  events: Events1;
+  alerts: Alerts1;
+  sources: Sources1;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "AlertMessage".
+ */
+export interface AlertMessage {
+  type: Type;
+  data: Alert;
 }
 /**
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
  * via the `definition` "EventMessage".
  */
 export interface EventMessage {
-  type: Type;
+  type: Type1;
   data: Event;
+}
+/**
+ * This interface was referenced by `HearthContractV1`'s JSON-Schema
+ * via the `definition` "NurseSnapshotMessage".
+ */
+export interface NurseSnapshotMessage {
+  type: Type2;
+  data: NurseSnapshot;
 }
 /**
  * This interface was referenced by `HearthContractV1`'s JSON-Schema
  * via the `definition` "ObservationMessage".
  */
 export interface ObservationMessage {
-  type: Type1;
+  type: Type3;
   data: Observation;
 }
 /**
@@ -266,6 +537,6 @@ export interface ObservationMessage {
  * via the `definition` "SourceStatusMessage".
  */
 export interface SourceStatusMessage {
-  type: Type2;
+  type: Type4;
   data: SourceStatus;
 }

@@ -7,6 +7,7 @@ export function exampleObservation(): Observation {
   return {
     schema_version: '1', obs_id: 'preview-observation', timestamp: new Date().toISOString(),
     source: 'dashboard-preview', source_type: 'simulation', room_id: 'room-01', scenario_id: 'ui-preview',
+    run_id: null, posture_prediction: null, hand_gesture_prediction: null,
     person_detected: true, face_present: null, face_confidence: null, features: null,
     keypoints: [
       { name: 'nose', x: .5, y: .22, confidence: 1 },
@@ -31,6 +32,6 @@ export function exampleEvent(event_type: Event['event_type']): Event {
   return {
     schema_version: '1', event_id: crypto.randomUUID(), timestamp: new Date().toISOString(),
     source: 'dashboard-preview', source_type: 'simulation', room_id: 'room-01',
-    scenario_id: 'ui-preview', event_type, confidence: null, metadata: { ui_preview: true }
+    scenario_id: 'ui-preview', run_id: null, event_type, confidence: null, metadata: { ui_preview: true }
   };
 }

@@ -1,48 +1,92 @@
-# Your dashboard starter
+# Hearth dashboard
 
-This is a React + TypeScript dashboard with clearly labeled local example data.
-It does not yet connect to the backend, camera, or simulator.
+React + TypeScript dashboard for Room 01. Starts in a clearly labeled UI preview.
+Use **Connect to backend** to receive real monitoring messages. Choose **Live
+camera**, **Simulation**, or **Recorded replay** to keep source types separate.
 
-## Start it
+## Start
 
-With Node.js 22 installed, open a terminal in `frontend` and run:
+With Node.js 22 installed, open a PowerShell terminal in `frontend`:
 
-```sh
-npm install
-npm run generate:types
-npm run dev
+```powershell
+npm.cmd install
+npm.cmd run dev
 ```
 
-Open the local address printed by Vite (usually http://127.0.0.1:5173).
-Use `npm run build` to check types and create a production build.
-All assets are local; the dashboard does not need an external font service.
+Open the address Vite prints, normally http://127.0.0.1:5173. Keep the server on
+port 5173: the monitoring branch permits this origin. The default backend address
+is http://127.0.0.1:8000. Enter the laptop's backend address if it runs elsewhere.
 
-## What each file does
+```powershell
+npm.cmd test
+npm.cmd run build
+```
 
-- `index.html`: the page containing the empty root where React mounts.
-- `src/main.tsx`: starts React and loads the stylesheet.
-- `src/App.tsx`: assembles dashboard panels and handles preview buttons and local acknowledgement.
-- `src/RoomView.tsx`: draws normalized keypoints as an SVG skeleton.
-- `src/demoData.ts`: creates example observations and events using the shared contract.
-- `src/styles.css`: colors, spacing, cards, and mobile layout.
-- `scripts/generate-types.mjs`: converts the shared JSON Schema into TypeScript types.
-- `src/generated/contract.ts`: generated contract; do not edit manually.
-- `package.json`: dependencies and commands.
-- `tsconfig.json`: TypeScript checks.
-- `DEMO.md`: a rehearsal checklist and short demo script.
+The dashboard uses local fonts/assets and works without an external service once
+dependencies are installed. Generated files and the npm lockfile are checked in.
 
-## Next integration steps
+## Files and responsibilities
 
-Coordinate with role 2 for `WS /ws/room/room-01`. Consume `observation`,
-`event`, and `source_status` envelopes. Use incoming observations for the skeleton
-and backend events for alerts. On disconnect or stale data, clear the current
-observation and show unknown/offline. Define reconnection behavior with role 2.
+| File | Purpose |
+| --- | --- |
+| `src/main.tsx` | Starts React and loads CSS. |
+| `src/App.tsx` | Dashboard layout, source selection, preview states, alert acknowledgement. |
+| `src/RoomView.tsx` | Draws observed skeletons or model bounding boxes in camera coordinates. |
+| `src/useRoomFeed.ts` | Opens the monitoring WebSocket, reconnects, and cleans up connections. |
+| `src/feedState.ts` | Keeps observations, health, alerts, and events separate; handles freshness and filtering. |
+| `src/protocol.ts` | Validates incoming messages against the teammates' JSON Schemas. |
+| `src/api.ts` | Calls the exact monitoring, simulator, and evaluation endpoints. |
+| `src/SimulatorPanel.tsx` | Scenario controls and measured evaluation/after-action results. |
+| `src/demoData.ts` | Example data used only in preview mode. |
+| `src/styles.css` | Layout, colors, mobile behavior. |
+| `contracts/` | Schema snapshots and synthetic integration fixtures with reviewed branch revisions. |
+| `src/generated/` | TypeScript generated from schema snapshots; do not edit by hand. |
+| `src/feedState.test.ts` | Contract, isolation, freshness, alert, and endpoint regression checks. |
+| `COMPATIBILITY.md` | Verified integrations and remaining backend merge blockers. |
+| `DEMO.md` | Demo preparation and rehearsal. |
+| `DESIGN.md` | Visual design, palette, and bringing Adobe exports into the app. |
+| `src/Icon.tsx` | Small local SVG interface icons. |
 
-Ask role 2 for the alert acknowledgement endpoint and authoritative alert state.
-Ask role 3 for scenario-control endpoints and evaluation response types.
-These endpoints are not yet defined, so the starter does not invent them.
-Keep simulation, live, and replay source labels visible after integration.
-Face `null` means detection did not run; it is different from `false`.
+## Backend interfaces
 
-The example alert is independent of the example skeleton. Preview buttons only
-exercise UI states; they do not run fall detection or produce evaluation metrics.
+- `WS /ws/room/room-01`: initial state and ongoing observations, source health,
+  events, and authoritative alert updates. No raw video is requested.
+- `POST /alerts/{alert_id}/ack`: acknowledgement. The alert changes only when the
+  backend broadcasts the updated status; no optimistic acknowledgement or resolution.
+- `GET /sim/scenarios`, `GET /sim/status`: available scenarios and controller state.
+- `POST /sim/load`: JSON `{ "scenario_id": "possible-fall-01" }`.
+- `POST /sim/play`, `/sim/pause`, `/sim/reset`: controller actions.
+- **Run again** calls reset then play, preserving the simulation seed. This is
+  labeled simulation, not recorded replay.
+- `GET /eval/runs/{run_id}`: completed-run report, fetched automatically at run end.
+- `GET /eval/summary`: optional saved batch summary, fetched by its button.
+
+No current observation means unknown, even if heartbeats keep the source online.
+Observations expire after three seconds of arrival-time silence. A backend stale
+flag also hides an old reconnect snapshot. Simulation clocks can differ from wall
+time, so the frontend does not calculate freshness from observation timestamps.
+Face `null`, `false`, and `true` remain different. Low-confidence keypoints are
+hidden; unknown confidence is shown with dashed connections.
+
+## Updating contracts
+
+After fetching reviewed teammate changes:
+
+```powershell
+npm.cmd run sync:contracts
+npm.cmd run generate:types
+npm.cmd test
+npm.cmd run build
+```
+
+`sync:contracts` reads the monitoring and simulation branches without switching
+branches. After the team has merged a unified shared contract and simulator API
+schema into this checkout, use `npm.cmd run sync:contracts -- --local` instead.
+Commit schema snapshots and generated types together. This dashboard accepts each
+current branch's output schema; it does not make their Python schemas interchangeable.
+
+To repeat the real branch API checks, install `fastapi`, `httpx`, `pydantic>=2.7,<3`,
+and `pyyaml` in a Python environment, then run
+`python scripts/verify-branches.py` from `frontend`. The script reads branch files
+into temporary directories and regenerates synthetic API fixtures. It does not
+test physical camera inference or merge branches.

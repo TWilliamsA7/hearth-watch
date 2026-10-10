@@ -1,0 +1,612 @@
+[
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "3f9392d0-57cb-4851-a7f1-778a4dbe6aa9",
+      "timestamp": "2026-10-10T00:00:00Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "event_type": "source_online",
+      "confidence": null,
+      "metadata": {
+        "clock": "backend_receipt"
+      }
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "online": true,
+      "last_seen": "2026-10-10T00:00:00Z",
+      "last_observation_at": "2026-10-10T00:00:00Z",
+      "observation_stale": false,
+      "posture": "standing",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": null,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000001",
+      "timestamp": "2026-10-10T00:00:00Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.5,
+          "y": 0.2,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.5,
+          "y": 0.5,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.5,
+          "y": 0.3,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 0.0,
+        "head_y": 0.2,
+        "hip_y": 0.5,
+        "bbox_aspect": 0.2222,
+        "vertical_velocity": null
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": true,
+      "face_confidence": 0.87
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "95cc00cf-b3e5-4cdc-aa30-2b16956e8b03",
+      "timestamp": "2026-10-10T00:00:00Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "event_type": "person_visible",
+      "confidence": null,
+      "metadata": {}
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "b792a220-4e8c-49f7-aa44-673ee01073ca",
+      "timestamp": "2026-10-10T00:00:00Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "event_type": "face_present",
+      "confidence": null,
+      "metadata": {}
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "online": true,
+      "last_seen": "2026-10-10T00:00:00.500000Z",
+      "last_observation_at": "2026-10-10T00:00:00.500000Z",
+      "observation_stale": false,
+      "posture": "fallen",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": null,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000002",
+      "timestamp": "2026-10-10T00:00:00.500000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.35
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000003",
+      "timestamp": "2026-10-10T00:00:01Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.175
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000004",
+      "timestamp": "2026-10-10T00:00:01.500000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0875
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000005",
+      "timestamp": "2026-10-10T00:00:02Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0438
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000006",
+      "timestamp": "2026-10-10T00:00:02.500000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0219
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000007",
+      "timestamp": "2026-10-10T00:00:03Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0109
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000008",
+      "timestamp": "2026-10-10T00:00:03.500000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0055
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": null,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "df925d64-5a78-4697-b198-3810a93f42a8",
+      "timestamp": "2026-10-10T00:00:03.500000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "event_type": "possible_fall",
+      "confidence": null,
+      "metadata": {
+        "posture": "floor_level",
+        "duration_seconds": 3.0,
+        "reason": "sustained_floor_level",
+        "severity": "warning"
+      }
+    }
+  },
+  {
+    "type": "alert",
+    "data": {
+      "alert_id": "06cbed0d-0a3f-4a9a-8356-247706303301",
+      "event_id": "df925d64-5a78-4697-b198-3810a93f42a8",
+      "kind": "possible_fall",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "status": "open",
+      "severity": "warning",
+      "opened_at": "2026-10-10T00:00:03.500000Z",
+      "acknowledged_at": null,
+      "resolved_at": null,
+      "recovered_at": null,
+      "accepted_by": null,
+      "accepted_by_name": null,
+      "metadata": {
+        "posture": "floor_level",
+        "duration_seconds": 3.0,
+        "reason": "sustained_floor_level",
+        "severity": "warning"
+      }
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "online": true,
+      "last_seen": "2026-10-10T00:00:04Z",
+      "last_observation_at": "2026-10-10T00:00:04Z",
+      "observation_stale": false,
+      "posture": "standing",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": null,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000009",
+      "timestamp": "2026-10-10T00:00:04Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.5,
+          "y": 0.2,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.5,
+          "y": 0.5,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.5,
+          "y": 0.3,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 0.0,
+        "head_y": 0.2,
+        "hip_y": 0.5,
+        "bbox_aspect": 0.2222,
+        "vertical_velocity": -0.3473
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": false,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "alert",
+    "data": {
+      "alert_id": "06cbed0d-0a3f-4a9a-8356-247706303301",
+      "event_id": "df925d64-5a78-4697-b198-3810a93f42a8",
+      "kind": "possible_fall",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "status": "acknowledged",
+      "severity": "warning",
+      "opened_at": "2026-10-10T00:00:03.500000Z",
+      "acknowledged_at": "2026-10-10T00:00:04Z",
+      "resolved_at": null,
+      "recovered_at": "2026-10-10T00:00:04Z",
+      "accepted_by": null,
+      "accepted_by_name": null,
+      "metadata": {
+        "posture": "floor_level",
+        "duration_seconds": 3.0,
+        "reason": "sustained_floor_level",
+        "severity": "warning"
+      }
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "online": false,
+      "last_seen": "2026-10-10T00:00:04Z",
+      "last_observation_at": "2026-10-10T00:00:04Z",
+      "observation_stale": true,
+      "posture": "unknown",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": null,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  }
+]
