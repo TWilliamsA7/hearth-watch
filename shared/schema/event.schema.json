@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "edge",
+        "simulation",
+        "replay"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "room_id": {
+      "title": "Room Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Id"
+    },
+    "event_type": {
+      "enum": [
+        "possible_fall",
+        "recovered",
+        "person_visible",
+        "person_not_visible",
+        "face_present",
+        "face_absent",
+        "source_offline",
+        "source_online",
+        "alert_acknowledged"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "timestamp",
+    "source",
+    "source_type",
+    "room_id",
+    "scenario_id",
+    "event_type",
+    "confidence",
+    "metadata"
+  ],
+  "title": "Event",
+  "type": "object"
+}

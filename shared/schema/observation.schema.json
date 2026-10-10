@@ -1,0 +1,268 @@
+{
+  "$defs": {
+    "Keypoint": {
+      "additionalProperties": false,
+      "description": "Coordinates are normalized to the frame: (0, 0) top-left, (1, 1) bottom-right.",
+      "properties": {
+        "name": {
+          "enum": [
+            "nose",
+            "left_eye",
+            "right_eye",
+            "left_ear",
+            "right_ear",
+            "left_shoulder",
+            "right_shoulder",
+            "left_elbow",
+            "right_elbow",
+            "left_wrist",
+            "right_wrist",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+            "neck"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "x",
+        "y",
+        "confidence"
+      ],
+      "title": "Keypoint",
+      "type": "object"
+    },
+    "PostureFeatures": {
+      "additionalProperties": false,
+      "description": "Per-frame posture features. Every field is optional: missing = not measurable this frame.",
+      "properties": {
+        "torso_angle_deg": {
+          "anyOf": [
+            {
+              "maximum": 180.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Neck-to-hip angle from vertical. 0 = upright, 90 = horizontal.",
+          "title": "Torso Angle Deg"
+        },
+        "head_y": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized head height (0 = top of frame).",
+          "title": "Head Y"
+        },
+        "hip_y": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized mid-hip height (0 = top of frame).",
+          "title": "Hip Y"
+        },
+        "bbox_aspect": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Person bounding box width / height.",
+          "title": "Bbox Aspect"
+        },
+        "vertical_velocity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Change in hip_y per second; positive = moving down.",
+          "title": "Vertical Velocity"
+        }
+      },
+      "required": [
+        "torso_angle_deg",
+        "head_y",
+        "hip_y",
+        "bbox_aspect",
+        "vertical_velocity"
+      ],
+      "title": "PostureFeatures",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "obs_id": {
+      "title": "Obs Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "source": {
+      "description": "Device or generator id, e.g. 'jetson-01' or 'sim'.",
+      "title": "Source",
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "edge",
+        "simulation",
+        "replay"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "room_id": {
+      "title": "Room Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Id"
+    },
+    "person_detected": {
+      "title": "Person Detected",
+      "type": "boolean"
+    },
+    "keypoints": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/Keypoint"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Keypoints"
+    },
+    "features": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PostureFeatures"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "face_present": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "None = face detection did not run on this frame.",
+      "title": "Face Present"
+    },
+    "face_confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Face Confidence"
+    }
+  },
+  "required": [
+    "schema_version",
+    "obs_id",
+    "timestamp",
+    "source",
+    "source_type",
+    "room_id",
+    "scenario_id",
+    "person_detected",
+    "keypoints",
+    "features",
+    "face_present",
+    "face_confidence"
+  ],
+  "title": "Observation",
+  "type": "object"
+}

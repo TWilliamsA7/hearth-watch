@@ -1,0 +1,87 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "edge",
+        "simulation",
+        "replay"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "room_id": {
+      "title": "Room Id",
+      "type": "string"
+    },
+    "online": {
+      "title": "Online",
+      "type": "boolean"
+    },
+    "last_seen": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Seen"
+    },
+    "fps": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fps"
+    },
+    "inference_ms": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Inference Ms"
+    },
+    "mem_used_mb": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mem Used Mb"
+    }
+  },
+  "required": [
+    "source",
+    "source_type",
+    "room_id",
+    "online",
+    "last_seen",
+    "fps",
+    "inference_ms",
+    "mem_used_mb"
+  ],
+  "title": "SourceStatus",
+  "type": "object"
+}

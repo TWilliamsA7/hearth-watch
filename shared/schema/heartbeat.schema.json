@@ -1,0 +1,85 @@
+{
+  "additionalProperties": false,
+  "description": "Sent by every source about once per second; also carries edge performance metrics.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "edge",
+        "simulation",
+        "replay"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "room_id": {
+      "title": "Room Id",
+      "type": "string"
+    },
+    "fps": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fps"
+    },
+    "inference_ms": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Inference Ms"
+    },
+    "mem_used_mb": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mem Used Mb"
+    }
+  },
+  "required": [
+    "schema_version",
+    "timestamp",
+    "source",
+    "source_type",
+    "room_id",
+    "fps",
+    "inference_ms",
+    "mem_used_mb"
+  ],
+  "title": "Heartbeat",
+  "type": "object"
+}

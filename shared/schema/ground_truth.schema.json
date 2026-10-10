@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "description": "One labelled segment of a simulated scenario. Times are seconds from scenario start.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    },
+    "segment_id": {
+      "title": "Segment Id",
+      "type": "string"
+    },
+    "t_start": {
+      "minimum": 0.0,
+      "title": "T Start",
+      "type": "number"
+    },
+    "t_end": {
+      "minimum": 0.0,
+      "title": "T End",
+      "type": "number"
+    },
+    "truth_label": {
+      "enum": [
+        "walking",
+        "standing",
+        "sitting",
+        "bending",
+        "lying_intentional",
+        "fall",
+        "occluded",
+        "camera_outage",
+        "absent"
+      ],
+      "title": "Truth Label",
+      "type": "string"
+    },
+    "expects_alert": {
+      "title": "Expects Alert",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "seed",
+    "segment_id",
+    "t_start",
+    "t_end",
+    "truth_label",
+    "expects_alert"
+  ],
+  "title": "GroundTruth",
+  "type": "object"
+}
