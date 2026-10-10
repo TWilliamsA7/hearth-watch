@@ -1,21 +1,26 @@
 """Step 6b: train our own posture classifier (upright / sitting / floor) from keypoints.
 
-    .\\.venv-pc\\Scripts\\python.exe edge\\pc\\06_train.py
+    .\\.venv-pc\\Scripts\\python.exe edge\\pc\\06_train.py                (train, then field test)
+    .\\.venv-pc\\Scripts\\python.exe edge\\pc\\06_train.py --final-test   (the locked test, at the end)
 
-Input: C:\\hearth-data\\keypoints.npz from 05_extract_keypoints.py. Built in parts:
-  part 1 - DATA: keypoints -> network inputs, split by person, Dataset and DataLoader that
-           hand out shuffled batches  (--show-data prints what the network is fed, then stops)
+Input: D:\\hearth-data\\keypoints.npz from 05_extract_keypoints.py. Built in parts:
+  part 1 - DATA: keypoints -> network inputs; a LOCKED split by person into 60% train / 20%
+           validation / 20% test (saved in split.json, never redrawn); Dataset and DataLoader
+           that hand out shuffled batches (--show-data prints what the network is fed, then stops)
   part 2 - the network (nn.Module) and the training loop, with live progress: a line per batch,
            a summary per epoch, a chart window that redraws every epoch; saves the best model to
-           C:\\hearth-data\\posture_mlp.pt and the curves to training_curves.png
+           D:\\hearth-data\\posture_mlp.pt and the curves to training_curves.png
   part 3 - the real test: the saved model on OUR Jetson recordings (recordings/*.jsonl, real
            poseNet output from our camera), per clip and overall. Runs after training, or alone
            with --test-only.
+  --final-test - the locked 20%: scored once, when development is finished. Every run is
+           logged in test_log.txt, so it's visible how often the test was looked at.
 """
 
 import argparse
 import json
 import time
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -30,9 +35,14 @@ CLASSES = ["upright", "sitting", "floor"]
 # A keypoint counts as "found" above this confidence, so training sees poses like poseNet's.
 FOUND_CONF = 0.5
 MIN_FOUND = 4            # frames with fewer found keypoints are dropped (too little to judge)
-# Held-out people: never trained on, only used to check the network on people it hasn't seen.
-# ~20% of each class (upright 165 s, sitting 132 s, floor 121 s of labelled video).
-VAL_PEOPLE = {("GMDCSA24", 4), ("le2i", 3), ("le2i", 5)}
+# The split, by PERSON (a person's frames are all in one part, so validation and test only ever
+# show the network people it has never seen). Real datasets split by their subject ids;
+# OF-Synthetic has none, so each of its clips counts as its own "person".
+SPLIT_SEED = 6           # fixed: the same people land in the same part on every machine
+VAL_SHARE = TEST_SHARE = 0.2
+BIG_PERSON = 0.3         # anyone with >30% of a dataset's frames always trains (Le2i's subject 0
+                         # groups many unnamed actors; in val/test it would swamp the score)
+SYNTHETIC = {"of-syn"}   # scored separately: the number that matters is on real people
 # Mirror image: left and right keypoints swap places (COCO order: nose, eyes, ears, shoulders,
 # elbows, wrists, hips, knees, ankles - left before right).
 MIRROR = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
@@ -92,33 +102,96 @@ class PostureFrames(Dataset):
         return torch.from_numpy(x), int(self.labels[i])
 
 
+def person_of_each_frame(d):
+    """'GMDCSA24/4', 'le2i/0', ... for real people; 'of-syn/<clip name>' for synthetic clips."""
+    names, videos = d["datasets"], d["videos"]
+    return np.array(["%s/%s" % (names[ds], videos[v].split("/")[-1] if names[ds] in SYNTHETIC else s)
+                     for ds, s, v in zip(d["dataset"], d["subject"], d["video"])])
+
+
+def locked_split(person, split_file):
+    """{person: "train" | "val" | "test"}, drawn once and saved; later runs reuse it unchanged.
+
+    Per dataset: shuffle its people with the fixed seed, give people to test until it holds 20%
+    of that dataset's frames, then to validation until 20%, the rest train. People who appear
+    later (e.g. more synthetic clips) in a dataset that is already split go to training, so the
+    locked test never changes.
+    """
+    split = json.load(open(split_file)) if split_file.exists() else {}
+    people, counts = np.unique(person, return_counts=True)
+    frames = dict(zip(people, counts))
+    by_dataset = {}
+    for p in people:
+        by_dataset.setdefault(p.split("/")[0], []).append(p)
+    for dataset, members in sorted(by_dataset.items()):
+        if any(m in split for m in members):
+            for m in members:
+                split.setdefault(m, "train")
+            continue
+        rng = np.random.default_rng(SPLIT_SEED + zlib.crc32(dataset.encode()))
+        order = [members[i] for i in rng.permutation(len(members))]
+        total = float(sum(frames[m] for m in members))
+        filled = {"test": 0, "val": 0}
+        for m in order:
+            share = frames[m] / total
+            part = "train"
+            if share <= BIG_PERSON or len(members) > 20:
+                if filled["test"] < TEST_SHARE * total:
+                    part = "test"
+                elif filled["val"] < VAL_SHARE * total:
+                    part = "val"
+            if part != "train":
+                filled[part] += frames[m]
+            split[m] = part
+    json.dump(split, open(split_file, "w"), indent=1, sort_keys=True)
+    return split
+
+
 def load_splits(path, drop_p):
-    """keypoints.npz -> (training Dataset, validation Dataset, info for printing)."""
+    """keypoints.npz -> {"train", "val", "val_syn", "test", "test_syn": Dataset} and info."""
     d = np.load(path)
     found = d["keypoints"][:, :, 2] >= FOUND_CONF
     keep = found.sum(axis=1) >= MIN_FOUND
     size = d["video_size"][d["video"]]                     # each frame's video width, height
     aspect = (size[:, 0] / size[:, 1]).astype(np.float32)
-    names = d["datasets"]
-    person = [(str(names[ds]), int(s)) for ds, s in zip(d["dataset"], d["subject"])]
-    is_val = np.array([p in VAL_PEOPLE for p in person])
-    split = {}
-    for name, mask, augment in (("train", keep & ~is_val, True), ("val", keep & is_val, False)):
-        split[name] = PostureFrames(d["keypoints"][mask, :, :2], found[mask], aspect[mask],
-                                    d["label"][mask], augment=augment, drop_p=drop_p)
-    info = {"total": len(keep), "dropped": int((~keep).sum()),
-            "sizes": sorted(set(tuple(int(v) for v in s) for s in d["video_size"]))}
-    return split["train"], split["val"], info
+    person = person_of_each_frame(d)
+    split_file = Path(path).parent / "split.json"
+    split = locked_split(person, split_file)
+    part = np.array([split[p] for p in person])
+    synthetic = np.array([p.split("/")[0] in SYNTHETIC for p in person])
+    masks = {"train": part == "train",
+             "val": (part == "val") & ~synthetic, "val_syn": (part == "val") & synthetic,
+             "test": (part == "test") & ~synthetic, "test_syn": (part == "test") & synthetic}
+    sets = {}
+    for name, mask in masks.items():
+        mask = mask & keep
+        sets[name] = PostureFrames(d["keypoints"][mask, :, :2], found[mask], aspect[mask],
+                                   d["label"][mask], augment=(name == "train"), drop_p=drop_p)
+    people, present = {}, set(person)
+    for p, prt in split.items():
+        if p in present:
+            dataset = p.split("/")[0]
+            people.setdefault(prt, set()).add(dataset if dataset in SYNTHETIC else p)
+    info = {"total": len(keep), "dropped": int((~keep).sum()), "split_file": split_file,
+            "sizes": sorted(set(tuple(int(v) for v in s) for s in d["video_size"])),
+            "people": dict((k, sorted(v)) for k, v in people.items())}
+    return sets, info
 
 
-def show_data(train, val, info, loader):
+def show_data(sets, info, loader):
     """Part 1 check: what the network will be fed."""
     print("frames: %d, dropped (fewer than %d found keypoints): %d"
           % (info["total"], MIN_FOUND, info["dropped"]))
     print("video sizes (width x height): %s" % ", ".join("%dx%d" % s for s in info["sizes"]))
-    for name, ds in (("train", train), ("val", val)):
+    print("locked split (%s):" % info["split_file"])
+    for prt in ("val", "test"):
+        people = info["people"].get(prt, [])
+        real = [p for p in people if p not in SYNTHETIC]
+        print("  %-4s people: %s%s" % (prt, ", ".join(real),
+                                      " + synthetic clips" if len(real) < len(people) else ""))
+    for name, ds in sets.items():
         counts = np.bincount(ds.labels, minlength=3)
-        print("  %-5s %6d frames  %s" % (name, len(ds), "  ".join(
+        print("  %-8s %6d frames  %s" % (name, len(ds), "  ".join(
             "%s %d (%d%%)" % (c, n, 100 * n // max(len(ds), 1)) for c, n in zip(CLASSES, counts))))
     x, y = next(iter(loader))
     print("one batch from the DataLoader: inputs %s %s, labels %s %s"
@@ -303,16 +376,41 @@ def test_on_recordings(model, folder, device):
     print("(timelines show every 3rd frame, ~0.3 s per letter)")
 
 
+def final_test(model, out, measure, device):
+    """The locked 20%: score the saved model on test people, log it, and say how often it ran."""
+    saved = torch.load(out, map_location=device)
+    model.load_state_dict(saved["state_dict"])
+    log = out.parent / "test_log.txt"
+    before = len(open(log).read().splitlines()) if log.exists() else 0
+    print("LOCKED TEST - run %d. Use it to report the final number, not to tune: every look at"
+          " it makes it a little less honest." % (before + 1))
+    loss_fn = nn.CrossEntropyLoss()
+    line = [time.strftime("%Y-%m-%d %H:%M"), "model epoch %d" % saved["epoch"]]
+    for name, title in (("test", "real people"), ("test_syn", "synthetic clips")):
+        if name not in measure:
+            continue
+        _, acc, per_class, confusion = run_epoch(model, measure[name], loss_fn, device)
+        print("\n%s: %.0f%% right, balanced %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
+              % (title, 100 * acc, 100 * per_class.mean(), *(100 * per_class)))
+        print(confusion_table(confusion))
+        line.append("%s %.1f%% balanced %.1f%%" % (name, 100 * acc, 100 * per_class.mean()))
+    with open(log, "a") as fh:
+        fh.write(" | ".join(line) + "\n")
+    print("\nlogged in %s" % log)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Train the upright/sitting/floor classifier.")
-    ap.add_argument("--data", default=r"C:\hearth-data\keypoints.npz", type=Path)
+    ap.add_argument("--data", default=r"D:\hearth-data\keypoints.npz", type=Path)
     ap.add_argument("--out", type=Path, help="model file (default: next to --data, posture_mlp.pt)")
     ap.add_argument("--batch", type=int, default=256, help="frames per batch")
     ap.add_argument("--epochs", type=int, default=30, help="passes over the training data")
     ap.add_argument("--lr", type=float, default=1e-3, help="learning rate (step size)")
     ap.add_argument("--drop", type=float, default=0.2, help="chance of hiding each keypoint (training)")
     ap.add_argument("--show-data", action="store_true", help="part 1 only: print a batch, then stop")
-    ap.add_argument("--test-only", action="store_true", help="part 3 only: test the saved model")
+    ap.add_argument("--test-only", action="store_true", help="part 3 only: field-test the saved model")
+    ap.add_argument("--final-test", action="store_true",
+                    help="score the saved model on the LOCKED test people (logged; do this last)")
     ap.add_argument("--recordings", type=Path, default=Path("recordings"),
                     help="our Jetson clips (default: the repo's recordings folder)")
     ap.add_argument("--no-chart", action="store_true", help="no live chart window")
@@ -320,14 +418,17 @@ def main():
     args = ap.parse_args()
     torch.manual_seed(0)                       # same starting weights every run: comparable runs
 
-    train, val, info = load_splits(args.data, args.drop)
+    sets, info = load_splits(args.data, args.drop)
+    train, val = sets["train"], sets["val"]
     # DataLoader: asks the Dataset for `batch` random items and stacks them into one tensor.
     # shuffle=True: a new random order every epoch, so batches never repeat the same mix.
     # num_workers=0: build batches in this process (simplest; Windows-safe).
     loader = DataLoader(train, batch_size=args.batch, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val, batch_size=1024, shuffle=False, num_workers=0)
+    measure = dict((name, DataLoader(ds, batch_size=1024, shuffle=False, num_workers=0))
+                   for name, ds in sets.items() if name != "train" and len(ds))
+    val_loader = measure["val"]
     if args.show_data:
-        show_data(train, val, info, loader)
+        show_data(sets, info, loader)
         return
 
     device = torch.device(args.device)
@@ -336,6 +437,9 @@ def main():
     if args.test_only:
         model.load_state_dict(torch.load(out, map_location=device)["state_dict"])
         test_on_recordings(model, args.recordings, device)
+        return
+    if args.final_test:
+        final_test(model, out, measure, device)
         return
     weights = class_weights(train.labels)
     loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
@@ -365,7 +469,7 @@ def main():
             best = (balanced, epoch)
             torch.save({"state_dict": model.state_dict(), "classes": CLASSES,
                         "found_conf": FOUND_CONF, "min_found": MIN_FOUND, "epoch": epoch,
-                        "val_balanced_acc": balanced, "val_people": sorted(VAL_PEOPLE),
+                        "val_balanced_acc": balanced, "split_file": str(info["split_file"]),
                         "features": "17 COCO keypoints x (dx, dy, found); see features()"}, out)
             mark = "  <- best so far, saved"
         print("\r  epoch %2d/%d  train loss %.3f acc %.0f%% | val loss %.3f acc %.0f%% "
@@ -380,7 +484,12 @@ def main():
     _, va_acc, va_class, confusion = run_epoch(model, val_loader, loss_fn, device)
     print("\nbest epoch %d: validation %.0f%% (balanced %.0f%%), saved to %s"
           % (best[1], 100 * va_acc, 100 * best[0], out))
-    print("on the unseen people, frame counts:\n" + confusion_table(confusion))
+    print("on the unseen (validation) people, frame counts:\n" + confusion_table(confusion))
+    if "val_syn" in measure:
+        _, syn_acc, syn_class, _ = run_epoch(model, measure["val_syn"], loss_fn, device)
+        print("validation synthetic clips: %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
+              % (100 * syn_acc, *(100 * syn_class)))
+    print("(the locked test set was not touched; --final-test scores it once you're done)")
     test_on_recordings(model, args.recordings, device)
     if chart.plt is not None:
         print("curves saved to %s. Close the chart window to finish." % curves)

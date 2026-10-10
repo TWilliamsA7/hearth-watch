@@ -4,8 +4,10 @@
     .\\.venv-pc\\Scripts\\python.exe edge\\pc\\05_extract_keypoints.py --limit 5    (quick trial)
     .\\.venv-pc\\Scripts\\python.exe edge\\pc\\05_extract_keypoints.py              (everything)
 
-Inputs (see README "Step 6"): C:\\hearth-data\\labels\\{GMDCSA24,le2i}.csv from OmniFall, and the
-videos in C:\\hearth-data\\gmdcsa24 and C:\\hearth-data\\le2i.
+Inputs (see README "Step 6"), all in D:\\hearth-data (--data): OmniFall's labels in labels\\, and
+the videos in gmdcsa24\\, le2i\\, occu\\, caucafall\\ and of-syn\\ (download_datasets.py). A dataset
+whose folder isn't there is skipped with a note; OF-Synthetic labels count only for the clips
+that were downloaded (the care-room filter leaves most of them out on purpose).
 
 1. Reads OmniFall's timed labels and keeps only what we train on:
        walk, standing -> upright | sitting -> sitting | fallen, lying -> floor
@@ -14,7 +16,9 @@ videos in C:\\hearth-data\\gmdcsa24 and C:\\hearth-data\\le2i.
 2. Matches every label to its real video file. OmniFall writes "Subject_1/ADL/01" and
    "Coffee_room_01/video_14"; the files are "Subject 1\\ADL\\01.mp4" and
    "FallDataset\\Coffee_room_01\\Coffee_room_01\\Videos\\video (14).avi". Both sides are reduced to
-   the same key (dataset, folder, number). A label without a video, or two videos with the same
+   the same key (dataset, folder, number). OCCU, CAUCAFall and OF-Synthetic name every video
+   uniquely ("jiayan_view1_rgb", "FallForwardS1", "lie_down_el_098"), so there the key is just
+   that name. A label without a video, or two videos with the same
    key, stops the script with a list: a label paired with the wrong video would quietly ruin
    training.
 3. Reads each video once, front to back, and sends every --stride'th frame that falls inside a
@@ -23,7 +27,7 @@ videos in C:\\hearth-data\\gmdcsa24 and C:\\hearth-data\\le2i.
    the Jetson sends, plus YOLO's confidence per keypoint), the label, the video, the person
    (subject) and the time. The subject lets training split by person, so the test never sees a
    person it trained on.
-5. Writes C:\\hearth-data\\keypoints.npz (numbers only) and prints a summary per class.
+5. Writes D:\\hearth-data\\keypoints.npz (numbers only) and prints a summary per class.
 
 YOLO11-pose (Ultralytics, AGPL-3.0) is only a tool here: its output becomes training data; the
 classifier trained in the next step contains none of its code or weights.
@@ -43,7 +47,12 @@ OMNIFALL_NAMES = {0: "walk", 1: "fall", 2: "fallen", 3: "sit_down", 4: "sitting"
                   6: "lying", 7: "stand_up", 8: "standing", 9: "other"}
 CLASSES = ["upright", "sitting", "floor"]
 TO_OURS = {0: 0, 8: 0, 4: 1, 2: 2, 6: 2}       # everything else is skipped
-DATASETS = ["GMDCSA24", "le2i"]                 # dataset index stored per frame
+# Dataset name (as in OmniFall's labels) -> its folder under --data. The index in this list is
+# what keypoints.npz stores per frame.
+DATASETS = ["GMDCSA24", "le2i", "occu", "caucafall", "of-syn"]
+FOLDERS = {"GMDCSA24": "gmdcsa24", "le2i": "le2i", "occu": "occu", "caucafall": "caucafall",
+           "of-syn": "of-syn"}
+BY_NAME = {"occu", "caucafall", "of-syn"}       # every video file name is unique: match on it
 KEYPOINT_NAMES = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder",
                   "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist",
                   "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"]
@@ -55,6 +64,8 @@ VIDEO_EXT = {".mp4", ".avi"}
 def label_key(dataset, path):
     """OmniFall's path -> (dataset, folder..., number), e.g. ("le2i", "coffee_room_01", 14)."""
     parts = path.replace("\\", "/").split("/")
+    if dataset in BY_NAME:
+        return (dataset, parts[-1].lower())
     number = int(re.findall(r"\d+", parts[-1])[-1])
     folders = tuple(p.lower().replace(" ", "_") for p in parts[:-1])
     return (dataset,) + folders + (number,)
@@ -62,6 +73,8 @@ def label_key(dataset, path):
 
 def file_key(dataset, root, file):
     """A real video file -> the same kind of key as label_key, or None if it isn't one of ours."""
+    if dataset in BY_NAME:
+        return (dataset, file.stem.lower())
     parts = file.relative_to(root).parts
     number = re.findall(r"\d+", file.stem)
     if not number:
@@ -101,13 +114,19 @@ def load_segments(labels_dir, roots):
     """Kept segments grouped by video file, after matching every label to a file."""
     by_video, missing, skipped = defaultdict(list), [], Counter()
     for dataset in DATASETS:
+        if not roots[dataset].is_dir():
+            print("%-9s skipped: no folder %s" % (dataset, roots[dataset]))
+            continue
         videos, clashes = index_videos(dataset, roots[dataset])
         if clashes:
             for key, files in clashes.items():
                 print("  SAME KEY %s: %s" % (key, ", ".join(str(f) for f in files)))
             raise SystemExit("%s: several videos map to the same label name (listed above)" % dataset)
         rows = list(csv.DictReader(open(labels_dir / ("%s.csv" % dataset), newline="")))
-        print("%-9s %4d labelled segments, %3d videos found under %s"
+        if dataset == "of-syn":
+            # Only the downloaded (filtered) clips; the rest are left out on purpose.
+            rows = [r for r in rows if label_key(dataset, r["path"]) in videos]
+        print("%-9s %5d labelled segments, %4d videos found under %s"
               % (dataset, len(rows), len(videos), roots[dataset]))
         for row in rows:
             key = label_key(dataset, row["path"])
@@ -196,7 +215,7 @@ def extract(model, video, segments, stride, batch, device, out):
 
 def main():
     ap = argparse.ArgumentParser(description="Public fall videos -> keypoints.npz for training.")
-    ap.add_argument("--data", default=r"C:\hearth-data", type=Path, help="folder from the README")
+    ap.add_argument("--data", default=r"D:\hearth-data", type=Path, help="folder from the README")
     ap.add_argument("--gmdcsa", type=Path, help="GMDCSA24 folder (default <data>\\gmdcsa24)")
     ap.add_argument("--le2i", type=Path, help="Le2i folder (default <data>\\le2i)")
     ap.add_argument("--out", type=Path, help="output file (default <data>\\keypoints.npz)")
@@ -209,7 +228,9 @@ def main():
     ap.add_argument("--check", action="store_true", help="only match labels to videos, no pose model")
     args = ap.parse_args()
 
-    roots = {"GMDCSA24": args.gmdcsa or args.data / "gmdcsa24", "le2i": args.le2i or args.data / "le2i"}
+    roots = dict((name, args.data / folder) for name, folder in FOLDERS.items())
+    roots["GMDCSA24"] = args.gmdcsa or roots["GMDCSA24"]
+    roots["le2i"] = args.le2i or roots["le2i"]
     by_video = load_segments(args.data / "labels", roots)
     seconds = Counter()
     for segs in by_video.values():
@@ -235,7 +256,7 @@ def main():
         sent, people = extract(model, video, by_video[video], args.stride, args.batch,
                                args.device, out)
         sent_total += sent
-        print("[%3d/%d] %-34s %4d frames, person found in %3d%%  (%.0f s so far)"
+        print("[%4d/%d] %-34s %4d frames, person found in %3d%%  (%.0f s so far)"
               % (n, len(videos), by_video[video][0]["name"], sent, 100 * people // max(sent, 1),
                  time.time() - start))
 

@@ -239,8 +239,13 @@ cd C:\Users\Gaston\hearth-watch     # the repo folder (the download steps left y
 .\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py              # everything
 ```
 
-`--check` should end with "every label has its video" and about 335 matched videos (upright
-~1,200 s, sitting ~610 s, floor ~575 s of labelled time). The first real run downloads the pose
+`--check` should end with "every label has its video". With only GMDCSA24 + Le2i: about 335
+matched videos (upright ~1,200 s, sitting ~610 s, floor ~575 s of labelled time); with all five
+datasets it also lists occu (10 videos), caucafall (100) and of-syn (the downloaded clips).
+Data now defaults to `D:\hearth-data` (`--data` to change). OCCU caveat: its falls end hidden
+behind a bed on purpose, so most of its "fallen" frames have no visible person and are dropped
+(in a test video only ~15% kept a person); the ones left are people half-visible on the floor.
+A keypoint model can't judge a fully hidden person; the backend's "person not visible" covers that. The first real run downloads the pose
 weights (`yolo11m-pose.pt`, ~40 MB) into `C:\hearth-data`, never into the repo. Other folders:
 `--data`, `--le2i`, `--gmdcsa`.
 
@@ -275,13 +280,26 @@ about an hour for all videos).
 ```powershell
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py --show-data   # part 1: what the network is fed
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py               # part 2+3: train (30 epochs, live chart), then test
-.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --test-only   # part 3 only: test the saved model again
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --test-only   # part 3 only: field-test the saved model again
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --final-test  # the locked 20% test: once, at the end
 ```
 
+`--final-test` prints accuracy and a confusion table for test real people and test synthetic
+clips, and appends a line to `D:\hearth-data\test_log.txt`; it says which run this is. Report
+that number; don't tune on it (every look makes it less honest).
+
 - Part 1 (data): each frame -> 51 numbers (17 keypoints x dx, dy, found; aspect ratio undone,
-  centred on the body, scaled by its size), split **by person** (validation = GMDCSA24 person 4,
-  Le2i persons 3 and 5), a `Dataset` that augments training frames (hidden keypoints, mirroring,
-  jitter) and a `DataLoader` serving shuffled batches of 256.
+  centred on the body, scaled by its size), a **locked split by person: 60% train / 20%
+  validation / 20% test**, a `Dataset` that augments training frames (hidden keypoints,
+  mirroring, jitter) and a `DataLoader` serving shuffled batches of 256.
+  - Per dataset, people are shuffled with a fixed seed; test takes people until it holds 20% of
+    that dataset's frames, then validation 20%, the rest train. Anyone with over 30% of a
+    dataset (Le2i's subject 0, many unnamed actors) always trains. OF-Synthetic has no person
+    ids, so each clip is its own "person". The result is saved in `D:\hearth-data\split.json`
+    and reused forever; people added later to an already-split dataset go to training, so the
+    test never changes.
+  - Validation picks the best epoch (balanced accuracy on **real** people; synthetic clips are
+    reported separately). The test is touched only by `--final-test`.
 - Part 2 (training): `PostureNet` (51 -> 64 -> 64 -> 3, 7,683 weights), class-weighted
   cross-entropy (training is ~52% upright), AdamW. Each epoch: forward, loss, `backward()`,
   optimizer step for every batch, then a measurement on the unseen people. Shows a progress line,
@@ -309,7 +327,28 @@ non-commercial).
 The fall model is AGPL-3.0 (declared by its author); anything derived from it (the ONNX export,
 a fine-tuned model) keeps that license and attribution. PyTorch is BSD-style.
 Step 6 data: OmniFall labels CC BY-NC-SA 4.0; GMDCSA24 CC BY 4.0 (Alam et al., Data in Brief
-2024); Le2i CC BY-NC-SA (Charfi et al., Laboratoire Le2i / UBFC). The model we train from them
+2024); Le2i CC BY-NC-SA (Charfi et al., Laboratoire Le2i / UBFC); OCCU CC BY 4.0 (Zenodo
+15494102); CAUCAFall CC BY 4.0 (Eraso et al., Mendeley Data 7w7fccy7ky v4); OmniFall
+OF-Synthetic CC BY-NC 4.0. The model we train from them
 is ours, but must credit the datasets and stays non-commercial because of Le2i and the OmniFall
 labels. Ultralytics YOLO11-pose (AGPL-3.0) is used only as a tool to produce the training
 keypoints; the classifier we train contains none of its code or weights.
+
+## Quick run: all five datasets (after `download_datasets.py`)
+
+From the repo folder (`cd C:\Users\Gaston\hearth-watch`):
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py --check
+.\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --show-data
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py
+```
+
+1. `--check`: all five datasets should be listed and matched.
+2. Extraction: about 2,600 videos this time, so maybe 15-30 minutes, mostly the 2,203 synthetic
+   clips at 1280x720.
+3. `--show-data`: shows which people landed in validation and test, and the frames per part.
+4. Training: this retrains from scratch on the new split. The old `posture_mlp.pt` gets replaced.
+
+Leave `06_train.py --final-test` until you've finished changing things.
