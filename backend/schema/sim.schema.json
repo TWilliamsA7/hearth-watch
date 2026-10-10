@@ -301,6 +301,153 @@
       "title": "EvaluationSummary",
       "type": "object"
     },
+    "FallBreakdown": {
+      "additionalProperties": false,
+      "description": "How the monitor did on falls that share one factor value (e.g. fault = trip).",
+      "properties": {
+        "factor": {
+          "title": "Factor",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "detected": {
+          "$ref": "#/$defs/Rate"
+        },
+        "delay_median": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delay Median"
+        },
+        "delay_p90": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delay P90"
+        }
+      },
+      "required": [
+        "factor",
+        "value",
+        "detected",
+        "delay_median",
+        "delay_p90"
+      ],
+      "title": "FallBreakdown",
+      "type": "object"
+    },
+    "FalseAlertBreakdown": {
+      "additionalProperties": false,
+      "description": "False possible_fall alerts per simulated hour, for runs or activities sharing one factor value.",
+      "properties": {
+        "factor": {
+          "title": "Factor",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "false_alerts": {
+          "title": "False Alerts",
+          "type": "integer"
+        },
+        "hours": {
+          "description": "Simulated room-hours (runs) or person-hours (activities).",
+          "title": "Hours",
+          "type": "number"
+        },
+        "per_hour": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Per Hour"
+        }
+      },
+      "required": [
+        "factor",
+        "value",
+        "false_alerts",
+        "hours",
+        "per_hour"
+      ],
+      "title": "FalseAlertBreakdown",
+      "type": "object"
+    },
+    "Rate": {
+      "additionalProperties": false,
+      "description": "hits out of n, with a 95% Wilson interval so small samples read as uncertain.",
+      "properties": {
+        "n": {
+          "title": "N",
+          "type": "integer"
+        },
+        "hits": {
+          "title": "Hits",
+          "type": "integer"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rate"
+        },
+        "low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Low"
+        },
+        "high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "High"
+        }
+      },
+      "required": [
+        "n",
+        "hits",
+        "rate",
+        "low",
+        "high"
+      ],
+      "title": "Rate",
+      "type": "object"
+    },
     "RunInfo": {
       "additionalProperties": false,
       "description": "Run metadata (<run>.run.json). The dashboard uses it to draw the room and place\nevents on the scenario clock (t = timestamp - start).",
@@ -786,6 +933,191 @@
         "truth"
       ],
       "title": "SimStatus",
+      "type": "object"
+    },
+    "StudyReport": {
+      "additionalProperties": false,
+      "description": "Results of many generated scenarios, broken down by what was in them. Simulated only.",
+      "properties": {
+        "report_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Report Version",
+          "type": "string"
+        },
+        "monitor": {
+          "title": "Monitor",
+          "type": "string"
+        },
+        "runs": {
+          "title": "Runs",
+          "type": "integer"
+        },
+        "simulated_hours": {
+          "title": "Simulated Hours",
+          "type": "number"
+        },
+        "counts": {
+          "$ref": "#/$defs/Counts"
+        },
+        "detected": {
+          "$ref": "#/$defs/Rate"
+        },
+        "delay_median": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delay Median"
+        },
+        "delay_p90": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delay P90"
+        },
+        "false_alerts_per_hour": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "False Alerts Per Hour"
+        },
+        "falls_by": {
+          "items": {
+            "$ref": "#/$defs/FallBreakdown"
+          },
+          "title": "Falls By",
+          "type": "array"
+        },
+        "false_alerts_by": {
+          "items": {
+            "$ref": "#/$defs/FalseAlertBreakdown"
+          },
+          "title": "False Alerts By",
+          "type": "array"
+        },
+        "worst": {
+          "description": "Runs with missed falls or the most false alerts, worst first.",
+          "items": {
+            "$ref": "#/$defs/StudyRun"
+          },
+          "title": "Worst",
+          "type": "array"
+        }
+      },
+      "required": [
+        "report_version",
+        "monitor",
+        "runs",
+        "simulated_hours",
+        "counts",
+        "detected",
+        "delay_median",
+        "delay_p90",
+        "false_alerts_per_hour",
+        "falls_by",
+        "false_alerts_by",
+        "worst"
+      ],
+      "title": "StudyReport",
+      "type": "object"
+    },
+    "StudyRun": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "duration": {
+          "title": "Duration",
+          "type": "number"
+        },
+        "tags": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Tags",
+          "type": "object"
+        },
+        "expected_alerts": {
+          "title": "Expected Alerts",
+          "type": "integer"
+        },
+        "missed": {
+          "title": "Missed",
+          "type": "integer"
+        },
+        "false_alerts": {
+          "title": "False Alerts",
+          "type": "integer"
+        },
+        "delays": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Delays",
+          "type": "array"
+        },
+        "reproduce": {
+          "description": "Command that writes this run's files for the room-view dev page.",
+          "title": "Reproduce",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "scenario_id",
+        "seed",
+        "title",
+        "duration",
+        "tags",
+        "expected_alerts",
+        "missed",
+        "false_alerts",
+        "delays",
+        "reproduce"
+      ],
+      "title": "StudyRun",
       "type": "object"
     },
     "TimelineEvent": {
