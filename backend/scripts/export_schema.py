@@ -15,10 +15,12 @@ from hearth.sim.controller import ScenarioInfo, SimStatus, TruthNow
 from hearth.sim.runner import RunInfo
 from hearth.sim.scenario import Scene
 from hearth.sim.world import WorldTrack
+from hearth.monitor.appointments import Appointment, AppointmentInput, CheckIn
 from pydantic.json_schema import models_json_schema
 
 OUT = Path(__file__).resolve().parents[1] / "schema" / "sim.schema.json"
-MODELS = [Scene, RunInfo, ScenarioInfo, SimStatus, TruthNow, WorldTrack, EvaluationReport, EvaluationSummary, StudyReport]
+MODELS = [Scene, RunInfo, ScenarioInfo, SimStatus, TruthNow, WorldTrack, EvaluationReport, EvaluationSummary, StudyReport,
+          Appointment, AppointmentInput, CheckIn]
 
 
 def main() -> None:

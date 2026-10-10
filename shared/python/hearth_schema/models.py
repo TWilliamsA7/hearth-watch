@@ -57,9 +57,10 @@ EventType = Literal[
     "alert_acknowledged",
     "alert_resolved",
     "help_requested",
+    "appointment_overdue",
 ]
 
-AlertKind = Literal["possible_fall", "help_requested", "source_offline"]
+AlertKind = Literal["possible_fall", "help_requested", "source_offline", "appointment_overdue"]
 
 TruthLabel = Literal[
     "walking",
@@ -279,7 +280,7 @@ class Alert(_Model):
 class NursePreferences(_Model):
     display_name: str = Field(min_length=1, max_length=80)
     room_ids: list[str] = Field(min_length=1, max_length=100)
-    alert_kinds: list[AlertKind] = Field(min_length=1, max_length=3)
+    alert_kinds: list[AlertKind] = Field(min_length=1, max_length=4)
     on_duty: bool = True
 
 

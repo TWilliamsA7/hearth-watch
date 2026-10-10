@@ -21,11 +21,12 @@
         "enum": [
           "possible_fall",
           "help_requested",
-          "source_offline"
+          "source_offline",
+          "appointment_overdue"
         ],
         "type": "string"
       },
-      "maxItems": 3,
+      "maxItems": 4,
       "minItems": 1,
       "title": "Alert Kinds",
       "type": "array"

@@ -2,6 +2,9 @@
 
 export interface HearthSimApi {
   AlertResult?: AlertResult;
+  Appointment?: Appointment;
+  AppointmentInput?: AppointmentInput;
+  CheckIn?: CheckIn;
   Counts?: Counts;
   EvaluationReport?: EvaluationReport;
   EvaluationSummary?: EvaluationSummary;
@@ -52,6 +55,43 @@ export interface AlertResult {
       )
     | null;
   delay: number | null;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "Appointment".
+ */
+export interface Appointment {
+  resident_label: string;
+  room_id: string;
+  scheduled_at: string;
+  grace_seconds?: number;
+  demo?: boolean;
+  appointment_id: string;
+  check_in_token: string;
+  status?: "scheduled" | "overdue" | "arrived" | "cancelled";
+  checked_in_at?: string | null;
+  check_in_method?: string | null;
+  alert_id?: string | null;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "AppointmentInput".
+ */
+export interface AppointmentInput {
+  resident_label: string;
+  room_id: string;
+  scheduled_at: string;
+  grace_seconds?: number;
+  demo?: boolean;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "CheckIn".
+ */
+export interface CheckIn {
+  method?: "manual" | "token" | "face_assisted_demo";
+  token?: string | null;
+  source?: string | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -125,6 +165,7 @@ export interface SegmentResult {
         | "alert_acknowledged"
         | "alert_resolved"
         | "help_requested"
+        | "appointment_overdue"
       )
     | null;
   /**
@@ -161,7 +202,8 @@ export interface TimelineEvent {
     | "source_online"
     | "alert_acknowledged"
     | "alert_resolved"
-    | "help_requested";
+    | "help_requested"
+    | "appointment_overdue";
   /**
    * Resident the record concerns; None in single-person runs.
    */

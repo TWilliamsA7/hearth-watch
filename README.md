@@ -235,6 +235,66 @@ The event log retains the latest 10,000 events by default; JSONL export includes
 
 ## Scope
 
+### Appointment check-ins and overdue reminders
+
+The backend supports `POST /appointments`, `GET /appointments`,
+`GET /appointments/{id}`, `PUT /appointments/{id}` (reschedule), and POST
+`/appointments/{id}/check-in` and `/appointments/{id}/cancel`.
+Use an ISO timestamp with a timezone. The default grace period is **900 seconds**:
+arrival not confirmed at scheduled time + 15 minutes creates one
+`appointment_overdue` alert. Nurses select **Appointment check-in overdue** and the
+destination room in `/nurses`, then save their coverage. Alerts use the usual live
+WebSocket, accept/acknowledge, and resolve workflow. Late check-in records recovery;
+human review still resolves the alert. Cancelling/rescheduling closes an obsolete
+reminder. Appointments and their reminder state survive restart in
+`data/appointments.sqlite` (override with `HEARTH_APPOINTMENTS_DB`); nurse sessions
+must reconnect after restart. Use one backend worker.
+
+For a judge demo, restart the backend from this checkout on port 8002, then run in a
+second PowerShell terminal:
+
+```powershell
+cd C:\Users\Sam\Documents\GitHub\hearth-watch
+$backend = 'http://127.0.0.1:8002'
+$body = @{
+    resident_label = 'Demo guest'
+    room_id = 'room-01'
+    scheduled_at = [DateTimeOffset]::UtcNow.ToString('o')
+    grace_seconds = 15
+    demo = $true
+} | ConvertTo-Json
+$appointment = Invoke-RestMethod "$backend/appointments" -Method Post -ContentType 'application/json' -Body $body
+$appointment
+```
+
+Open `/nurses`, enable appointment reminders for room-01, and start/save the nurse
+session. In 15 seconds its **SIMULATED** appointment alert appears. To demonstrate
+arrival, run:
+
+```powershell
+$checkIn = @{ method = 'token'; token = $appointment.check_in_token } | ConvertTo-Json
+Invoke-RestMethod "$backend/appointments/$($appointment.appointment_id)/check-in" -Method Post -ContentType 'application/json' -Body $checkIn
+```
+
+Repeat with a new appointment and check in before the deadline to show that no
+reminder is sent. This is a compressed demonstration of the real 15-minute rule.
+Appointment management/check-in is available through `/docs`; the nurse page displays
+the resulting alerts, not an appointment calendar yet.
+
+**Optional face-assisted demo:** use the existing Jetson face detector in room-01,
+then send `{"method":"face_assisted_demo","token":"<appointment token>","source":"<Jetson source ID>"}`
+to the same check-in endpoint. This requires `demo: true`, a valid appointment token,
+and fresh live `person_detected` / `face_present` observations from that camera.
+It confirms a token check-in while someone is visible, **not that the camera
+recognized the scheduled person**. Camera presence alone never checks anyone in.
+No face training or identity embeddings are added. The laptop posture/hand runner
+alone does not emit face detections. Manual check-in uses `{"method":"manual"}`.
+
+The hackathon API has no authentication; the demo token is not a security or identity
+guarantee, and appointment APIs expose it locally for demonstration. Use fictional
+resident labels for judging. Authentication and protected check-in delivery are
+needed before using real resident records.
+
 The initial demo uses one camera and one person at a time. The backend now supports configured logical rooms for nurse subscription routing, without a building map or cross-camera identity tracking.
 
 In scope:

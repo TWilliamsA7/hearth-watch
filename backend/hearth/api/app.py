@@ -16,13 +16,18 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            SourceStatus, SourceStatusMessage)
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+from hearth.monitor.appointments import Appointments, Appointment, AppointmentInput, CheckIn
 from hearth.sim.controller import SimController
 from hearth.sim.api import create_sim_router
 from hearth.eval.api import create_eval_router
 
 
-def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None) -> FastAPI:
+def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
+               appointments_path: str | Path | None = None) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
+    appointments = Appointments(monitor, appointments_path or (
+        ":memory:" if service else os.environ.get("HEARTH_APPOINTMENTS_DB",
+        str(Path(__file__).resolve().parents[3] / "data" / "appointments.sqlite"))))
     async def ingest_simulation(items):
         for item in items:
             if isinstance(item, Heartbeat):
@@ -43,6 +48,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
         while True:
             await asyncio.sleep(monitor.config.health_poll_seconds)
             monitor.check_health()
+            appointments.check_due()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -57,6 +63,41 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
     app.state.monitor = monitor
+    app.state.appointments = appointments
+
+    def appointment_action(action):
+        try:
+            return action()
+        except KeyError as exc:
+            raise HTTPException(404, "Appointment not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/appointments", response_model=Appointment, status_code=201)
+    async def create_appointment(body: AppointmentInput):
+        return appointment_action(lambda: appointments.create(body))
+
+    @app.get("/appointments", response_model=list[Appointment])
+    async def list_appointments():
+        appointments.check_due()
+        return list(appointments.items.values())
+
+    @app.get("/appointments/{appointment_id}", response_model=Appointment)
+    async def get_appointment(appointment_id: str):
+        appointments.check_due()
+        return appointment_action(lambda: appointments.items[appointment_id])
+
+    @app.put("/appointments/{appointment_id}", response_model=Appointment)
+    async def reschedule_appointment(appointment_id: str, body: AppointmentInput):
+        return appointment_action(lambda: appointments.update(appointment_id, body))
+
+    @app.post("/appointments/{appointment_id}/cancel", response_model=Appointment)
+    async def cancel_appointment(appointment_id: str):
+        return appointment_action(lambda: appointments.update(appointment_id))
+
+    @app.post("/appointments/{appointment_id}/check-in", response_model=Appointment)
+    async def check_in_appointment(appointment_id: str, body: CheckIn):
+        return appointment_action(lambda: appointments.check_in(appointment_id, body))
     app.state.sim_controller = controller
     app.include_router(create_sim_router(controller), prefix="/sim")
     app.include_router(create_eval_router(controller), prefix="/eval")
