@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import type { Theme } from "./draw";
 import { BONES, HEAD_POINTS } from "./skeleton";
-import type { WorldPerson, WorldRoom } from "./types";
+import type { WorldPerson, WorldRoom, WorldRoute } from "./types";
 
 /**
  * How one person is drawn in the 3D view. The view creates one per person_id, calls
@@ -200,6 +200,27 @@ function cameraMarker(room: WorldRoom, theme: Theme): THREE.Group {
     new THREE.LineBasicMaterial({ color: theme.badge.simulation, transparent: true, opacity: 0.45 }),
   );
   group.add(lines);
+  return group;
+}
+
+const ROUTE_Y = 0.012; // just above the floor grid
+
+/** A walk drawn on the floor: the legs as a line, a ring where it ends. */
+export function buildRoute(route: WorldRoute, theme: Theme): THREE.Group {
+  const group = new THREE.Group();
+  const points = route.points.map(([x, z]) => new THREE.Vector3(x, ROUTE_Y, z));
+  const material = new THREE.LineDashedMaterial({ color: theme.joint, dashSize: 0.12, gapSize: 0.08 });
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material);
+  line.computeLineDistances();
+  group.add(line);
+  const end = points[points.length - 1];
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.12, 0.16, 24),
+    new THREE.MeshBasicMaterial({ color: theme.joint, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.copy(end);
+  group.add(ring);
   return group;
 }
 

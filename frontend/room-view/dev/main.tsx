@@ -63,6 +63,7 @@ function App() {
   const [last, setLast] = useState<Observation | null>(null);
   const [view, setView] = useState<View>(VIEWS.find((v) => v === params.get("view")) ?? "both");
   const [rig, setRig] = useState<Rig>(params.get("rig") === "stick" ? "stick" : "mannequin");
+  const [routes, setRoutes] = useState(params.get("routes") !== "0");
 
   useEffect(() => {
     if (!loaded) return;
@@ -108,11 +109,15 @@ function App() {
             {r[0].toUpperCase() + r.slice(1)}
           </button>
         ))}
+        <label>
+          <input type="checkbox" checked={routes} disabled={view === "2d"} onChange={(e) => setRoutes(e.target.checked)} />
+          Routes
+        </label>
       </div>
       {loaded && run && (
         <div className="views">
           {view !== "3d" && <RoomView feed={loaded.feed} scene={run.scene} roomId={run.room_id} />}
-          {view !== "2d" && <RoomView3D world={loaded.world} time={() => loaded.feed.state.t} rigFactory={RIGS[rig]} />}
+          {view !== "2d" && <RoomView3D world={loaded.world} time={() => loaded.feed.state.t} rigFactory={RIGS[rig]} showRoutes={routes} />}
         </div>
       )}
       <div className="bar">

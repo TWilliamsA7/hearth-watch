@@ -112,3 +112,17 @@ def test_heading_turns_through_a_transition():
     assert p1.world_at(start - 0.1).heading == pytest.approx(0.0)
     assert 0.0 < p1.world_at(start + 1.0).heading < math.pi / 2
     assert p1.world_at(start + 3.0).heading == pytest.approx(math.pi / 2, abs=1e-3)
+
+
+def test_routes_follow_the_walking_segments():
+    gen = ObservationGenerator(SCENARIOS["day-room-02"])
+    track = gen.world_track()
+    p2 = [r for r in track.routes if r.person_id == "p2"]
+    # p2: walk, bend, stand, bend, walk -> two separate walks.
+    assert len(p2) == 2 and all(len(r.points) == 2 for r in p2)
+    hips = {f.t: next(p for p in f.people if p.person_id == "p2") for f in track.frames}
+    for route in p2:
+        t_end = max(t for t in hips if t <= route.t_end)
+        lh, rh = hips[t_end].joints["left_hip"], hips[t_end].joints["right_hip"]
+        x, z = (lh[0] + rh[0]) / 2, (lh[2] + rh[2]) / 2
+        assert (x, z) == pytest.approx(route.points[-1], abs=0.25)  # the walk ends where the body is

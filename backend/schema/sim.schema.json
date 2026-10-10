@@ -1459,6 +1459,57 @@
       "title": "WorldRoom",
       "type": "object"
     },
+    "WorldRoute": {
+      "additionalProperties": false,
+      "description": "One continuous walk: the straight legs a resident takes from t_start to t_end.",
+      "properties": {
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Person Id"
+        },
+        "t_start": {
+          "title": "T Start",
+          "type": "number"
+        },
+        "t_end": {
+          "title": "T End",
+          "type": "number"
+        },
+        "points": {
+          "description": "Floor points (x, z) in metres, start first.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "person_id",
+        "t_start",
+        "t_end",
+        "points"
+      ],
+      "title": "WorldRoute",
+      "type": "object"
+    },
     "WorldTrack": {
       "additionalProperties": false,
       "description": "A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only.",
@@ -1489,6 +1540,14 @@
           },
           "title": "Frames",
           "type": "array"
+        },
+        "routes": {
+          "description": "Every walk, for drawing routes on the floor.",
+          "items": {
+            "$ref": "#/$defs/WorldRoute"
+          },
+          "title": "Routes",
+          "type": "array"
         }
       },
       "required": [
@@ -1497,7 +1556,8 @@
         "fps",
         "duration",
         "room",
-        "frames"
+        "frames",
+        "routes"
       ],
       "title": "WorldTrack",
       "type": "object"

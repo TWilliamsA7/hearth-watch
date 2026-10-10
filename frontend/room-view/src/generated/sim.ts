@@ -22,6 +22,7 @@ export interface HearthSimApi {
   WorldObject?: WorldObject;
   WorldPerson?: WorldPerson;
   WorldRoom?: WorldRoom;
+  WorldRoute?: WorldRoute;
   WorldTrack?: WorldTrack;
 }
 /**
@@ -491,6 +492,21 @@ export interface WorldRoom {
   objects: WorldObject[];
 }
 /**
+ * One continuous walk: the straight legs a resident takes from t_start to t_end.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldRoute".
+ */
+export interface WorldRoute {
+  person_id: string | null;
+  t_start: number;
+  t_end: number;
+  /**
+   * Floor points (x, z) in metres, start first.
+   */
+  points: [number, number][];
+}
+/**
  * A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only.
  *
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -506,4 +522,8 @@ export interface WorldTrack {
    * One per frame slot, in time order.
    */
   frames: WorldFrame[];
+  /**
+   * Every walk, for drawing routes on the floor.
+   */
+  routes: WorldRoute[];
 }

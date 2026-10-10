@@ -44,11 +44,14 @@ from hearth.sim.world import (
     WorldFrame,
     WorldPerson,
     WorldPose,
+    WorldRoute,
     WorldTrack,
     blend_world,
     place,
     room_geometry,
     world_person,
+    world_x,
+    world_z,
 )
 
 SIM_EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
@@ -258,6 +261,24 @@ class ResidentTrack:
         tau = t - self.plans[i].t_start
         return PersonState(self, self.plans[i], self.pose_at(i, tau), self.depth_at(i, min(tau, self.plans[i].segment.duration)))
 
+    def routes(self) -> list[WorldRoute]:
+        """Each run of consecutive walking segments as one route on the floor."""
+        out: list[WorldRoute] = []
+        prev_walking = False
+        for p in self.plans:
+            walking = p.segment.label == "walking"
+            end = (round(world_x(self.scene, p.x_end, p.depth_end), 3), round(world_z(p.depth_end), 3))
+            if walking and prev_walking:
+                last = out[-1]
+                out[-1] = last.model_copy(update={"t_end": round(p.t_start + p.segment.duration, 6),
+                                                  "points": [*last.points, end]})  # fmt: skip
+            elif walking:
+                start = (round(world_x(self.scene, p.x_start, p.depth_start), 3), round(world_z(p.depth_start), 3))
+                out.append(WorldRoute(person_id=self.person_id, t_start=round(p.t_start, 6),
+                                      t_end=round(p.t_start + p.segment.duration, 6), points=[start, end]))  # fmt: skip
+            prev_walking = walking
+        return out
+
     def world_at(self, t: float) -> WorldPerson:
         i = self.segment_index(t)
         tau = min(t - self.plans[i].t_start, self.plans[i].segment.duration)
@@ -305,7 +326,8 @@ class ObservationGenerator:
             people = [track.world_at(t) for track in self.tracks if track.state_at(t).label != "absent"]
             frames.append(WorldFrame(t=round(t, 6), people=people))
         return WorldTrack(scenario_id=sc.scenario_id, seed=self.seed, fps=sc.fps, duration=sc.duration,
-                          room=room_geometry(sc.scene), frames=frames)  # fmt: skip
+                          room=room_geometry(sc.scene), frames=frames,
+                          routes=[r for track in self.tracks for r in track.routes()])  # fmt: skip
 
     def stream(self) -> Iterator[Observation | Heartbeat]:
         """Every Observation and Heartbeat in timestamp order."""

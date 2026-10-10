@@ -74,6 +74,15 @@ class WorldRoom(_Model):
     objects: list[WorldObject]
 
 
+class WorldRoute(_Model):
+    """One continuous walk: the straight legs a resident takes from t_start to t_end."""
+
+    person_id: str | None
+    t_start: float
+    t_end: float
+    points: list[tuple[float, float]] = Field(description="Floor points (x, z) in metres, start first.")
+
+
 class WorldTrack(_Model):
     """A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only."""
 
@@ -83,6 +92,7 @@ class WorldTrack(_Model):
     duration: float
     room: WorldRoom
     frames: list[WorldFrame] = Field(description="One per frame slot, in time order.")
+    routes: list[WorldRoute] = Field(default_factory=list, description="Every walk, for drawing routes on the floor.")
 
 
 def metres_per_y(scene: Scene, depth: float) -> float:
