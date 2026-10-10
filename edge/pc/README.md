@@ -201,7 +201,18 @@ names in OmniFall's labels, so the next script has to translate them:
 | GMDCSA24 | `Subject_1/ADL/01` | `gmdcsa24\ekramalam-GMDCSA24-...-5abac76\Subject 1\ADL\01.mp4` (space, not underscore; extra top folder) |
 | Le2i | `Coffee_room_02/video_14` | `le2i\FallDataset\Coffee_room_02\Coffee_room_02\Videos\...` (two extra folder levels; file names to confirm, often `video (14).avi`) |
 
-### Step 6a: `05_extract_keypoints.py` (next; plan, not written yet)
+### Step 6a: `05_extract_keypoints.py`
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py --check      # match labels to videos only (seconds)
+.\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py --limit 5    # quick trial on 5 videos
+.\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py              # everything
+```
+
+`--check` should end with "every label has its video" and about 335 matched videos (upright
+~1,200 s, sitting ~610 s, floor ~575 s of labelled time). The first real run downloads the pose
+weights (`yolo11m-pose.pt`, ~40 MB) into `C:\hearth-data`, never into the repo. Other folders:
+`--data`, `--le2i`, `--gmdcsa`.
 
 Runs on the 3060 Ti and turns labelled video into a small file of numbers:
 
