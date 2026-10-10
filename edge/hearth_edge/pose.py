@@ -6,6 +6,8 @@ Each read() returns one frame's poses in the plain format features.py expects:
 Optional `stream` sends the annotated video to a viewer on the laptop (e.g.
 rtp://192.168.55.100:1234, watched with edge/tools/view_camera.sh). It is off by default,
 only goes to that address over the local link, and is never recorded or sent to the backend.
+The skeleton is drawn only in render(), never in read(): the face check copies the frame in
+between, and must see the clean camera image, not skeleton lines drawn over the face.
 
 Standalone check on the Jetson (prints posture numbers about twice a second):
     python3 -m hearth_edge.pose [--seconds 20] [--stream rtp://192.168.55.100:1234]
@@ -23,13 +25,12 @@ except ImportError:  # pragma: no cover - older installs
 
 class PoseCamera(object):
     def __init__(self, camera="/dev/video0", width=640, height=480, model="resnet18-body",
-                 threshold=0.15, stream=None):
+                 threshold=0.15, stream=None, fps=None):
         self.net = poseNet(model, threshold=threshold)
-        self.camera = videoSource(camera, argv=[
-            "--input-codec=mjpeg",
-            "--input-width=%d" % width,
-            "--input-height=%d" % height,
-        ])
+        argv = ["--input-codec=mjpeg", "--input-width=%d" % width, "--input-height=%d" % height]
+        if fps:
+            argv.append("--input-rate=%d" % fps)
+        self.camera = videoSource(camera, argv=argv)
         self.output = videoOutput(stream, argv=["--headless"]) if stream else None
 
     def read(self):
@@ -41,8 +42,7 @@ class PoseCamera(object):
         if img is None:
             return None
         t = time.time()
-        overlay = "links,keypoints" if self.output is not None else "none"
-        raw_poses = self.net.Process(img, overlay=overlay)
+        raw_poses = self.net.Process(img, overlay="none")  # drawing happens later, in render()
         poses = []
         for p in raw_poses:
             kps = {}
@@ -55,13 +55,28 @@ class PoseCamera(object):
             "width": img.width,
             "height": img.height,
             "poses": poses,
+            "raw_poses": raw_poses,  # poseNet's own objects, for drawing the skeleton in render()
             "inference_ms": self.net.GetNetworkTime(),
         }
 
     def render(self, frame):
-        """Send the annotated frame to the optional viewer stream."""
-        if self.output is not None:
-            self.output.Render(frame["img"])
+        """Draw the skeleton and send the frame to the optional viewer stream.
+
+        Call this after anything that needs the clean image (the face check copies it first).
+        """
+        if self.output is None:
+            return
+        img = frame["img"]
+        try:
+            self.net.Overlay(img, frame["raw_poses"], overlay="links,keypoints")
+        except TypeError:  # older bindings take width/height positionally
+            try:
+                self.net.Overlay(img, frame["raw_poses"], img.width, img.height, "links,keypoints")
+            except Exception:
+                pass  # drawing must never stop capture
+        except Exception:
+            pass
+        self.output.Render(img)
 
     def is_open(self):
         return self.camera.IsStreaming()

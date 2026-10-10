@@ -10,8 +10,9 @@ Run on the Jetson (from the edge/ folder):
     python3 run_edge.py --dry-run --record sit --seconds 10   # save a clip to recordings/
 
 Stop with Ctrl+C. Settings default to hearth_edge/config.py; options override them.
-Face detection (presence only, never identity) runs every --face-interval seconds on sent
-frames; other frames carry face_present = null ("did not run"). --no-face turns it off.
+Face detection (presence only, never identity) starts a check every --face-interval seconds,
+on a background thread for res10; each result goes on the next observation sent, and every
+other observation carries face_present = null ("did not run"). --no-face turns it off.
 """
 
 import argparse
@@ -57,7 +58,9 @@ def parse_args(argv=None):
     ap.add_argument("--face-interval", type=float, default=config.FACE_INTERVAL_S,
                     help="seconds between face checks (default %(default)s)")
     ap.add_argument("--face-threshold", type=float, default=config.FACE_THRESHOLD,
-                    help="facenet confidence needed to count as a face (default %(default)s)")
+                    help="face-model confidence needed to count as a face (default %(default)s)")
+    ap.add_argument("--camera-fps", type=int, default=config.CAMERA_FPS,
+                    help="frames per second requested from the camera (default %(default)s)")
     return ap.parse_args(argv)
 
 
@@ -158,22 +161,29 @@ def main(argv=None):
            "DRY RUN (nothing sent)" if args.dry_run else "backend=" + args.backend))
 
     cam = PoseCamera(camera=args.camera, width=args.width, height=args.height,
-                     model=config.POSE_MODEL, threshold=args.threshold, stream=args.stream)
+                     model=config.POSE_MODEL, threshold=args.threshold, stream=args.stream,
+                     fps=args.camera_fps)
 
-    face = schedule = None
+    face = schedule = checker = None
     if not args.no_face:
-        from hearth_edge.face import FaceDetector, FaceSchedule
+        from hearth_edge.face import FaceDetector, FaceSchedule, head_box, summarize
         try:
             face = FaceDetector(config.FACE_MODEL, args.face_threshold, draw=bool(args.stream))
             schedule = FaceSchedule(args.face_interval)
-            log("face detection on: %s, one check every %.1f s, threshold %.2f"
-                % (config.FACE_MODEL, args.face_interval, args.face_threshold))
+            if face.model == "res10":
+                checker = face.start_background()
+            log("face detection on: %s, one check every %.1f s, threshold %.2f, %s"
+                % (config.FACE_MODEL, args.face_interval, args.face_threshold,
+                   "background thread" if checker else "in the camera loop"))
         except Exception as e:  # keep monitoring posture even if the face model can't load
             log("FACE DETECTION UNAVAILABLE (%s): face_present stays null" % e)
             face = None
     else:
         log("face detection off (--no-face): face_present stays null")
     face_checks = faces_seen = 0
+    face_ms_total = 0.0
+    pending_face = None     # finished background result waiting for the next sent observation
+    face_failed_logged = False
     stats = FrameStats()
     client = None
     if not args.dry_run:
@@ -236,16 +246,42 @@ def main(argv=None):
                                                   velocity, frame["t"])
 
             emit = limiter.ready(frame["t"])
-            # Face checks only on frames that are sent, so no result is computed and dropped.
             face_present = face_confidence = None
             inference_ms = frame["inference_ms"]
-            if emit and face is not None and schedule.due(frame["t"]):
-                face_present, face_confidence, face_ms = face.check(frame)
-                inference_ms += face_ms
-                face_checks += 1
-                faces_seen += 1 if face_present else 0
+            if face is not None:
+                roi = (head_box(pose["keypoints"], frame["width"], frame["height"])
+                       if pose is not None else None)
+                if checker is not None:
+                    # Background (res10): start a check when idle and due; collect finished ones.
+                    if checker.idle() and schedule.due(frame["t"]):
+                        checker.submit(frame, roi)
+                    result = checker.poll()
+                    if result is not None:
+                        _t, boxes, face_ms = result
+                        if boxes is None:
+                            if not face_failed_logged:
+                                log("a face check failed; face_present stays null for it")
+                                face_failed_logged = True
+                        else:
+                            face.last = (frame["t"], boxes)  # what the preview draws
+                            pending_face = summarize(boxes)
+                            face_checks += 1
+                            faces_seen += 1 if boxes else 0
+                            face_ms_total += face_ms
+                    if emit and pending_face is not None:
+                        face_present, face_confidence = pending_face
+                        pending_face = None
+                elif emit and schedule.due(frame["t"]):
+                    # In-loop (facenet, GPU): check only frames that are sent.
+                    face_present, face_confidence, face_ms = face.check(frame, roi)
+                    inference_ms += face_ms
+                    face_checks += 1
+                    faces_seen += 1 if face_present else 0
+                    face_ms_total += face_ms
             stats.record(inference_ms, frame["t"])
-            cam.render(frame)  # after the face check so its boxes show in the preview
+            if face is not None:
+                face.draw(frame)  # holds the last check's boxes so they don't flicker
+            cam.render(frame)
 
             if emit:
                 obs = observation_for_frame(ids, frame, pose, feats, args.source, args.room,
@@ -263,8 +299,12 @@ def main(argv=None):
                 snap = stats.snapshot() or {}
                 line = "fps %.1f | person in %d%% of frames | observations %d" % (
                     snap.get("fps") or 0.0, 100 * with_person // max(frames, 1), emitted)
-                line += (" | face seen in %d of %d checks" % (faces_seen, face_checks)
-                         if face is not None else " | face off")
+                if face is None:
+                    line += " | face off"
+                else:
+                    line += " | face seen in %d of %d checks" % (faces_seen, face_checks)
+                    if face_checks:
+                        line += " (%.0f ms each)" % (face_ms_total / face_checks)
                 if client is not None:
                     state = {None: "not tried", True: "online", False: "OFFLINE"}[client.online]
                     line += " | sent %(sent)d dropped %(dropped)d rejected %(rejected)d" % client.counts
@@ -272,8 +312,11 @@ def main(argv=None):
                 log(line)
                 last_status = frame["t"]
                 frames = with_person = face_checks = faces_seen = 0
+                face_ms_total = 0.0
     finally:
         log("stopping")
+        if checker is not None:
+            checker.stop()
         if recorder is not None:
             recorder.close()
             log("recording done: %d observations -> %s" % (recorder.count, recorder.path))

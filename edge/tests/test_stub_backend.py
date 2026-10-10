@@ -85,9 +85,13 @@ def test_summary_line_shows_features_and_offline():
     s = {"online": True, "seconds_since_last_message": 0.1,
          "latest_observation": {"person_detected": True, "face_present": None,
                                 "features": {"torso_angle_deg": 3.0, "hip_y": 0.55}},
-         "latest_heartbeat": {"fps": 14.6, "inference_ms": 57.0, "mem_used_mb": 1430.0}}
-    line = stub.summary_line("jetson-01", s, 10)
-    assert "obs/s 10" in line and "torso 3" in line and "hip 0.55" in line and "face null" in line
+         "latest_heartbeat": {"fps": 14.6, "inference_ms": 57.0, "mem_used_mb": 1430.0},
+         "last_face_result": {"present": True, "confidence": 0.91, "age_s": 0.3}}
+    line = stub.summary_line("jetson-01", s, 10, lag_ms=84.6)
+    assert "obs/s 10" in line and "lag 85 ms" in line and "torso 3" in line and "hip 0.55" in line
+    assert "face true 0.91 (0.3 s ago)" in line
+    s["last_face_result"] = None
+    assert "face - (no check yet)" in stub.summary_line("jetson-01", s, 10)
     s["online"], s["seconds_since_last_message"] = False, 4.2
     assert "OFFLINE (no data for 4.2 s)" in stub.summary_line("jetson-01", s, 0)
 
@@ -100,3 +104,19 @@ def test_empty_body_is_rejected_with_a_clear_reason(server):
         request.urlopen(req, timeout=2)
     assert exc.value.code == 422
     assert "empty or cut-off" in json.loads(exc.value.read())["detail"]
+
+
+def test_last_face_result_ignores_frames_without_a_check(server):
+    url, state, _ = server
+    ids = c.ObservationIds("jetson-01", start=1791700000)
+    mk = lambda fp, conf: c.build_observation(ids.next(), time.time(), "jetson-01", "room-01", False,
+                                              face_present=fp, face_confidence=conf)
+    post(url + "/ingest/observations", {"observations": [mk(True, 0.8), mk(None, None), mk(None, None)]})
+    lf = state.snapshot()["sources"]["jetson-01"]["last_face_result"]
+    assert lf["present"] is True and lf["confidence"] == 0.8
+
+
+def test_capture_age_from_timestamp():
+    assert stub.capture_age_ms("2026-10-10T05:00:00.000Z", 1791608400.25) == pytest.approx(250.0)
+    assert stub.capture_age_ms("not a time", 0.0) is None
+    assert stub.capture_age_ms(None, 0.0) is None

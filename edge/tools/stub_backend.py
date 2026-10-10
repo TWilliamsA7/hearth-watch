@@ -15,6 +15,7 @@ Run on the laptop from the repo root (listens on all interfaces so the Jetson ca
 
 import argparse
 import json
+from datetime import datetime
 import sys
 import threading
 import time
@@ -37,6 +38,18 @@ def emit(msg):
     sys.stdout.flush()
 
 
+def capture_age_ms(timestamp, now):
+    """How long ago (ms) the observation's frame was captured, by the two machines' clocks.
+
+    Includes any clock difference between the Jetson and this laptop (both normally NTP-synced).
+    """
+    try:
+        t = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
+    return (now - t) * 1000.0
+
+
 def source_online(last_seen, now, timeout=OFFLINE_AFTER_S):
     return last_seen is not None and now - last_seen <= timeout
 
@@ -53,7 +66,8 @@ class State(object):
         if s is None:
             s = self.sources[name] = {"source_type": source_type, "last_seen": None,
                                       "online": False, "observations": 0, "heartbeats": 0,
-                                      "window_obs": 0, "latest": None, "heartbeat": None}
+                                      "window_obs": 0, "latest": None, "heartbeat": None,
+                                      "last_face": None, "window_lag": []}
         return s
 
     def add_observations(self, observations):
@@ -65,6 +79,11 @@ class State(object):
                 s["observations"] += 1
                 s["window_obs"] += 1
                 s["latest"] = o
+                lag = capture_age_ms(o.get("timestamp"), now)
+                if lag is not None:
+                    s["window_lag"].append(lag)
+                if o.get("face_present") is not None:  # null = no face check on that frame
+                    s["last_face"] = (o["face_present"], o.get("face_confidence"), now)
                 if self.save:
                     self.save.write(json.dumps(o) + "\n")
             if self.save:
@@ -88,6 +107,9 @@ class State(object):
                     "seconds_since_last_message": None if s["last_seen"] is None else round(now - s["last_seen"], 1),
                     "observations": s["observations"], "heartbeats": s["heartbeats"],
                     "latest_observation": s["latest"], "latest_heartbeat": s["heartbeat"],
+                    "last_face_result": None if s["last_face"] is None else {
+                        "present": s["last_face"][0], "confidence": s["last_face"][1],
+                        "age_s": round(now - s["last_face"][2], 1)},
                 }
             return out
 
@@ -154,21 +176,27 @@ def _fmt(v, fmt):
     return "-" if v is None else fmt % v
 
 
-def summary_line(name, s, window_obs):
+def summary_line(name, s, window_obs, lag_ms=None):
     if not s["online"]:
         since = s["seconds_since_last_message"]
         return "%s OFFLINE (no data for %s s)" % (name, _fmt(since, "%.1f"))
     o = s["latest_observation"] or {}
     f = o.get("features") or {}
     hb = s["latest_heartbeat"] or {}
-    face = o.get("face_present")
-    return ("%s online | obs/s %d | person %s | torso %s head %s hip %s aspect %s vel %s | face %s"
+    lf = s.get("last_face_result")
+    if lf is None:
+        face = "- (no check yet)"
+    else:  # face checks run ~2/s, so show the last real result, not the null in between
+        face = "%s%s (%.1f s ago)" % (str(lf["present"]).lower(),
+                                     "" if lf["confidence"] is None else " %.2f" % lf["confidence"],
+                                     lf["age_s"])
+    return ("%s online | obs/s %d | lag %s ms | person %s | torso %s head %s hip %s aspect %s vel %s | face %s"
             " | hb fps %s inf %s ms mem %s MB" % (
-                name, window_obs, "yes" if o.get("person_detected") else "no",
+                name, window_obs, _fmt(lag_ms, "%.0f"), "yes" if o.get("person_detected") else "no",
                 _fmt(f.get("torso_angle_deg"), "%.0f"), _fmt(f.get("head_y"), "%.2f"),
                 _fmt(f.get("hip_y"), "%.2f"), _fmt(f.get("bbox_aspect"), "%.2f"),
                 _fmt(f.get("vertical_velocity"), "%+.2f"),
-                "null" if face is None else str(face).lower(),
+                face,
                 _fmt(hb.get("fps"), "%.1f"), _fmt(hb.get("inference_ms"), "%.0f"),
                 _fmt(hb.get("mem_used_mb"), "%.0f")))
 
@@ -179,14 +207,17 @@ def print_loop(state, stop):
         snap = state.snapshot()
         with state.lock:
             windows = dict((n, s["window_obs"]) for n, s in state.sources.items())
+            lags = dict((n, sum(s["window_lag"]) / len(s["window_lag"]) if s["window_lag"] else None)
+                        for n, s in state.sources.items())
             for s in state.sources.values():
                 s["window_obs"] = 0
+                s["window_lag"] = []
         stamp = time.strftime("%H:%M:%S")
         for name, s in sorted(snap["sources"].items()):
             if was_online.get(name) != s["online"]:
                 emit("[%s] %s -> %s" % (stamp, name, "source_online" if s["online"] else "source_offline"))
                 was_online[name] = s["online"]
-            emit("[%s] %s" % (stamp, summary_line(name, s, windows.get(name, 0))))
+            emit("[%s] %s" % (stamp, summary_line(name, s, windows.get(name, 0), lags.get(name))))
         if snap["invalid"]:
             emit("[%s] invalid messages so far: %d" % (stamp, snap["invalid"]))
 

@@ -41,7 +41,7 @@ edge_started=0
 cleanup() {
   trap - EXIT INT TERM
   # Only stop a Jetson program this script started (never someone else's run).
-  [ "$edge_started" = 1 ] && ssh "$JETSON" 'pkill -INT -f "python3 -u run_edge.py"' 2>/dev/null
+  [ "$edge_started" = 1 ] && ssh "$JETSON" 'pkill -INT -f "^python3 -u run_edge.py"' 2>/dev/null
   [ -n "$player_pid" ] && kill "$player_pid" 2>/dev/null
   [ -n "$stub_pid" ] && kill "$stub_pid" 2>/dev/null
   wait 2>/dev/null

@@ -65,5 +65,8 @@ detectNet("facenet")
 print("models ready")
 PY
 
+step "Face detection model (OpenCV res10, ~10 MB) into ~/hearth-watch/models/res10"
+bash "$(dirname "$0")/get_face_model.sh"
+
 echo
 echo "Done. Reboot now: sudo reboot   then re-run check_jetson.sh"

@@ -15,6 +15,9 @@ HEARTBEAT_PATH = "/ingest/heartbeat"
 CAMERA = "/dev/video0"
 WIDTH = 640
 HEIGHT = 480
+# The camera can do 30 FPS, but the pipeline uses ~10-14. Asking for 15 saves CPU time spent
+# decoding frames that would be skipped (and that CPU time is what the face check runs on).
+CAMERA_FPS = 15
 
 # poseNet
 POSE_MODEL = "resnet18-body"
@@ -27,7 +30,7 @@ POSE_THRESHOLD = 0.15
 KEYPOINT_CONFIDENCE_PLACEHOLDER = 1.0
 
 # Face detection (P1). Runs on a subset of frames; other frames send face_present = null.
-FACE_MODEL = "facenet"
+FACE_MODEL = "res10"   # or "facenet"; res10 found faces in 100% of probe frames, facenet 0%
 FACE_THRESHOLD = 0.5
 FACE_INTERVAL_S = 0.5
 
