@@ -17,7 +17,7 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
 | 1 | `01_check_gpu.py` | tensors, devices, GPU speed, autograd | PyTorch + CUDA working |
 | 2 | `02_load_model.py` | a Hugging Face model in PyTorch: layers, parameters, raw output tensor; GPU vs CPU | the pinned model via Person 2's `download_weights` / `load_model`, on the GPU |
 | 3 | `03_export_onnx.py` | exporting, checking PyTorch vs ONNX numerically | an ONNX file the Jetson's TensorRT can build |
-| 4 | (next) | publishing a model on the Hugging Face Hub | the Jetson downloads it from your HF account |
+| 4 | `04_push_to_hub.py` | Hub repos, commits and pinning, model cards, licenses | the Jetson downloads it from your HF account, pinned to a commit |
 | 5 | on the Jetson | TensorRT engine + runner | `posture_prediction` in Jetson observations, same rules as Person 2's `prediction_from_detections` (tested against it), off by default until measured |
 | 6 | (optional) | datasets, training loop, evaluation | a fine-tuned model if step 5 shows weak spots |
 
@@ -100,6 +100,22 @@ Jetson's TensorRT 8.2 can build), lists the operation types against the TensorRT
 runs the same photo through PyTorch and ONNX Runtime to compare the outputs number by number.
 Writes `models/human-fall-detection/best_640.onnx`, `best_416.onnx`, `export_info.json`.
 Paste the output back for step 4.
+
+## Step 4
+
+Needs a free Hugging Face account and a token with **write** access
+(https://huggingface.co/settings/tokens):
+
+```powershell
+.\.venv-pc\Scripts\python.exe -m pip install huggingface_hub
+.\.venv-pc\Scripts\hf.exe auth login
+.\.venv-pc\Scripts\python.exe edge\pc\04_push_to_hub.py
+```
+
+Creates `<your-username>/hearth-fall-yolo11n-onnx` (public; `--private` to keep it private),
+uploads both ONNX files, `export_info.json` and a model card (base model + exact revision,
+AGPL-3.0, export settings, class order, the PyTorch-vs-ONNX check, intended use and limits) as
+one commit, and prints the commit id. Paste it back: the Jetson pins its download to it.
 
 ## Licenses
 
