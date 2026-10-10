@@ -16,7 +16,7 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
 |---|---|---|---|
 | 1 | `01_check_gpu.py` | tensors, devices, GPU speed, autograd | PyTorch + CUDA working |
 | 2 | `02_load_model.py` | a Hugging Face model in PyTorch: layers, parameters, raw output tensor; GPU vs CPU | the pinned model via Person 2's `download_weights` / `load_model`, on the GPU |
-| 3 | `03_export_onnx.py` (next) | exporting, checking PyTorch vs ONNX numerically | an ONNX file the Jetson's TensorRT can build |
+| 3 | `03_export_onnx.py` | exporting, checking PyTorch vs ONNX numerically | an ONNX file the Jetson's TensorRT can build |
 | 4 | (next) | publishing a model on the Hugging Face Hub | the Jetson downloads it from your HF account |
 | 5 | on the Jetson | TensorRT engine + runner | `posture_prediction` in Jetson observations, same rules as Person 2's `prediction_from_detections` (tested against it), off by default until measured |
 | 6 | (optional) | datasets, training loop, evaluation | a fine-tuned model if step 5 shows weak spots |
@@ -87,6 +87,19 @@ Downloads the pinned model once (~5.5 MB, with Person 2's verified downloader), 
 layers and parameter count, the raw output tensor shape, detections on a sample photo (an
 annotated copy is saved to `models/step2_bus_annotated.jpg`), the `posture_prediction` Person 2's
 rules make of it, and GPU vs CPU speed. Paste the output back for step 3.
+
+## Step 3
+
+```powershell
+.\.venv-pc\Scripts\python.exe -m pip install onnx onnxslim onnxruntime
+.\.venv-pc\Scripts\python.exe edge\pc\03_export_onnx.py
+```
+
+Exports the model to ONNX at 640 and 416 (opset 12, fixed size, no built-in NMS: what the
+Jetson's TensorRT 8.2 can build), lists the operation types against the TensorRT 8.2 list, and
+runs the same photo through PyTorch and ONNX Runtime to compare the outputs number by number.
+Writes `models/human-fall-detection/best_640.onnx`, `best_416.onnx`, `export_info.json`.
+Paste the output back for step 4.
 
 ## Licenses
 
