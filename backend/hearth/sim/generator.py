@@ -142,14 +142,27 @@ def blend_stance(a: Stance, b: Stance, alpha: float) -> Stance:
                   a.x + (b.x - a.x) * alpha, a.z + (b.z - a.z) * alpha, a.base + (b.base - a.base) * alpha)  # fmt: skip
 
 
+RUN_INTO: frozenset[str] = frozenset({"trip", "collision", "stumble"})
+"""Motions a walk runs straight into, without slowing down first."""
+
+
+def walk_time(length: float, speed: float, *, stops: bool = True) -> float:
+    """Seconds to walk `length` metres cruising at `speed`, speeding up first (and slowing
+    down at the end if it stops there): the duration that makes a walk cruise at that speed."""
+    a = min(ACCEL_M, length / 3)
+    return (length + a * (2 if stops else 1)) / speed
+
+
 @dataclass(frozen=True, eq=False)
 class _Walk:
-    """A run of consecutive walking segments, walked as one: speeding up, cruising, slowing down."""
+    """A run of consecutive walking segments, walked as one: speeding up, cruising and
+    slowing down, unless it runs straight into a trip or a bump (stops=False)."""
 
     t0: float
     duration: float
     points: list[Floor]
     cum: list[float]  # distance along the route to each point
+    stops: bool = True
 
     @property
     def length(self) -> float:
@@ -157,8 +170,7 @@ class _Walk:
 
     @property
     def cruise(self) -> float:
-        a = min(ACCEL_M, self.length / 3)
-        return (self.length + 2 * a) / self.duration
+        return walk_time(self.length, 1.0, stops=self.stops) / self.duration
 
     def distance(self, t: float) -> tuple[float, float]:
         """(metres along the route, speed) t seconds into the walk."""
@@ -170,7 +182,7 @@ class _Walk:
         ta = 2 * a / v
         if t < ta:
             return 0.5 * v / ta * t * t, v * t / ta
-        if t > D - ta:
+        if self.stops and t > D - ta:
             r = D - t
             return L - 0.5 * v / ta * r * r, v * r / ta
         return a + v * (t - ta), v
@@ -317,7 +329,9 @@ class ResidentTrack:
             cum = [0.0]
             for a, b in zip(points, points[1:]):
                 cum.append(cum[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
-            walk = _Walk(run[0].t_start, sum(p.segment.duration for p in run), points, cum)
+            after = plans[j].segment if j < len(plans) else None
+            stops = after is None or after.motion not in RUN_INTO
+            walk = _Walk(run[0].t_start, sum(p.segment.duration for p in run), points, cum, stops)
             out.extend(dataclasses.replace(p, walk=walk) for p in run)
             i = j
         return out

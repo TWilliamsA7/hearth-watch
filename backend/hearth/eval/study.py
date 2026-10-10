@@ -46,7 +46,7 @@ from hearth.sim.scenario import Scenario, save_scenario
 DEFAULT_STUDY_DIR = DEFAULT_OUT_DIR / "study"
 FALL_FACTORS = ("fault", "outcome", "depth_bin", "persona", "facing")
 """Tags on each fall segment."""
-RUN_FACTORS = ("people", "room", "responder", "outage")
+RUN_FACTORS = ("people", "room", "responder", "outage", "collision")
 """Tags on each generated scenario."""
 
 
