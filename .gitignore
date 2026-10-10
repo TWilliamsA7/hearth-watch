@@ -10,6 +10,9 @@ venv/
 
 # Node / frontend
 node_modules/
+.vite/
+frontend/.dependency-backup/
+frontend/.compat-python/
 frontend/dist/
 *.tsbuildinfo
 
