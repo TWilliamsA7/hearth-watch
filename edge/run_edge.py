@@ -16,6 +16,7 @@ other observation carries face_present = null ("did not run"). --no-face turns i
 """
 
 import argparse
+import collections
 import json
 import os
 import signal
@@ -25,6 +26,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hearth_edge import config, contract, features  # noqa: E402
+from hearth_edge.control import read_control  # noqa: E402,F401  (stdin commands)
 from hearth_edge.client import EdgeClient, FrameStats  # noqa: E402
 
 
@@ -53,15 +55,37 @@ def parse_args(argv=None):
     ap.add_argument("--record-dir", default=None, help="where recordings go (default <repo>/recordings)")
     ap.add_argument("--countdown", type=float, default=3.0,
                     help="seconds of countdown before recording starts (default 3)")
+    ap.add_argument("--control-stdin", action="store_true",
+                    help="keep running and accept commands on stdin, one per line: "
+                         "'record LABEL SECONDS [COUNTDOWN]' or 'quit' (used by record_clips.sh)")
     ap.add_argument("--no-face", action="store_true",
                     help="turn face detection off (face_present is then null on every frame)")
     ap.add_argument("--face-interval", type=float, default=config.FACE_INTERVAL_S,
                     help="seconds between face checks (default %(default)s)")
     ap.add_argument("--face-threshold", type=float, default=config.FACE_THRESHOLD,
                     help="face-model confidence needed to count as a face (default %(default)s)")
+    ap.add_argument("--floor-guide", type=float, default=config.FLOOR_GUIDE_Y,
+                    help="preview: dashed line at this frame height (backend floor zone); 0 = off")
     ap.add_argument("--camera-fps", type=int, default=config.CAMERA_FPS,
                     help="frames per second requested from the camera (default %(default)s)")
     return ap.parse_args(argv)
+
+
+def parse_control_line(line):
+    """'record LABEL SECONDS [COUNTDOWN]' -> ('record', label, seconds, countdown or None);
+    'quit' -> ('quit',); anything else -> None."""
+    parts = line.split()
+    if parts == ["quit"]:
+        return ("quit",)
+    if len(parts) in (3, 4) and parts[0] == "record":
+        try:
+            seconds = float(parts[2])
+            countdown = float(parts[3]) if len(parts) == 4 else None
+        except ValueError:
+            return None
+        if seconds > 0 and (countdown is None or countdown >= 0):
+            return ("record", parts[1], seconds, countdown)
+    return None
 
 
 class RecordTimer(object):
@@ -108,7 +132,7 @@ class RateLimiter(object):
 
 
 def observation_for_frame(ids, frame, pose, feats, source, room_id, face_present=None,
-                          face_confidence=None, confidence=config.KEYPOINT_CONFIDENCE_PLACEHOLDER):
+                          face_confidence=None, confidence=config.KEYPOINT_CONFIDENCE):
     """Build the Observation for one frame. pose/feats are None when nobody was detected.
 
     face_present is None when no face check ran on this frame (not the same as False).
@@ -182,9 +206,21 @@ def main(argv=None):
         log("face detection off (--no-face): face_present stays null")
     face_checks = faces_seen = 0
     face_ms_total = 0.0
+    last_face = None        # (present, confidence, frame time) of the latest face result
     pending_face = None     # finished background result waiting for the next sent observation
     face_failed_logged = False
     stats = FrameStats()
+
+    # Preview panel (only when streaming): edge measurements + the backend's own view.
+    overlay = backend_view = None
+    emit_times = collections.deque()
+    if args.stream:
+        from hearth_edge import overlay as panel
+        overlay = panel.Overlay(args.floor_guide)
+        if not args.dry_run:
+            from hearth_edge.backend_view import BackendView
+            backend_view = BackendView(args.backend, args.source, config.BACKEND_POLL_S)
+            backend_view.start()
     client = None
     if not args.dry_run:
         client = EdgeClient(args.backend, args.source, args.room, stats=stats,
@@ -203,24 +239,58 @@ def main(argv=None):
     frames = with_person = emitted = 0
     camera_quiet = False
 
-    recorder = timer = None
-    announced = None
-    if args.record:
+    # Recording: one clip from --record, or many on command with --control-stdin.
+    rec = {"recorder": None, "timer": None, "label": None, "announced": None}
+
+    def start_recording(label, seconds, countdown, t):
         from hearth_edge.recorder import Recorder
-        recorder = Recorder(args.record, args.record_dir)
-        timer = RecordTimer(start, args.countdown, args.seconds)
+        rec["recorder"] = Recorder(label, args.record_dir)
+        rec["timer"] = RecordTimer(t, countdown, seconds)
+        rec["label"], rec["announced"] = label, None
+
+    def finish_recording():
+        r = rec["recorder"]
+        r.close()
+        log("recording done: %d observations -> %s" % (r.count, r.path))
+        rec["recorder"] = rec["timer"] = rec["label"] = None
+
+    if args.record:
+        start_recording(args.record, args.seconds, args.countdown, start)
+    control = sys.stdin if args.control_stdin else None
+    if control is not None:
+        log("control: ready (commands: record LABEL SECONDS [COUNTDOWN] | quit)")
 
     try:
         while not stop["flag"]:
             now = time.time()
+            if control is not None:
+                line = read_control(control)
+                if line == "":  # the sender closed the pipe (script ended or ssh dropped)
+                    break
+                if line:
+                    cmd = parse_control_line(line)
+                    if cmd is None:
+                        log("control: ignored %r" % line.strip())
+                    elif cmd[0] == "quit":
+                        break
+                    elif rec["timer"] is not None:
+                        log("control: already recording '%s'" % rec["label"])
+                    else:
+                        _, label, seconds, countdown = cmd
+                        start_recording(label, seconds,
+                                        args.countdown if countdown is None else countdown, now)
+            timer = rec["timer"]
             if timer is not None:
                 if timer.done(now):
-                    break
+                    finish_recording()
+                    if control is None:
+                        break  # --record: one clip, then stop
+                    continue
                 left = timer.countdown_left(now)
-                if left != announced:
-                    announced = left
-                    log("RECORDING '%s' -> %s" % (args.record, recorder.path) if left == 0
-                        else "recording '%s' starts in %d" % (args.record, left))
+                if left != rec["announced"]:
+                    rec["announced"] = left
+                    log("RECORDING '%s' -> %s" % (rec["label"], rec["recorder"].path) if left == 0
+                        else "recording '%s' starts in %d" % (rec["label"], left))
             elif args.seconds and now - start >= args.seconds:
                 break
             frame = cam.read()
@@ -265,6 +335,7 @@ def main(argv=None):
                         else:
                             face.last = (frame["t"], boxes)  # what the preview draws
                             pending_face = summarize(boxes)
+                            last_face = pending_face + (frame["t"],)
                             face_checks += 1
                             faces_seen += 1 if boxes else 0
                             face_ms_total += face_ms
@@ -274,6 +345,7 @@ def main(argv=None):
                 elif emit and schedule.due(frame["t"]):
                     # In-loop (facenet, GPU): check only frames that are sent.
                     face_present, face_confidence, face_ms = face.check(frame, roi)
+                    last_face = (face_present, face_confidence, frame["t"])
                     inference_ms += face_ms
                     face_checks += 1
                     faces_seen += 1 if face_present else 0
@@ -281,14 +353,38 @@ def main(argv=None):
             stats.record(inference_ms, frame["t"])
             if face is not None:
                 face.draw(frame)  # holds the last check's boxes so they don't flicker
+            if emit:
+                emit_times.append(frame["t"])
+            while emit_times and frame["t"] - emit_times[0] > 1.0:
+                emit_times.popleft()
+            if overlay is not None:
+                if args.dry_run:
+                    mode = "DRY RUN (nothing sent)"
+                else:
+                    mode = "backend " + {None: "not tried", True: "online",
+                                         False: "OFFLINE"}[client.online]
+                kps = pose["keypoints"] if pose is not None else {}
+                lines = [
+                    (panel.status_line((stats.snapshot() or {}).get("fps"), len(emit_times), mode,
+                                       time.strftime("%H:%M:%S")), panel.WHITE),
+                    (panel.person_line(pose is not None, len(kps),
+                                       None if last_face is None else
+                                       (last_face[0], last_face[1], frame["t"] - last_face[2])),
+                     panel.WHITE),
+                    (panel.features_line(feats), panel.WHITE),
+                ]
+                lines += panel.backend_lines(backend_view.snapshot() if backend_view else None,
+                                             args.source)
+                overlay.draw(frame, lines, features.head_point(kps) if kps else None,
+                             features.hip_point(kps) if kps else None)
             cam.render(frame)
 
             if emit:
                 obs = observation_for_frame(ids, frame, pose, feats, args.source, args.room,
                                             face_present, face_confidence)
                 emitted += 1
-                if recorder is not None and timer.recording(frame["t"]):
-                    recorder.write(obs)
+                if rec["timer"] is not None and rec["timer"].recording(frame["t"]):
+                    rec["recorder"].write(obs)
                 if args.dry_run:
                     json_out.write(json.dumps(obs) + "\n")
                     json_out.flush()
@@ -317,9 +413,10 @@ def main(argv=None):
         log("stopping")
         if checker is not None:
             checker.stop()
-        if recorder is not None:
-            recorder.close()
-            log("recording done: %d observations -> %s" % (recorder.count, recorder.path))
+        if backend_view is not None:
+            backend_view.stop()
+        if rec["recorder"] is not None:
+            finish_recording()  # stopped mid-clip: keep what was recorded
         try:
             if client is not None:
                 client.stop()  # sends what's queued while the backend is reachable

@@ -111,6 +111,7 @@ class EdgeClient(object):
         self.log = log
         self.clock = clock
         self.idle_reason = idle_reason  # why heartbeats paused, for the log line
+        self.run_id = None  # set by replay.py so heartbeats carry the same run id as observations
 
         self._queue = deque()
         self._lock = threading.Lock()
@@ -241,7 +242,7 @@ class EdgeClient(object):
                                           fps=snap.get("fps"),
                                           inference_ms=snap.get("inference_ms"),
                                           mem_used_mb=snap.get("mem_used_mb"),
-                                          source_type=self.source_type)
+                                          source_type=self.source_type, run_id=self.run_id)
             status, body = self._post(self.heartbeat_path, hb)
             if status is not None and 200 <= status < 300:
                 self.counts["heartbeats"] += 1

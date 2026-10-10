@@ -23,11 +23,11 @@ CAMERA_FPS = 15
 POSE_MODEL = "resnet18-body"
 POSE_THRESHOLD = 0.15
 
-# poseNet reports no per-keypoint confidence (measured: Keypoint has only ID, x, y).
-# Keypoints below POSE_THRESHOLD are simply absent. The schema v1 contract still requires a
-# confidence value, so until it becomes optional we send this placeholder, meaning
-# "reported by poseNet above its threshold". Set to None once the contract allows it.
-KEYPOINT_CONFIDENCE_PLACEHOLDER = 1.0
+# poseNet reports no per-keypoint confidence (measured: Keypoint has only ID, x, y); keypoints
+# below POSE_THRESHOLD are simply absent. The contract allows confidence to be omitted (null =
+# unknown), so none is sent rather than a made-up number. Only set a value here if a future
+# pose model really measures one.
+KEYPOINT_CONFIDENCE = None
 
 # Face detection (P1). Runs on a subset of frames; other frames send face_present = null.
 FACE_MODEL = "res10"   # or "facenet"; res10 found faces in 100% of probe frames, facenet 0%
@@ -41,6 +41,12 @@ HEARTBEAT_INTERVAL_S = 1.0
 HTTP_TIMEOUT_S = 2.0
 # About 10 s of observations are buffered while the backend is unreachable; older ones drop.
 QUEUE_MAX = 100
+
+# Video preview panel (overlay.py, only when streaming). The dashed line marks the height the
+# team backend requires head and hips to be below to count as floor level
+# (backend/hearth/monitor/config.json floor_head_y_min / floor_hip_y_min): an aiming aid only.
+FLOOR_GUIDE_Y = 0.65
+BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
 
 # Hip-height smoothing for vertical_velocity, and the gap after which velocity resets.
 HIP_EMA_ALPHA = 0.5

@@ -5,6 +5,27 @@ Jetson with someone in view and paste the output below:
 
     cd ~/hearth-watch/edge && python3 tools/bench.py --seconds 20
 
+## 2026-10-10 05:52 — does rotating the frame help poseNet on lying poses? (no)
+
+edge/tools/pose_test.sh, camera repositioned to see a whole standing body, ~57 frames per row.
+poseNet run on the frame as-is and rotated 90 degrees each way; "best of 3" keeps whichever
+found the most keypoints. "All three" = head, neck/shoulders and hips in the same frame (what the
+backend's posture rules need).
+
+| Situation | Method | Person found | Keypoints (median) | All three | Torso deg (median) |
+|---|---|---|---|---|---|
+| standing | as-is | 100% | 17 | 100% | 5 |
+| standing | best of 3 | 100% | 17 | 100% | 5 |
+| lying across the picture | as-is | 100% | 14 | 96% | 62 |
+| lying across the picture | best of 3 (CCW picked 38/57) | 100% | 15 | 96% | 69 |
+| lying feet toward camera | as-is | 100% | 10 | 28% | 19 |
+| lying feet toward camera | best of 3 (as-is picked 58/58) | 100% | 10 | 28% | 19 |
+
+Rotation costs ~188 ms per frame and, in an empty scene, produced partial false "people"
+(2-3 keypoints) that plain poseNet did not. Decision: not added to the pipeline. Lying across is
+already detected well as-is; lying toward the camera fails because the legs hide the hips and the
+body is foreshortened (torso reads ~19 degrees), which rotation cannot fix.
+
 ## 2026-10-10 04:08 — res10 face model (current default), person in view
 
 Jetson Nano 2GB (JetPack 4.6.1), /dev/video0 640x480 MJPEG, resnet18-body + res10 (OpenCV DNN,

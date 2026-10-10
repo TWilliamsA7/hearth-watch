@@ -1,8 +1,101 @@
-# Local standing / fallen inference
+# Hearth edge (Jetson Nano)
+
+The edge node watches one room with one USB camera and sends **observations** to the team
+backend: pose keypoints, posture numbers and face presence, about 10 per second, plus a
+heartbeat each second. It never decides "fall": the backend's monitor does, for live, simulated
+and replayed data alike. No raw video leaves the Jetson; the optional video preview only goes to
+the laptop's window over the USB link and is never recorded.
+
+For running the demo, see **[DEMO.md](DEMO.md)**. Measured speed/memory: **[BENCHMARKS.md](BENCHMARKS.md)**.
+
+## Hardware and software
+
+- Jetson Nano 2GB, JetPack 4.6.1 (L4T R32.7.1), stock Python 3.6, headless, 5 GB swap.
+  Set up with `tools/setup_jetson.sh`, checked with `tools/check_jetson.sh`.
+- Logitech C270 USB webcam at 640x480 MJPEG, 15 FPS requested.
+- Laptop and Jetson talk over the USB cable: Jetson `192.168.55.1` (user `g`), laptop
+  `192.168.55.100`. Works with no internet.
+- Pose: jetson-inference poseNet `resnet18-body` (TensorRT). Face: OpenCV DNN `res10`
+  (`tools/get_face_model.sh`), presence only, never identity.
+- Edge code is standard-library Python 3.6 (plus the JetPack-provided `jetson_inference`,
+  `jetson_utils`, `cv2`, `numpy`). Laptop tools and tests use the repo's `.venv` (Python 3.11+).
+
+## Run it
+
+```sh
+# On the Jetson (from ~/hearth-watch/edge; the laptop tools copy edge/ there for you):
+python3 run_edge.py                      # send to the backend at http://192.168.55.100:8000
+python3 run_edge.py --dry-run            # print observations as JSON, send nothing
+python3 run_edge.py --stream rtp://192.168.55.100:1234   # + video preview for the laptop
+python3 run_edge.py --help               # all options (face, rates, recording, ...)
+```
+
+Most of the time, use the one-command laptop tools below instead.
+
+## What it sends (shared contract, schema v1)
+
+- `POST /ingest/observations`: batches of `Observation`, ~10/s. Keypoints are normalized to the
+  frame and sent **without** confidence (poseNet measures none; null = unknown). Posture
+  features: `torso_angle_deg` (0 upright, 90 lying), `head_y`, `hip_y` (0 = top of frame),
+  `bbox_aspect` (only when part of the torso is visible), `vertical_velocity` (+ = moving down).
+  Anything not measurable is omitted, never guessed.
+- `face_present` is true/false on frames where a face check ran (about every 0.5 s, on a
+  background thread) and null on all others ("did not run", not "no face").
+- `POST /ingest/heartbeat` every second with FPS, model time and memory, **only while camera
+  frames arrive**: a dead camera goes silent so the backend shows it offline.
+- If the backend is unreachable, the newest ~10 s are buffered and sent on reconnect; a message
+  the backend rejects is dropped and logged (that means a contract mismatch).
+
+## Code (`hearth_edge/`)
+
+| File | Does |
+|---|---|
+| `config.py` | All settings (backend URL, camera, rates, face, preview) |
+| `pose.py` | Camera + poseNet; skeleton drawn only after the face check copied the frame |
+| `features.py` | Posture numbers from keypoints (pixel-space angles, smoothed hip velocity) |
+| `contract.py` | Builds Observation/Heartbeat dicts matching `shared/` exactly |
+| `client.py` | Batched sending, heartbeats, retry/backoff, bounded buffer |
+| `face.py` | res10 face presence with head close-up, on a background thread |
+| `recorder.py` | JSONL recordings (keypoints/numbers only, never video) |
+| `overlay.py`, `backend_view.py` | Preview info panel; the backend's own posture/alert view |
+| `pose_rotate.py`, `control.py` | Rotation mapping (probe only); stdin commands for sessions |
+
+## Laptop tools (`tools/`)
+
+| Command | Does |
+|---|---|
+| `tools/view_camera.sh` | Continuous camera view with skeleton, face boxes and info panel |
+| `tools/live_test.sh --real` | Team backend + Jetson + video window in one command |
+| `tools/live_test.sh` | Same with the stand-in `stub_backend.py` (no team backend needed) |
+| `tools/sync_clock.sh` | Copy the laptop's clock to the Jetson (needed when it is offline) |
+| `tools/record_clips.sh stand sit lie_down` | Guided clip recording with a live camera view |
+| `tools/check_rules.py <clip>.jsonl` | Runs the backend's real FallDetector on a clip and explains each failed condition |
+| `tools/replay.py <clip>.jsonl` | Re-sends a clip as `source_type: replay`, `source: replay-01`, a new `run_id` per pass |
+| `tools/face_test.sh`, `tools/pose_test.sh` | Guided probes (face detector; poseNet rotation) |
+| `tools/bench.py` (Jetson) | Speed/memory table for BENCHMARKS.md |
+
+## Tests
+
+```sh
+.venv/bin/python -m pytest edge/tests     # on the laptop; validates against the real contract
+```
+
+## Known limits
+
+- Fall alerts need the camera high (about 1.5-2 m), ~3.5 m from the mat, tilted down, so a
+  standing person fits head to feet and a lying person lands below the backend's 0.65 line.
+- Lying **across** the picture is detected well; lying with the feet **toward** the camera
+  hides the hips and foreshortens the body (torso reads ~19 degrees). Rotating the frame does
+  not help (see BENCHMARKS.md); it is a single-camera limit.
+- The backend's floor rule uses fixed frame heights and a 60 degree minimum; lying across
+  measured a median of 62 degrees, so thresholds need tuning for the final camera position.
+- Face detection at 3 m and with a covered mouth is not yet measured.
+
+## Optional: laptop standing / fallen model (YOLO11, Person 2)
 
 `run_fall_model.py` runs [melihuzunoglu/human-fall-detection](https://huggingface.co/melihuzunoglu/human-fall-detection), a YOLO11 object detector with **Standing**, **Sitting**, and **Fallen** classes. Inference runs locally; only structured JSON goes to the existing Hearth API. It does not send or save frames. The checkpoint is pinned by revision and SHA-256 in `backend/hearth/perception/model.json`.
 
-## Laptop setup (Python 3.11+)
+### Laptop setup (Python 3.11+)
 
 Run from the repository root after setting up the backend:
 
@@ -16,7 +109,7 @@ Run from the repository root after setting up the backend:
 
 The weights are about 5.5 MB; PyTorch and other dependencies are larger. Downloads happen during setup. Normal inference uses the verified local weights and disables Ultralytics synchronization/automatic installation. `--check` runs the actual checkpoint on a blank frame without opening a camera; this tests runtime compatibility, not fall accuracy.
 
-## Camera
+### Camera
 
 Restart the backend after updating the shared schema, then run:
 
@@ -28,7 +121,7 @@ The camera opens only when `--camera` is explicitly selected. Stop with Ctrl+C. 
 
 Subscribe to **Possible falls** in `/nurses`. The source-health section and `/room` show the current model label and score. After a default 3 seconds of sufficiently confident Fallen observations, the backend creates one possible-fall alert. One second of sufficiently confident Standing observations records recovery. Sitting, no detections, multiple detections, low confidence, and stale sources cannot confirm recovery. The model confidence score is not a calibrated probability of a real fall.
 
-## Existing image or video
+### Existing image or video
 
 ```powershell
 # One image produces one observation; it cannot satisfy a temporal alert hold.
@@ -39,7 +132,7 @@ Subscribe to **Possible falls** in `/nurses`. The source-health section and `/ro
 
 Use `--video-fps` only to correct missing/incorrect recording FPS metadata. Replay samples are selected at approximately `--max-fps`; the media timestamps, not processing speed, drive the hold. Every run gets a fresh run ID. `--dry-run` prints observations without sending heartbeats or observations to the backend.
 
-## Contract and limits
+### Contract and limits
 
 - `Observation.posture_prediction` carries the model ID/revision, label, raw score, normalized bounding box, detection count, and uncertainty reason. It does **not** fabricate head/hip locations, pose keypoints, or face presence.
 - Numeric class IDs are mapped using the checkpoint's own class names. An unexpected label set stops model loading. Multiple boxes produce an unknown result rather than selecting one person and possibly declaring another person recovered. This remains a one-person-at-a-time detector, without identity tracking.

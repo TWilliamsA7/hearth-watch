@@ -34,10 +34,14 @@ if python3 -c 'import jetson_inference, jetson_utils' >/dev/null 2>&1 || python3
 else
   bad "jetson-inference not installed (build from github.com/dusty-nv/jetson-inference)"
 fi
-for m in resnet18-body facenet; do
+for m in resnet18-body; do
   ls /usr/local/bin/networks 2>/dev/null | grep -qi "$m" || ls ~/jetson-inference/data/networks 2>/dev/null | grep -qi "${m%%-*}" \
     && ok "model present: $m" || bad "model missing: $m"
 done
+
+res10="$HOME/hearth-watch/models/res10"
+[ -f "$res10/deploy.prototxt" ] && [ -f "$res10/res10_300x300_ssd_iter_140000.caffemodel" ] \
+  && ok "face model present: res10 ($res10)" || bad "face model res10 missing (bash ~/hearth-watch/edge/tools/get_face_model.sh)"
 
 echo "== Cameras =="
 if ls /dev/video* >/dev/null 2>&1; then

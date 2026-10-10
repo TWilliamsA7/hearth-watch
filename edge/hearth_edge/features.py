@@ -62,8 +62,13 @@ def torso_angle_deg(kps):
     return math.degrees(math.atan2(abs(dx), -dy))
 
 
+def head_point(kps):
+    """Average of whichever of nose/eyes/ears were detected (pixels), or None."""
+    return _mean_point(kps, HEAD_POINTS)
+
+
 def head_y(kps, height):
-    p = _mean_point(kps, HEAD_POINTS)
+    p = head_point(kps)
     return None if p is None else clamp01(p[1] / float(height))
 
 

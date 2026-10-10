@@ -2,12 +2,14 @@
 # One-command live test, run on the LAPTOP from anywhere:
 #     edge/tools/live_test.sh              # backend + video window + edge on the Jetson
 #     edge/tools/live_test.sh --no-video   # skip the video stream/window
+#     edge/tools/live_test.sh --real       # Person 2's real backend (backend/) instead of the stub
 #     edge/tools/live_test.sh -- --obs-hz 5   # anything after -- goes to run_edge.py
 #
 # It does, in order:
 #   1. checks the Jetson camera and laptop port 8000 are free (nothing changes if not)
 #   2. copies edge/ to the Jetson (~/hearth-watch/edge), so the Jetson runs your latest code
-#   3. starts the stand-in backend (edge/tools/stub_backend.py) on the laptop
+#   3. starts the stand-in backend (edge/tools/stub_backend.py) on the laptop, or with --real
+#      the team backend (uvicorn hearth.api.app:app); then open http://127.0.0.1:8000/nurses
 #   4. opens the video window (ffplay) unless --no-video
 #   5. runs run_edge.py on the Jetson, streaming the skeleton video to the window
 # Press Ctrl+C once to stop the Jetson side. The backend keeps running ~5 s so you can see
@@ -22,12 +24,14 @@ PY="$REPO/.venv/bin/python"
 STREAM_URL="rtp://192.168.55.100:1234"
 
 video=1
+real=0
 edge_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-video) video=0 ;;
+    --real) real=1 ;;
     --) shift; edge_args=("$@"); break ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)"; exit 2 ;;
   esac
   shift
@@ -69,11 +73,24 @@ say "2/5 copying edge/ to the Jetson"
 rsync -a --delete --exclude __pycache__ --exclude tests "$REPO/edge/" "$JETSON:hearth-watch/edge/" \
   || { echo "could not reach the Jetson as '$JETSON' (USB cable plugged in? try: ssh $JETSON)"; exit 1; }
 
-say "3/5 starting the stand-in backend on the laptop (lines from it start with [HH:MM:SS] jetson-01)"
-# setsid: keep it out of the terminal's Ctrl+C so it can report source_offline after the edge stops.
-setsid "$PY" -u "$TOOLS/stub_backend.py" &
-stub_pid=$!
-sleep 1
+if [ "$real" = 1 ]; then
+  "$PY" -c "import fastapi, uvicorn, hearth.api.app" 2>/dev/null \
+    || { echo "team backend not installed: $PY -m pip install -e '$REPO/backend[dev]'"; exit 1; }
+  say "3/5 starting the TEAM backend on the laptop (uvicorn, port 8000)"
+  # setsid: keep it out of the terminal's Ctrl+C; it is stopped in cleanup.
+  setsid "$PY" -m uvicorn hearth.api.app:app --app-dir "$REPO/backend" --host 0.0.0.0 \
+    --port 8000 --log-level warning --no-access-log &
+  stub_pid=$!
+  sleep 3
+  echo "open in a browser:  http://127.0.0.1:8000/nurses  (pick room-01 + Possible falls)"
+  echo "                    http://127.0.0.1:8000/sources (live Jetson telemetry)"
+else
+  say "3/5 starting the stand-in backend on the laptop (lines from it start with [HH:MM:SS] jetson-01)"
+  # setsid: keep it out of the terminal's Ctrl+C so it can report source_offline after the edge stops.
+  setsid "$PY" -u "$TOOLS/stub_backend.py" &
+  stub_pid=$!
+  sleep 1
+fi
 
 stream=()
 if [ "$video" = 1 ]; then
@@ -93,5 +110,10 @@ say "5/5 starting run_edge.py on the Jetson (lines start with [edge ...]); Ctrl+
 # it dies first and run_edge.py loses its output mid-shutdown.
 ssh -tt "$JETSON" "cd ~/hearth-watch/edge && python3 -u run_edge.py ${stream[*]} ${edge_args[*]} 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
 
-say "edge stopped; backend keeps listening 5 s - watch for 'jetson-01 -> source_offline'"
-sleep 5
+if [ "$real" = 1 ]; then
+  say "edge stopped; the team backend stays up until you press Enter (check /nurses and /sources)"
+  read -r _
+else
+  say "edge stopped; backend keeps listening 5 s - watch for 'jetson-01 -> source_offline'"
+  sleep 5
+fi

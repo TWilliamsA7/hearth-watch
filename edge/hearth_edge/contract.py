@@ -75,9 +75,12 @@ def normalize_keypoints(kps_px, width, height, confidence):
 
 def build_observation(obs_id, ts, source, room_id, person_detected, keypoints=None,
                       features=None, face_present=None, face_confidence=None,
-                      source_type="edge", scenario_id=None):
-    """One Observation. face_present=None means face detection did not run on this frame."""
-    return {
+                      source_type="edge", scenario_id=None, run_id=None):
+    """One Observation. face_present=None means face detection did not run on this frame.
+
+    run_id (replays) is only included when given, so live messages are unchanged.
+    """
+    obs = {
         "schema_version": SCHEMA_VERSION,
         "obs_id": obs_id,
         "timestamp": utc_iso(ts),
@@ -91,14 +94,17 @@ def build_observation(obs_id, ts, source, room_id, person_detected, keypoints=No
         "face_present": face_present,
         "face_confidence": None if face_confidence is None else round(_unit(face_confidence), 4),
     }
+    if run_id is not None:
+        obs["run_id"] = run_id
+    return obs
 
 
 def build_heartbeat(ts, source, room_id, fps=None, inference_ms=None, mem_used_mb=None,
-                    source_type="edge"):
+                    source_type="edge", run_id=None):
     def r(v):
         return None if v is None else round(max(0.0, v), 2)
 
-    return {
+    hb = {
         "schema_version": SCHEMA_VERSION,
         "timestamp": utc_iso(ts),
         "source": source,
@@ -108,3 +114,6 @@ def build_heartbeat(ts, source, room_id, fps=None, inference_ms=None, mem_used_m
         "inference_ms": r(inference_ms),
         "mem_used_mb": r(mem_used_mb),
     }
+    if run_id is not None:
+        hb["run_id"] = run_id
+    return hb

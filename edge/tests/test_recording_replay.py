@@ -31,7 +31,7 @@ replay = load_tool("replay")
 stub = load_tool("stub_backend")
 
 T0 = 1791700000.0
-POSE_KPS = c.normalize_keypoints({"neck": (320, 110), "left_hip": (305, 250)}, 640, 480, 1.0)
+POSE_KPS = c.normalize_keypoints({"neck": (320, 110), "left_hip": (305, 250)}, 640, 480, None)
 
 
 def recorded_observations(n=20, hz=10.0):
@@ -108,8 +108,9 @@ def test_parse_utc_iso_round_trips():
 
 def test_rewrite_relabels_but_keeps_the_data():
     o = recorded_observations(1)[0]
-    r = replay.rewrite_for_replay(o, "replay-01-1-000001", T0 + 50)
+    r = replay.rewrite_for_replay(o, "replay-01-1-000001", T0 + 50, run_id="replay-01-run-1")
     assert r["source"] == "replay-01" and r["source_type"] == "replay"
+    assert r["run_id"] == "replay-01-run-1" and r["scenario_id"] is None
     assert r["obs_id"] == "replay-01-1-000001" and r["timestamp"] == c.utc_iso(T0 + 50)
     assert r["keypoints"] == o["keypoints"] and r["features"] == o["features"]
     assert o["source"] == "jetson-01"  # original untouched
@@ -130,14 +131,15 @@ def test_load_recording_skips_bad_lines(tmp_path):
 
 
 def test_replay_end_to_end_into_stub_backend(tmp_path):
-    path = write_recording(tmp_path, recorded_observations(20, hz=10.0))
+    # 40 observations = 3.9 s of recording, 1.95 s at 2x: long enough for >= 1 heartbeat (1/s).
+    path = write_recording(tmp_path, recorded_observations(40, hz=10.0))
     state = stub.State()
     srv = stub.make_server(state, "127.0.0.1", 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = "http://127.0.0.1:%d" % srv.server_address[1]
     try:
         start = time.time()
-        assert replay.main([path, "--backend", url, "--speed", "4"]) == 0
+        assert replay.main([path, "--backend", url, "--speed", "2"]) == 0
         elapsed = time.time() - start
         snap = state.snapshot()
     finally:
@@ -146,6 +148,39 @@ def test_replay_end_to_end_into_stub_backend(tmp_path):
     assert snap["invalid"] == 0
     assert "jetson-01" not in snap["sources"]  # replay never appears as the live camera
     src = snap["sources"]["replay-01"]
-    assert src["source_type"] == "replay" and src["observations"] == 20
-    assert src["latest_observation"]["features"]["torso_angle_deg"] == pytest.approx(61.0)
-    assert elapsed >= 1.9 / 4  # original 1.9 s spacing, at 4x speed
+    assert src["source_type"] == "replay" and src["observations"] == 40
+    assert src["latest_observation"]["features"]["torso_angle_deg"] == pytest.approx(41.0)
+    assert src["latest_observation"]["run_id"].startswith("replay-01-")       # per-run id
+    assert src["latest_heartbeat"]["run_id"] == src["latest_observation"]["run_id"]
+    assert elapsed >= 3.9 / 2  # original 3.9 s spacing, at 2x speed
+
+
+def test_each_playback_pass_gets_a_new_run_id():
+    a = replay.new_run_id("replay-01", 1, clock=lambda: T0)
+    b = replay.new_run_id("replay-01", 2, clock=lambda: T0)
+    assert a != b and a.startswith("replay-01-") and a.endswith("-1")
+
+
+# --- control commands (record_clips.sh drives one long-running run_edge.py) ------------
+
+def test_parse_control_line():
+    assert run_edge.parse_control_line("record stand 10 5\n") == ("record", "stand", 10.0, 5.0)
+    assert run_edge.parse_control_line("record lie_down 8") == ("record", "lie_down", 8.0, None)
+    assert run_edge.parse_control_line("quit") == ("quit",)
+    for bad in ("", "record", "record x", "record x ten", "record x 0", "record x 5 -1", "dance"):
+        assert run_edge.parse_control_line(bad) is None
+
+
+def test_read_control_never_blocks_and_reports_end_of_input():
+    r, w = os.pipe()
+    reader = os.fdopen(r, "r")
+    writer = os.fdopen(w, "w")
+    try:
+        assert run_edge.read_control(reader) is None          # nothing waiting: returns at once
+        writer.write("record sit 10 5\n")
+        writer.flush()
+        assert run_edge.read_control(reader) == "record sit 10 5\n"
+        writer.close()
+        assert run_edge.read_control(reader) == ""             # sender went away
+    finally:
+        reader.close()

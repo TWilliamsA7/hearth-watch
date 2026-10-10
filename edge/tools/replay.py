@@ -4,7 +4,10 @@
 Every message is rewritten before sending:
     source      -> "replay-01" (never the live camera's name, so their online status can't mix)
     source_type -> "replay"    (README invariant: every record says where it came from)
+    run_id      -> a new id per playback pass (also on heartbeats), so repeated runs of the same
+                   clip stay separate in the backend's history and evaluation
     obs_id, timestamp -> fresh ids and the current time, so the backend's timing works normally
+Use --speed 1 when comparing alert timing: faster playback shortens time spent on the floor.
 Everything else (keypoints, features, face_present) is sent exactly as recorded. The original
 spacing between observations is kept (scaled by --speed). Heartbeats are sent while playing and
 stop afterwards, so the backend shows the replay source going offline when playback ends.
@@ -55,12 +58,22 @@ def schedule(observations, speed=1.0):
     return [max(0.0, (contract.parse_utc_iso(o["timestamp"]) - t0) / speed) for o in observations]
 
 
-def rewrite_for_replay(obs, obs_id, ts, source=REPLAY_SOURCE):
+def new_run_id(source, n=1, clock=time.time):
+    """e.g. replay-01-20261010-043512-1: unique per playback pass."""
+    return "%s-%s-%d" % (source, time.strftime("%Y%m%d-%H%M%S", time.localtime(clock())), n)
+
+
+def rewrite_for_replay(obs, obs_id, ts, source=REPLAY_SOURCE, run_id=None):
     out = dict(obs)
     out["obs_id"] = obs_id
     out["timestamp"] = contract.utc_iso(ts)
     out["source"] = source
     out["source_type"] = "replay"
+    out["scenario_id"] = None  # recordings are live captures, never simulator scenarios
+    if run_id is not None:
+        out["run_id"] = run_id
+    else:
+        out.pop("run_id", None)
     return out
 
 
@@ -85,7 +98,7 @@ def recording_rate(observations):
     return (len(observations) - 1) / span if span > 0 else None
 
 
-def play(client, observations, ids, speed=1.0, source=REPLAY_SOURCE,
+def play(client, observations, ids, speed=1.0, source=REPLAY_SOURCE, run_id=None,
          clock=time.time, sleep=time.sleep):
     """Submit each observation at its scheduled time. Returns how many were submitted."""
     t0 = clock()
@@ -94,7 +107,7 @@ def play(client, observations, ids, speed=1.0, source=REPLAY_SOURCE,
         wait = t0 + offset - clock()
         if wait > 0:
             sleep(wait)
-        client.submit(rewrite_for_replay(obs, ids.next(), clock(), source))
+        client.submit(rewrite_for_replay(obs, ids.next(), clock(), source, run_id))
         sent += 1
     return sent
 
@@ -123,17 +136,21 @@ def main(argv=None):
     ids = contract.ObservationIds(args.source)
     client.start()
     total = 0
+    passes = 0
     try:
         while True:
             for path, observations in recordings:
+                passes += 1
+                run_id = new_run_id(args.source, passes)
+                client.run_id = run_id
                 duration = schedule(observations, args.speed)[-1]
-                print("replaying %s: %d observations over %.1f s (x%g) as %s/replay"
-                      % (os.path.basename(path), len(observations), duration, args.speed, args.source),
-                      flush=True)
+                print("replaying %s: %d observations over %.1f s (x%g) as %s/replay, run %s"
+                      % (os.path.basename(path), len(observations), duration, args.speed,
+                         args.source, run_id), flush=True)
                 rate = recording_rate(observations)
                 stats.fps = rate * args.speed if rate else None
                 stats.playing = True
-                total += play(client, observations, ids, args.speed, args.source)
+                total += play(client, observations, ids, args.speed, args.source, run_id)
             if not args.loop:
                 break
     except KeyboardInterrupt:

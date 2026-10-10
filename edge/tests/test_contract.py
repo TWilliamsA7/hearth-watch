@@ -34,7 +34,7 @@ def make_obs(**overrides):
     ids = c.ObservationIds("jetson-01", start=1791700000)
     args = dict(
         obs_id=ids.next(), ts=T0, source="jetson-01", room_id="room-01", person_detected=True,
-        keypoints=c.normalize_keypoints(POSE["keypoints"], W, H, confidence=1.0),
+        keypoints=c.normalize_keypoints(POSE["keypoints"], W, H, confidence=None),
         features=f.compute_features(POSE, W, H, f.VerticalVelocity(), T0),
         face_present=True, face_confidence=0.87,
     )
@@ -76,8 +76,8 @@ def test_heartbeat_passes_contract():
 
 
 def test_keypoints_outside_frame_are_clamped():
-    kps = c.normalize_keypoints({"nose": (-12, 500), "neck": (700, 10)}, W, H, confidence=1.0)
-    assert kps[0] == {"name": "nose", "x": 0.0, "y": 1.0, "confidence": 1.0}
+    kps = c.normalize_keypoints({"nose": (-12, 500), "neck": (700, 10)}, W, H, confidence=None)
+    assert kps[0] == {"name": "nose", "x": 0.0, "y": 1.0}
     assert kps[1]["x"] == 1.0
     hs.Observation.model_validate(make_obs(keypoints=kps))
 
@@ -92,10 +92,23 @@ def test_ids_are_unique_and_ordered():
     assert a == "jetson-01-1791700000-000001" and b == "jetson-01-1791700000-000002"
 
 
-def test_contract_still_requires_keypoint_confidence():
-    # poseNet has no per-keypoint confidence. Schema v1 still requires one, so config sends a
-    # placeholder. If this test starts failing, the contract made it optional: set
-    # KEYPOINT_CONFIDENCE_PLACEHOLDER = None in config.py and delete this test.
-    kps = c.normalize_keypoints(POSE["keypoints"], W, H, confidence=None)
-    with pytest.raises(ValidationError):
-        hs.Observation.model_validate(make_obs(keypoints=kps))
+def test_keypoints_without_confidence_pass_contract():
+    # poseNet measures no per-keypoint confidence, so none is sent (null = unknown in the
+    # contract) instead of a made-up 1.0 the backend can't tell apart from a real score.
+    from hearth_edge import config
+    assert config.KEYPOINT_CONFIDENCE is None
+    obs = make_obs()
+    assert all("confidence" not in k for k in obs["keypoints"])
+    model = hs.Observation.model_validate(obs)
+    assert all(k.confidence is None for k in model.keypoints)
+
+
+def test_run_id_is_optional_and_only_sent_when_given():
+    live = make_obs()
+    assert "run_id" not in live
+    replayed = make_obs(run_id="replay-01-20261010-043512-1")
+    assert hs.Observation.model_validate(replayed).run_id == "replay-01-20261010-043512-1"
+    hb = c.build_heartbeat(T0, "replay-01", "room-01", fps=10.0, source_type="replay",
+                           run_id="replay-01-20261010-043512-1")
+    assert hs.Heartbeat.model_validate(hb).run_id == "replay-01-20261010-043512-1"
+    assert "run_id" not in c.build_heartbeat(T0, "jetson-01", "room-01")
