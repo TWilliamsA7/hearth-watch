@@ -191,6 +191,19 @@
       "default": null,
       "title": "Scenario Id"
     },
+    "person_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Anonymous per-session track id when a source reports several people (e.g. 'p1'). Not an identity. None = single-person source.",
+      "title": "Person Id"
+    },
     "person_detected": {
       "title": "Person Detected",
       "type": "boolean"
@@ -257,6 +270,7 @@
     "source_type",
     "room_id",
     "scenario_id",
+    "person_id",
     "person_detected",
     "keypoints",
     "features",

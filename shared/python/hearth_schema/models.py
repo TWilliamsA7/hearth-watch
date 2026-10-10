@@ -110,6 +110,11 @@ class Observation(_Model):
     source_type: SourceType
     room_id: str
     scenario_id: str | None = None
+    person_id: str | None = Field(
+        default=None,
+        description="Anonymous per-session track id when a source reports several people "
+        "(e.g. 'p1'). Not an identity. None = single-person source.",
+    )
     person_detected: bool
     keypoints: list[Keypoint] | None = None
     features: PostureFeatures | None = None
@@ -127,6 +132,11 @@ class Event(_Model):
     source_type: SourceType
     room_id: str
     scenario_id: str | None = None
+    person_id: str | None = Field(
+        default=None,
+        description="Anonymous per-session track id of the person the event concerns "
+        "(e.g. 'p1'). Not an identity. None = single-person source.",
+    )
     event_type: EventType
     confidence: Unit | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -139,6 +149,9 @@ class GroundTruth(_Model):
     scenario_id: str
     seed: int
     segment_id: str
+    person_id: str | None = Field(
+        default=None, description="Which simulated resident this segment describes. None = single-resident scenario."
+    )
     t_start: Annotated[float, Field(ge=0.0)]
     t_end: Annotated[float, Field(ge=0.0)]
     truth_label: TruthLabel
