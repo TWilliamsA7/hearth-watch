@@ -243,6 +243,7 @@ def main(argv=None):
     rotation = (pose_rotate.RotationPolicy()
                 if config.POSE_ROTATION and not args.no_rotation else None)
     hold = features.KeypointHold(args.keypoint_hold)
+    track = features.PersonTrack(config.TRACK_KEEP_S, config.TRACK_DROPOUT_S)
     held = []
     limiter = RateLimiter(args.obs_hz)
     start = last_status = last_frame = time.time()
@@ -303,7 +304,8 @@ def main(argv=None):
                         else "recording '%s' starts in %d" % (rec["label"], left))
             elif args.seconds and now - start >= args.seconds:
                 break
-            frame = cam.read()
+            skip_upright = rotation is not None and rotation.skip_upright(now)
+            frame = cam.read(run_pose=not skip_upright)
             if frame is None:
                 if not camera_quiet and now - last_frame > 2.0:
                     log("no frames from the camera for 2 s (unplugged or busy?)")
@@ -316,7 +318,9 @@ def main(argv=None):
             frames += 1
 
             # Features every frame keeps the hip-velocity estimate smooth; only some are sent.
-            pose = features.select_pose(frame["poses"])
+            # Follow the same person as a moment ago, so a background person can't take over.
+            pose = features.select_pose(frame["poses"], track.near(frame["t"]),
+                                        config.TRACK_MAX_DIST * frame["width"])
             pose_source, rotation_ms = None, 0.0
             if rotation is not None:
                 # People lying down: poseNet sees them far better on a 90-degree rotated frame.
@@ -329,6 +333,8 @@ def main(argv=None):
                         frame["pose_override"] = candidate  # what the preview draws
                         rotation.accepted(k, frame["t"])
                         break
+            dropout = pose is None and track.brief_dropout(frame["t"])
+            track.update(pose, frame["t"])
             if pose is None:
                 velocity.reset()
                 feats = None
@@ -342,7 +348,8 @@ def main(argv=None):
                                                   frame["width"], frame["height"],
                                                   velocity, frame["t"])
 
-            emit = limiter.ready(frame["t"])
+            # A brief dropout of the followed person is not sent as "no person" (see PersonTrack).
+            emit = limiter.ready(frame["t"]) and not dropout
             face_present = face_confidence = None
             inference_ms = frame["inference_ms"] + rotation_ms
             if face is not None:

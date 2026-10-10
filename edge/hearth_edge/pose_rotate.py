@@ -20,6 +20,7 @@ LYING_TORSO_DEG = 45.0     # a tilted torso suggests lying: try a rotated pass
 MIN_ROTATED_KEYPOINTS = 8  # rotated passes in an empty room invented 2-3 keypoint "people"
 EMPTY_RETRY_S = 1.0        # with nobody detected: one direction per try, once a second
 KEEP_TRYING_S = 1.0        # ...but every frame for a while after a rotated pose was accepted
+UPRIGHT_EVERY = 3          # while someone stays down, run the upright pass on 1 frame in 3
 
 
 def looks_lying_or_incomplete(pose):
@@ -85,6 +86,7 @@ class RotationPolicy(object):
         self.last_accept_t = None
         self.last_empty_try_t = None
         self._empty_k = 1
+        self._lying_frames = 0
 
     def directions(self, as_is, t):
         """Rotation directions to try this frame, in order (possibly none)."""
@@ -104,6 +106,23 @@ class RotationPolicy(object):
     def accepted(self, k, t):
         self.last_k = k
         self.last_accept_t = t
+
+    def skip_upright(self, t):
+        """While a rotated pose keeps being accepted (someone lying down), skip the upright
+        poseNet pass on most frames to save time. It still runs every UPRIGHT_EVERY frames, and
+        always once the rotated pose stops being accepted, so standing up is noticed quickly."""
+        if self.last_accept_t is None or t - self.last_accept_t > 0.5:
+            self._lying_frames = 0
+            return False
+        self._lying_frames += 1
+        return self._lying_frames % UPRIGHT_EVERY != 0
+
+
+def scale_pose(pose, factor):
+    """Multiply every coordinate of a pose (keypoints and box) by factor."""
+    kps = dict((n, (x * factor, y * factor)) for n, (x, y) in pose["keypoints"].items())
+    l, t, r, b = pose["bbox"]
+    return {"keypoints": kps, "bbox": (l * factor, t * factor, r * factor, b * factor)}
 
 
 def rotate_point(x, y, k, width, height):

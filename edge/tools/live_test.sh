@@ -3,6 +3,8 @@
 #     edge/tools/live_test.sh              # backend + video window + edge on the Jetson
 #     edge/tools/live_test.sh --no-video   # skip the video stream/window
 #     edge/tools/live_test.sh --real       # Person 2's real backend (backend/) instead of the stub
+#     edge/tools/live_test.sh --real --config recordings/config_framing.json
+#                                          # ...with another monitor config (HEARTH_CONFIG)
 #     edge/tools/live_test.sh -- --obs-hz 5   # anything after -- goes to run_edge.py
 #
 # It does, in order:
@@ -25,13 +27,15 @@ STREAM_URL="rtp://192.168.55.100:1234"
 
 video=1
 real=0
+monitor_config=""
 edge_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-video) video=0 ;;
     --real) real=1 ;;
+    --config) monitor_config="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
     --) shift; edge_args=("$@"); break ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)"; exit 2 ;;
   esac
   shift
@@ -77,6 +81,11 @@ if [ "$real" = 1 ]; then
   "$PY" -c "import fastapi, uvicorn, hearth.api.app" 2>/dev/null \
     || { echo "team backend not installed: $PY -m pip install -e '$REPO/backend[dev]'"; exit 1; }
   say "3/5 starting the TEAM backend on the laptop (uvicorn, port 8000)"
+  if [ -n "$monitor_config" ]; then
+    [ -f "$monitor_config" ] || { echo "config not found: $monitor_config"; exit 1; }
+    export HEARTH_CONFIG="$monitor_config"
+    echo "monitor config: $monitor_config"
+  fi
   # setsid: keep it out of the terminal's Ctrl+C; it is stopped in cleanup.
   setsid "$PY" -m uvicorn hearth.api.app:app --app-dir "$REPO/backend" --host 0.0.0.0 \
     --port 8000 --log-level warning --no-access-log &
