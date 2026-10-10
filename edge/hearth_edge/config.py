@@ -48,6 +48,15 @@ QUEUE_MAX = 100
 FLOOR_GUIDE_Y = 0.65
 BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
 
+# Rotated poseNet passes for people lying down (pose_rotate.RotationPolicy): only when the
+# upright pose looks lying or incomplete; standing costs nothing extra.
+POSE_ROTATION = True
+
+# Bridge brief keypoint dropouts (features.KeypointHold): a joint missing for up to this long
+# is filled in from its last position, moved with the body, for the posture numbers only.
+# Observations still carry only the keypoints poseNet actually reported. 0 = off.
+KEYPOINT_HOLD_S = 0.3
+
 # Hip-height smoothing for vertical_velocity, and the gap after which velocity resets.
 HIP_EMA_ALPHA = 0.5
 VELOCITY_RESET_GAP_S = 1.0

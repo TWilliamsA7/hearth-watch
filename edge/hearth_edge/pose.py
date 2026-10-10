@@ -17,10 +17,24 @@ import time
 
 try:  # jetson-inference renamed its Python modules; support both spellings.
     from jetson_inference import poseNet
-    from jetson_utils import videoSource, videoOutput
+    from jetson_utils import (videoSource, videoOutput, cudaAllocMapped, cudaToNumpy,
+                              cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine)
 except ImportError:  # pragma: no cover - older installs
     from jetson.inference import poseNet
-    from jetson.utils import videoSource, videoOutput
+    from jetson.utils import (videoSource, videoOutput, cudaAllocMapped, cudaToNumpy,
+                              cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine)
+
+from hearth_edge.pose_rotate import unrotate_pose
+
+AMBER = (255, 190, 0, 255)
+# COCO-18 bones, for drawing a pose found on a rotated frame (poseNet's own overlay can't).
+BONES = (("nose", "neck"), ("neck", "left_shoulder"), ("neck", "right_shoulder"),
+         ("left_shoulder", "left_elbow"), ("left_elbow", "left_wrist"),
+         ("right_shoulder", "right_elbow"), ("right_elbow", "right_wrist"),
+         ("left_shoulder", "left_hip"), ("right_shoulder", "right_hip"), ("left_hip", "right_hip"),
+         ("left_hip", "left_knee"), ("left_knee", "left_ankle"),
+         ("right_hip", "right_knee"), ("right_knee", "right_ankle"),
+         ("nose", "left_eye"), ("nose", "right_eye"), ("left_eye", "left_ear"), ("right_eye", "right_ear"))
 
 
 class PoseCamera(object):
@@ -32,6 +46,7 @@ class PoseCamera(object):
             argv.append("--input-rate=%d" % fps)
         self.camera = videoSource(camera, argv=argv)
         self.output = videoOutput(stream, argv=["--headless"]) if stream else None
+        self._rot_buf = self._rot_view = None  # reused buffer for rotated passes
 
     def read(self):
         """Capture and run poseNet on one frame. Returns None if no frame arrived (timeout)."""
@@ -59,6 +74,37 @@ class PoseCamera(object):
             "inference_ms": self.net.GetNetworkTime(),
         }
 
+    def _plain(self, raw_poses):
+        out = []
+        for p in raw_poses:
+            kps = dict((self.net.GetKeypointName(k.ID), (k.x, k.y)) for k in p.Keypoints)
+            out.append({"keypoints": kps, "bbox": (p.Left, p.Top, p.Right, p.Bottom)})
+        return out
+
+    def rotated_pose(self, frame, k):
+        """poseNet on the frame rotated 90 degrees (k=+1 counter-clockwise, -1 clockwise).
+
+        Returns (largest pose mapped back to the original frame or None, milliseconds). A person
+        lying on the floor looks upright in the rotated frame, which poseNet handles far better.
+        """
+        import numpy as np
+        start = time.time()
+        img = frame["img"]
+        if self._rot_buf is None:
+            self._rot_buf = cudaAllocMapped(width=img.height, height=img.width, format="rgb8")
+            self._rot_view = cudaToNumpy(self._rot_buf)
+        cudaDeviceSynchronize()  # the camera/GPU must have finished writing the frame
+        np.copyto(self._rot_view, np.rot90(cudaToNumpy(img)[..., :3], k))
+        poses = self._plain(self.net.Process(self._rot_buf, overlay="none"))
+        best, best_area = None, -1.0
+        for p in poses:
+            l, t, r, b = p["bbox"]
+            area = max(0.0, r - l) * max(0.0, b - t)
+            if area > best_area:
+                best, best_area = p, area
+        pose = unrotate_pose(best, k, img.width, img.height) if best is not None else None
+        return pose, (time.time() - start) * 1000.0
+
     def render(self, frame):
         """Draw the skeleton and send the frame to the optional viewer stream.
 
@@ -67,6 +113,19 @@ class PoseCamera(object):
         if self.output is None:
             return
         img = frame["img"]
+        override = frame.get("pose_override")
+        if override is not None:  # a pose found on a rotated frame: draw it ourselves, in amber
+            try:
+                kps = override["keypoints"]
+                for a, b in BONES:
+                    if a in kps and b in kps:
+                        cudaDrawLine(img, tuple(map(int, kps[a])), tuple(map(int, kps[b])), AMBER, 3)
+                for x, y in kps.values():
+                    cudaDrawCircle(img, (int(x), int(y)), 5, AMBER)
+            except Exception:
+                pass
+            self.output.Render(img)
+            return
         try:
             self.net.Overlay(img, frame["raw_poses"], overlay="links,keypoints")
         except TypeError:  # older bindings take width/height positionally

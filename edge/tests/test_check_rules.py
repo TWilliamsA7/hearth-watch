@@ -87,3 +87,28 @@ def test_gap_longer_than_backend_limit_resets_the_hold(tmp_path):
     result, _ = run(clip(tmp_path, [(2, FLOOR), (1.5, None), (2, FLOOR)]))
     # no-person frames break the floor streak, so neither 2 s stretch reaches the 3 s hold
     assert result["alerts"] == 0
+
+
+def test_keypoint_hold_bridges_hip_dropouts_that_block_the_alert(tmp_path):
+    # Lying across for 5 s, but poseNet drops the hips on every 5th frame.
+    from hearth_edge import features as f
+    lying_px = {"nose": (100, 400), "neck": (160, 405), "left_hip": (320, 410), "right_hip": (320, 400)}
+    ids = c.ObservationIds("jetson-01", start=int(T0))
+    vel = f.VerticalVelocity()
+    lines = []
+    for i in range(50):
+        t = T0 + i * 0.1
+        kps = dict(lying_px)
+        if i % 5 == 4:
+            del kps["left_hip"], kps["right_hip"]
+        feats = f.compute_features({"keypoints": kps, "bbox": (90, 380, 530, 430)}, 640, 480, vel, t)
+        lines.append(json.dumps(c.build_observation(
+            ids.next(), t, "jetson-01", "room-01", True,
+            keypoints=c.normalize_keypoints(kps, 640, 480, None), features=feats)))
+    path = tmp_path / "flicker.jsonl"
+    path.write_text("\n".join(lines) + "\n")
+    config = MonitorConfig.load()
+    plain = cr.report(str(path), config, out=io.StringIO())
+    held = cr.report(str(path), config, out=io.StringIO(), hold_s=0.3)
+    assert plain["alerts"] == 0   # each dropout restarts the backend's 3 s floor timer
+    assert held["alerts"] == 1    # bridged: one sustained floor stretch, one alert

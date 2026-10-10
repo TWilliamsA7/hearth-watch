@@ -151,3 +151,13 @@ def test_backend_view_without_those_pages_is_unavailable_not_an_error():
 def test_backend_view_unreachable():
     state = bv.BackendView("http://127.0.0.1:1", "jetson-01", timeout_s=0.3).poll_once()
     assert state["reachable"] is False
+
+
+def test_person_line_shows_held_keypoints():
+    assert ov.person_line(True, 12, None, n_held=2) == "person: yes (12 keypoints, 2 held) | face: -"
+    assert ov.person_line(True, 12, None, n_held=0) == "person: yes (12 keypoints) | face: -"
+
+
+def test_person_line_shows_rotated_pose_source():
+    assert ov.person_line(True, 13, None, source="rotated CCW") == \
+        "person: yes (13 keypoints, rotated CCW) | face: -"

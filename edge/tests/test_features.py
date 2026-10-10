@@ -120,3 +120,49 @@ def test_select_pose_picks_largest():
     small = {"keypoints": {}, "bbox": (0, 0, 10, 10)}
     assert f.select_pose([small, STANDING]) is STANDING
     assert f.select_pose([]) is None
+
+
+# --- keypoint hold ------------------------------------------------------------------------
+
+def test_hold_fills_a_briefly_missing_joint_moved_with_the_body():
+    hold = f.KeypointHold(0.3)
+    hold.update({"neck": (100, 100), "left_hip": (100, 200)}, t=0.0)
+    merged, held = hold.update({"neck": (110, 105)}, t=0.1)  # hip dropped; body moved +10,+5
+    assert held == ["left_hip"]
+    assert merged["left_hip"] == (110, 205)
+    assert merged["neck"] == (110, 105)
+
+
+def test_hold_expires_after_max_age_from_when_the_joint_was_really_seen():
+    hold = f.KeypointHold(0.3)
+    hold.update({"neck": (100, 100), "left_hip": (100, 200)}, t=0.0)
+    assert hold.update({"neck": (100, 100)}, t=0.1)[1] == ["left_hip"]
+    assert hold.update({"neck": (100, 100)}, t=0.2)[1] == ["left_hip"]
+    assert hold.update({"neck": (100, 100)}, t=0.35)[1] == []   # 0.35 s since really seen
+
+
+def test_hold_needs_a_joint_in_common_to_estimate_motion():
+    hold = f.KeypointHold(0.3)
+    hold.update({"neck": (100, 100)}, t=0.0)
+    merged, held = hold.update({"left_hip": (100, 200)}, t=0.1)
+    assert held == [] and merged == {"left_hip": (100, 200)}
+
+
+def test_hold_disabled_and_detected_joints_win():
+    off = f.KeypointHold(0.0)
+    off.update({"neck": (1, 1), "left_hip": (1, 2)}, t=0.0)
+    assert off.update({"neck": (1, 1)}, t=0.1) == ({"neck": (1, 1)}, [])
+    on = f.KeypointHold(0.3)
+    on.update({"neck": (1, 1), "left_hip": (1, 2)}, t=0.0)
+    merged, held = on.update({"neck": (1, 1), "left_hip": (5, 6)}, t=0.1)
+    assert held == [] and merged["left_hip"] == (5, 6)
+
+
+def test_hold_keeps_torso_features_through_a_hip_dropout():
+    hold, vel = f.KeypointHold(0.3), f.VerticalVelocity()
+    lying = {"neck": (160, 405), "left_hip": (320, 410), "nose": (100, 400)}
+    hold.update(lying, t=0.0)
+    merged, _ = hold.update({"neck": (160, 405), "nose": (100, 400)}, t=0.1)  # hip missing
+    feats = f.compute_features({"keypoints": merged, "bbox": (90, 380, 530, 430)}, W, H, vel, 0.1)
+    assert feats["torso_angle_deg"] == pytest.approx(88.2, abs=0.5)
+    assert "hip_y" in feats

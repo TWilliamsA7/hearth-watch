@@ -58,7 +58,7 @@ Most of the time, use the one-command laptop tools below instead.
 | `face.py` | res10 face presence with head close-up, on a background thread |
 | `recorder.py` | JSONL recordings (keypoints/numbers only, never video) |
 | `overlay.py`, `backend_view.py` | Preview info panel; the backend's own posture/alert view |
-| `pose_rotate.py`, `control.py` | Rotation mapping (probe only); stdin commands for sessions |
+| `pose_rotate.py`, `control.py` | Rotated poseNet passes for lying people; stdin commands for sessions |
 
 ## Laptop tools (`tools/`)
 
@@ -84,9 +84,11 @@ Most of the time, use the one-command laptop tools below instead.
 
 - Fall alerts need the camera high (about 1.5-2 m), ~3.5 m from the mat, tilted down, so a
   standing person fits head to feet and a lying person lands below the backend's 0.65 line.
-- Lying **across** the picture is detected well; lying with the feet **toward** the camera
-  hides the hips and foreshortens the body (torso reads ~19 degrees). Rotating the frame does
-  not help (see BENCHMARKS.md); it is a single-camera limit.
+- People lying down: plain poseNet often finds only the head and shoulders, so when the upright
+  pose looks lying or incomplete a rotated poseNet pass is added (`pose_rotate.py`; lying
+  across went from 0% to 100% head+shoulders+hips, see BENCHMARKS.md). `--no-rotation` turns it
+  off. Lying with the feet **toward** the camera still hides the hips and foreshortens the body
+  (torso reads ~19 degrees): a single-camera limit rotation cannot fix.
 - The backend's floor rule uses fixed frame heights and a 60 degree minimum; lying across
   measured a median of 62 degrees, so thresholds need tuning for the final camera position.
 - Face detection at 3 m and with a covered mouth is not yet measured.

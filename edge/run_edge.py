@@ -64,6 +64,11 @@ def parse_args(argv=None):
                     help="seconds between face checks (default %(default)s)")
     ap.add_argument("--face-threshold", type=float, default=config.FACE_THRESHOLD,
                     help="face-model confidence needed to count as a face (default %(default)s)")
+    ap.add_argument("--no-rotation", action="store_true",
+                    help="never run rotated poseNet passes (used for people lying down)")
+    ap.add_argument("--keypoint-hold", type=float, default=config.KEYPOINT_HOLD_S,
+                    help="seconds a briefly missing joint is bridged for the posture numbers "
+                         "(sent keypoints are never filled in); 0 = off (default %(default)s)")
     ap.add_argument("--floor-guide", type=float, default=config.FLOOR_GUIDE_Y,
                     help="preview: dashed line at this frame height (backend floor zone); 0 = off")
     ap.add_argument("--camera-fps", type=int, default=config.CAMERA_FPS,
@@ -234,6 +239,11 @@ def main(argv=None):
     ids = contract.ObservationIds(args.source)
     velocity = features.VerticalVelocity(alpha=config.HIP_EMA_ALPHA,
                                          reset_gap_s=config.VELOCITY_RESET_GAP_S)
+    from hearth_edge import pose_rotate
+    rotation = (pose_rotate.RotationPolicy()
+                if config.POSE_ROTATION and not args.no_rotation else None)
+    hold = features.KeypointHold(args.keypoint_hold)
+    held = []
     limiter = RateLimiter(args.obs_hz)
     start = last_status = last_frame = time.time()
     frames = with_person = emitted = 0
@@ -307,17 +317,34 @@ def main(argv=None):
 
             # Features every frame keeps the hip-velocity estimate smooth; only some are sent.
             pose = features.select_pose(frame["poses"])
+            pose_source, rotation_ms = None, 0.0
+            if rotation is not None:
+                # People lying down: poseNet sees them far better on a 90-degree rotated frame.
+                for k in rotation.directions(pose, frame["t"]):
+                    candidate, ms = cam.rotated_pose(frame, k)
+                    rotation_ms += ms
+                    if pose_rotate.better_rotated(pose, candidate):
+                        pose = candidate
+                        pose_source = "rotated CCW" if k == 1 else "rotated CW"
+                        frame["pose_override"] = candidate  # what the preview draws
+                        rotation.accepted(k, frame["t"])
+                        break
             if pose is None:
                 velocity.reset()
                 feats = None
+                held = []
             else:
                 with_person += 1
-                feats = features.compute_features(pose, frame["width"], frame["height"],
+                # Posture numbers use briefly-held joints too; the observation's keypoints
+                # (built from `pose` below) stay exactly what poseNet reported.
+                merged, held = hold.update(pose["keypoints"], frame["t"])
+                feats = features.compute_features({"keypoints": merged, "bbox": pose["bbox"]},
+                                                  frame["width"], frame["height"],
                                                   velocity, frame["t"])
 
             emit = limiter.ready(frame["t"])
             face_present = face_confidence = None
-            inference_ms = frame["inference_ms"]
+            inference_ms = frame["inference_ms"] + rotation_ms
             if face is not None:
                 roi = (head_box(pose["keypoints"], frame["width"], frame["height"])
                        if pose is not None else None)
@@ -369,7 +396,8 @@ def main(argv=None):
                                        time.strftime("%H:%M:%S")), panel.WHITE),
                     (panel.person_line(pose is not None, len(kps),
                                        None if last_face is None else
-                                       (last_face[0], last_face[1], frame["t"] - last_face[2])),
+                                       (last_face[0], last_face[1], frame["t"] - last_face[2]),
+                                       len(held), pose_source),
                      panel.WHITE),
                     (panel.features_line(feats), panel.WHITE),
                 ]

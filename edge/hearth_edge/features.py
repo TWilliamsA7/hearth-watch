@@ -118,6 +118,48 @@ class VerticalVelocity(object):
         return (self._ema - prev_ema) / (t - prev_t)
 
 
+class KeypointHold(object):
+    """Bridges brief keypoint dropouts so one missed frame doesn't change the posture numbers.
+
+    poseNet sometimes loses a joint (often a hip) for a frame or two. The backend restarts its
+    floor-level timer on any frame that fails its rule, so such flicker can block an alert.
+    For up to `max_age_s`, a missing joint is filled in from where it was last seen, shifted by
+    how far the joints visible in both frames moved on average (so it follows the body, e.g.
+    during a fall). Held joints only feed the posture features; the Observation's keypoints stay
+    exactly what poseNet reported. With no joints in common there is no motion estimate, so
+    nothing is held. max_age_s = 0 disables it.
+    """
+
+    def __init__(self, max_age_s=0.3):
+        self.max_age_s = max_age_s
+        self._last = {}  # name -> (x, y, t) where it was last seen or held
+
+    def reset(self):
+        self._last = {}
+
+    def update(self, kps, t):
+        """kps: this frame's detected keypoints. Returns (merged keypoints, names that were held)."""
+        if self.max_age_s <= 0:
+            return dict(kps), []
+        common = [n for n in kps if n in self._last]
+        held = []
+        merged = dict(kps)
+        if common:
+            dx = sum(kps[n][0] - self._last[n][0] for n in common) / float(len(common))
+            dy = sum(kps[n][1] - self._last[n][1] for n in common) / float(len(common))
+            for name, (x, y, seen) in list(self._last.items()):
+                if name not in kps and t - seen <= self.max_age_s:
+                    merged[name] = (x + dx, y + dy)
+                    held.append(name)
+        # Remember detected joints at their new position; held ones keep their original time,
+        # so a joint can never be held longer than max_age_s after it was really seen.
+        new_last = dict((n, (p[0], p[1], t)) for n, p in kps.items())
+        for name in held:
+            new_last[name] = (merged[name][0], merged[name][1], self._last[name][2])
+        self._last = new_last
+        return merged, sorted(held)
+
+
 def compute_features(pose, width, height, velocity, t):
     """The contract's PostureFeatures as a dict, omitting anything not measurable."""
     kps = pose["keypoints"]

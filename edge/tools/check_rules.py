@@ -4,6 +4,7 @@
 Runs on the LAPTOP with the repo's .venv (needs shared/ and backend/ installed):
     .venv/bin/python edge/tools/check_rules.py recordings/lie_down-*.jsonl
     .venv/bin/python edge/tools/check_rules.py recordings/*.jsonl --frames   # per-frame detail
+    .venv/bin/python edge/tools/check_rules.py clip.jsonl --hold 0.3   # as if keypoint hold had run
 
 For each clip it reports:
   1. VERDICT - Person 2's real FallDetector (backend/hearth/monitor/detector.py) run on the clip
@@ -45,6 +46,33 @@ def load_observations(path):
             except Exception:
                 bad += 1
     return raw, models, bad
+
+
+def apply_hold(raw, hold_s, width=640, height=480):
+    """Recompute posture features from recorded keypoints as if features.KeypointHold had run.
+
+    Keypoints are stored normalized, so they are scaled back to the camera size. bbox_aspect is
+    not recomputable (no box is recorded) and is kept as recorded.
+    """
+    from hearth_edge import contract, features
+    hold, vel = features.KeypointHold(hold_s), features.VerticalVelocity()
+    out = []
+    for o in raw:
+        o = dict(o)
+        if o["person_detected"] and o.get("keypoints"):
+            t = contract.parse_utc_iso(o["timestamp"])
+            kps = dict((k["name"], (k["x"] * width, k["y"] * height)) for k in o["keypoints"])
+            merged, _ = hold.update(kps, t)
+            hip = features.hip_y(merged, height)
+            new = {"torso_angle_deg": features.torso_angle_deg(merged),
+                   "head_y": features.head_y(merged, height), "hip_y": hip,
+                   "bbox_aspect": (o.get("features") or {}).get("bbox_aspect"),
+                   "vertical_velocity": vel.update(hip, t)}
+            o["features"] = dict((k, round(v, 4)) for k, v in new.items() if v is not None) or None
+        else:
+            vel.reset()
+        out.append(o)
+    return out
 
 
 def frame_conditions(f, c):
@@ -96,10 +124,14 @@ def timeline(raw, codes, bucket_s=0.5):
     return "".join(min(buckets.get(i, ["-"]), key=order.index) for i in range(max(buckets) + 1))
 
 
-def report(path, config, show_frames=False, out=sys.stdout):
+def report(path, config, show_frames=False, out=sys.stdout, hold_s=None):
     raw, models, bad = load_observations(path)
     w = out.write
-    w("\n=== %s\n" % os.path.basename(path))
+    w("\n=== %s%s\n" % (os.path.basename(path), "  (with keypoint hold %.2f s)" % hold_s if hold_s else ""))
+    if hold_s and raw:
+        from hearth_schema import Observation
+        raw = apply_hold(raw, hold_s)
+        models = [Observation.model_validate(o) for o in raw]
     if not models:
         w("no valid observations\n")
         return None
@@ -173,6 +205,9 @@ def main(argv=None):
     ap.add_argument("--config", default=os.path.join(repo, "backend", "hearth", "monitor", "config.json"),
                     help="backend monitor config (default: the repo's)")
     ap.add_argument("--frames", action="store_true", help="also print every frame")
+    ap.add_argument("--hold", type=float, default=None,
+                    help="recompute features as if the keypoint hold (seconds) had run; "
+                         "also prints the plain result for comparison")
     args = ap.parse_args(argv)
     try:
         from hearth.monitor.config import MonitorConfig
@@ -187,6 +222,8 @@ def main(argv=None):
              config.floor_bbox_aspect_min, config.upright_angle_max_deg, config.floor_hip_y_min))
     for path in args.files:
         report(path, config, args.frames)
+        if args.hold:
+            report(path, config, args.frames, hold_s=args.hold)
     return 0
 
 

@@ -5,7 +5,27 @@ Jetson with someone in view and paste the output below:
 
     cd ~/hearth-watch/edge && python3 tools/bench.py --seconds 20
 
-## 2026-10-10 05:52 — does rotating the frame help poseNet on lying poses? (no)
+## 2026-10-10 06:18 — lying across, camera ~3.5 m away: rotation fixes it (adopted)
+
+edge/tools/pose_test.sh across, 39 frames, whole body visible in the camera image (confirmed by a
+screenshot: plain poseNet drew head and shoulders only, nothing on hips or legs).
+
+| Method | Person found | Keypoints (median) | Head+shoulders+hips | Torso deg (median) |
+|---|---|---|---|---|
+| as-is (threshold 0.15) | 62% | 4.5 | 0% | - |
+| threshold 0.08 | 90% | 8 | 0% | - |
+| threshold 0.04 | 100% | 10 | 15% | 83 |
+| rotated CCW (head was on the right) | 100% | 13 | **100%** | **94** |
+| rotated CW | 0% | - | 0% | - |
+
+Lower thresholds do not recover the lying body; rotating the frame so the person looks upright
+does. Decision: added to the pipeline (hearth_edge/pose_rotate.RotationPolicy), only when the
+upright pose looks lying or incomplete, head side first, accepted only with >= 8 keypoints
+including a torso and more keypoints than the upright pose. Cost on the Nano: ~95 ms per rotated
+pass. Measured dry run with nobody in view: 13.0-13.1 FPS, ~10 observations/s (one alternating
+try per second); standing costs nothing extra.
+
+## 2026-10-10 05:52 — does rotating the frame help poseNet on lying poses? (not here; see 06:18)
 
 edge/tools/pose_test.sh, camera repositioned to see a whole standing body, ~57 frames per row.
 poseNet run on the frame as-is and rotated 90 degrees each way; "best of 3" keeps whichever
@@ -21,10 +41,11 @@ backend's posture rules need).
 | lying feet toward camera | as-is | 100% | 10 | 28% | 19 |
 | lying feet toward camera | best of 3 (as-is picked 58/58) | 100% | 10 | 28% | 19 |
 
-Rotation costs ~188 ms per frame and, in an empty scene, produced partial false "people"
-(2-3 keypoints) that plain poseNet did not. Decision: not added to the pipeline. Lying across is
-already detected well as-is; lying toward the camera fails because the legs hide the hips and the
-body is foreshortened (torso reads ~19 degrees), which rotation cannot fix.
+Rotation costs ~188 ms per frame (both directions) and, in an empty scene, produced partial
+false "people" (2-3 keypoints) that plain poseNet did not. In THIS position plain poseNet already
+worked, so rotation added little; the 06:18 run (camera farther away) showed the opposite.
+Lying toward the camera fails because the legs hide the hips and the body is foreshortened
+(torso reads ~19 degrees), which rotation cannot fix.
 
 ## 2026-10-10 04:08 — res10 face model (current default), person in view
 

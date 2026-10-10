@@ -30,9 +30,12 @@ def status_line(fps, obs_rate, mode, clock_str):
     return "%s FPS | %s obs/s | %s    %s" % (_fmt(fps, "%.1f"), _fmt(obs_rate, "%.0f"), mode, clock_str)
 
 
-def person_line(person_detected, n_keypoints, face):
-    """face: None (no result yet / off) or (present, confidence, age_s)."""
-    who = "yes (%d keypoints)" % n_keypoints if person_detected else "no"
+def person_line(person_detected, n_keypoints, face, n_held=0, source=None):
+    """face: None (no result yet / off) or (present, confidence, age_s); n_held: keypoints
+    bridged by features.KeypointHold this frame; source: e.g. 'rotated CCW' when the pose
+    came from a rotated poseNet pass."""
+    extras = (", %d held" % n_held if n_held else "") + (", %s" % source if source else "")
+    who = "yes (%d keypoints%s)" % (n_keypoints, extras) if person_detected else "no"
     if face is None:
         face_txt = "-"
     else:

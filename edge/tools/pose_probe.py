@@ -10,7 +10,8 @@ Direct use on the Jetson (camera must be free):
 
 While measuring, poseNet runs three times per frame: on the frame as-is, rotated 90 degrees
 counter-clockwise and rotated 90 degrees clockwise (keypoints mapped back with
-hearth_edge/pose_rotate.py). "best of 3" keeps whichever found the most keypoints. The table
+hearth_edge/pose_rotate.py). "best of all" keeps whichever found the most keypoints. It also tries poseNet with lower
+keypoint thresholds (0.08 and 0.04 instead of 0.15) on the unrotated frame. The table
 shows how often the head, neck/shoulders, hips, and all three together were found, the keypoint
 count and the torso angle. Video preview: green dots = plain poseNet, amber = best rotated
 result. Nothing is saved; no image leaves the Jetson.
@@ -31,7 +32,8 @@ from hearth_edge.pose_rotate import unrotate_pose  # noqa: E402
 HEAD = ("nose", "left_eye", "right_eye", "left_ear", "right_ear")
 UPPER = ("neck", "left_shoulder", "right_shoulder")
 HIPS = ("left_hip", "right_hip")
-METHODS = ("as-is", "rotated CCW", "rotated CW", "best of 3")
+METHODS = ("as-is", "threshold 0.08", "threshold 0.04", "rotated CCW", "rotated CW", "best of all")
+DEFAULT_THRESHOLD = 0.15
 GREEN = (60, 230, 60, 255)
 AMBER = (255, 190, 0, 255)
 
@@ -54,7 +56,7 @@ class Measurement(object):
     def __init__(self, label):
         self.label = label
         self.rows = dict((m, []) for m in METHODS)
-        self.best_counts = dict((m, 0) for m in METHODS[:3])
+        self.best_counts = dict((m, 0) for m in METHODS[:-1])
         self.extra_ms = []
         self.frames = 0
 
@@ -68,7 +70,7 @@ class Measurement(object):
 
     def table(self):
         label = " [%s]" % self.label if self.label else ""
-        lines = ["pose probe%s: %d frames, rotation adds %.0f ms per frame"
+        lines = ["pose probe%s: %d frames, the extra variants add %.0f ms per frame"
                  % (label, self.frames, sum(self.extra_ms) / len(self.extra_ms) if self.extra_ms else 0)]
         if not self.frames:
             return "\n".join(lines + ["no frames"]) + "\n"
@@ -88,7 +90,7 @@ class Measurement(object):
                 statistics.median([r["n"] for r in seen]) if seen else "-",
                 pct("head"), pct("upper"), pct("hips"), allthree,
                 "%.0f" % statistics.median(torsos) if torsos else "-"))
-        lines.append("best of 3 picked: %s" % ", ".join("%s %d" % kv for kv in self.best_counts.items()))
+        lines.append("best of all picked: %s" % ", ".join("%s %d" % kv for kv in self.best_counts.items()))
         return "\n".join(lines) + "\n"
 
 
@@ -126,6 +128,10 @@ def main(argv=None):
         w, h = frame["width"], frame["height"]
         candidates = {"as-is": features.select_pose(frame["poses"])}
         start = time.time()
+        for name, thr in (("threshold 0.08", 0.08), ("threshold 0.04", 0.04)):
+            net.SetThreshold(thr)
+            candidates[name] = features.select_pose(to_plain(net, net.Process(frame["img"], overlay="none")))
+        net.SetThreshold(DEFAULT_THRESHOLD)
         ju.cudaDeviceSynchronize()
         rgb = ju.cudaToNumpy(frame["img"])[..., :3]
         for name, k in (("rotated CCW", 1), ("rotated CW", -1)):
@@ -135,7 +141,7 @@ def main(argv=None):
         ms = (time.time() - start) * 1000.0
         found = [(m, p) for m, p in candidates.items() if p is not None]
         best_name, best = (max(found, key=lambda mp: len(mp[1]["keypoints"])) if found else (None, None))
-        candidates["best of 3"] = best
+        candidates["best of all"] = best
         meas.add(candidates, best_name, ms)
         draw(frame, candidates["as-is"], GREEN, 5)
         draw(frame, best, AMBER, 8)
