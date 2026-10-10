@@ -78,10 +78,19 @@
           "type": "number"
         },
         "confidence": {
-          "maximum": 1.0,
-          "minimum": 0.0,
-          "title": "Confidence",
-          "type": "number"
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Measured keypoint confidence, when available; null is unknown, not zero or certainty.",
+          "title": "Confidence"
         }
       },
       "required": [

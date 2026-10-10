@@ -88,7 +88,7 @@ class Keypoint(_Model):
     name: KeypointName
     x: Unit
     y: Unit
-    confidence: Unit
+    confidence: Unit | None = Field(default=None, description="Measured keypoint confidence, when available; null is unknown, not zero or certainty.")
 
 
 class PostureFeatures(_Model):

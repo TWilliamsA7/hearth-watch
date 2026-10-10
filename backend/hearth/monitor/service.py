@@ -145,6 +145,10 @@ class MonitorService:
             entry.status.posture = prediction.label if reliable else "unknown"
             entry.status.posture_confidence = prediction.confidence if reliable else None
             entry.status.posture_model = prediction.model_id if prediction else None
+            if prediction is None:
+                state = self.detector.states.get(key)
+                entry.status.posture = {"upright": "standing", "floor_level": "fallen",
+                                        "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
         if isinstance(record, Heartbeat):
             for name in ("fps", "inference_ms", "mem_used_mb"):
                 setattr(entry.status, name, getattr(record, name))
@@ -203,10 +207,11 @@ class MonitorService:
             self.seen[identity] = None
             if len(self.seen) > self.config.dedupe_capacity:
                 self.seen.popitem(last=False)
+            events = self.detector.process(obs) + self.gestures.process(obs)
             self.touch(obs, observation=True)
             self.observations[key] = obs
             self.publish(ObservationMessage(data=obs))
-            for event in self.detector.process(obs) + self.gestures.process(obs):
+            for event in events:
                 if event.event_type in {"possible_fall", "help_requested"}:
                     self.open_alert(event)
                     continue

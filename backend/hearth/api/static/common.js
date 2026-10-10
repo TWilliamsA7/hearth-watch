@@ -38,8 +38,8 @@ export function beep() {
 export function sourceLabel(type) { return {edge:'LIVE',simulation:'SIMULATED',replay:'REPLAY',manual:'BUTTON REQUEST'}[type] || type; }
 export function requestId() { return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16).padStart(8,'0')).join(''); }
 export function postureLabel(source) {
-  if (!source.posture_model) return '';
   if (!source.online || source.observation_stale || source.posture === 'unknown') return ' · Posture unknown';
+  if (!source.posture_model) return ` · ${source.posture === 'standing' ? 'Upright' : 'Floor-level posture'} (pose)`;
   const label = {standing:'Standing',sitting:'Sitting',fallen:'Fallen'}[source.posture] || 'Unknown';
   return ` · ${label} (model${source.posture_confidence == null ? '' : ', '+Math.round(source.posture_confidence*100)+'%'})`;
 }

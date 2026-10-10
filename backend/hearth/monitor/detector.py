@@ -136,7 +136,7 @@ class FallDetector:
                                     model_confidence=prediction.confidence)
                 hips = [p for p in obs.keypoints or []
                         if p.name in {"left_hip", "right_hip"}
-                        and p.confidence >= c.zone_keypoint_confidence_min]
+                        and p.confidence is not None and p.confidence >= c.zone_keypoint_confidence_min]
                 if hips:
                     x, y = sum(p.x for p in hips) / len(hips), sum(p.y for p in hips) / len(hips)
                     for zone in c.zones:

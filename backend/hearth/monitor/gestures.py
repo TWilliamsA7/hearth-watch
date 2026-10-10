@@ -32,7 +32,7 @@ class HelpGestureDetector:
 
     def arm_states(self, obs: Observation) -> dict[str, bool | None]:
         points = {p.name: p for p in obs.keypoints or []
-                  if p.confidence >= self.config.gesture_keypoint_confidence_min}
+                  if p.confidence is not None and p.confidence >= self.config.gesture_keypoint_confidence_min}
         result = {"left": None, "right": None}
         if not obs.person_detected or "nose" not in points:
             return result
