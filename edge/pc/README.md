@@ -173,6 +173,8 @@ Everything goes in `C:\hearth-data`, **outside the repo**, so no video can be co
 3. Le2i: its site blocks scripts (bot check), so use a browser on the PC: open
    https://search-data.ubfc.fr/FR-13002091000019-2024-04-09, download the dataset, and extract
    everything into `C:\hearth-data\le2i` (room folders such as `Coffee_room_01`, `Home_01`).
+   If it landed under another name, rename the folder:
+   `Rename-Item C:\hearth-data\<folder> le2i`.
 
 4. Check what landed:
 
@@ -183,19 +185,58 @@ Everything goes in `C:\hearth-data`, **outside the repo**, so no video can be co
    (Get-ChildItem -Recurse -Include *.mp4,*.avi | Measure-Object).Count
    ```
 
-   OmniFall names videos like `Subject_1/ADL/01` and `Coffee_room_01/video_14`; the real file
-   names can differ (Le2i uses names like `video (14).avi`), and the next script matches them up.
+   Expect **350** videos (160 GMDCSA24 + 190 Le2i). Also list Le2i's folders and a few file
+   names, so the next script can match them:
 
-### Next scripts
+   ```powershell
+   Get-ChildItem C:\hearth-data\le2i -Directory -Recurse | Select-Object -ExpandProperty FullName
+   Get-ChildItem C:\hearth-data\le2i -Recurse -Include *.avi | Select-Object -First 5 -ExpandProperty Name
+   ```
 
-- `05_extract_keypoints.py`: pose model on the GPU over every labelled stretch of video ->
-  one small file of keypoints + labels (no video).
-- then a hand-written PyTorch `Dataset`, network and training loop, tested on our recordings,
-  and an export the Jetson can run.
+What we got (2026-10-10): 350 videos, GMDCSA24 MD5 matched. The real paths differ from the
+names in OmniFall's labels, so the next script has to translate them:
 
-Caveats: the keypoints come from a different pose model than the Jetson's poseNet (which misses
-more joints), so training randomly hides keypoints to make up for it. Both datasets are
-research data: credit them, don't build a product on them (Le2i is non-commercial).
+| Dataset | OmniFall label path | Real file |
+|---|---|---|
+| GMDCSA24 | `Subject_1/ADL/01` | `gmdcsa24\ekramalam-GMDCSA24-...-5abac76\Subject 1\ADL\01.mp4` (space, not underscore; extra top folder) |
+| Le2i | `Coffee_room_02/video_14` | `le2i\FallDataset\Coffee_room_02\Coffee_room_02\Videos\...` (two extra folder levels; file names to confirm, often `video (14).avi`) |
+
+### Step 6a: `05_extract_keypoints.py` (next; plan, not written yet)
+
+Runs on the 3060 Ti and turns labelled video into a small file of numbers:
+
+1. Reads both label CSVs and keeps only the segments we use: walk / standing -> **upright**,
+   sitting -> **sitting**, fallen / lying -> **floor** (transitions and "other" are skipped).
+2. Finds each segment's video using the table above. Any label it cannot match is **listed
+   loudly**, never silently skipped: a label paired with the wrong video would ruin training
+   with no error.
+3. Opens the video, jumps to the segment's start time, and runs a pose model on every 2nd frame
+   until its end time.
+4. For each frame keeps the 17 COCO keypoints (x, y, confidence, normalized to 0-1 like the
+   Jetson's), the label, and which video and person (subject) it came from, so train/test can
+   later be split by person instead of by frame.
+5. Writes everything to `C:\hearth-data\keypoints.npz` (numbers only, a few MB): the input of
+   the training script.
+
+Pose model: **YOLO11-pose** (Ultralytics, already in `.venv-pc` because Person 2's code uses it).
+It finds the same 17 body points as the Jetson's poseNet; poseNet's extra `neck` is the midpoint
+of the shoulders, computed the same way on both sides. Expected to get through all 350 videos in
+a few minutes on the GPU.
+
+The catch: YOLO11-pose is a better pose model than poseNet and finds joints poseNet misses.
+Training randomly hides keypoints to make up for it, and the test set is our own recordings
+(real poseNet output), so the test score shows how much the difference hurts. Plan B if it
+hurts a lot: run the extraction on the Jetson with poseNet itself (identical keypoints to live,
+about an hour for all videos).
+
+### Step 6b onward
+
+- A hand-written PyTorch `Dataset`, network (`nn.Module`) and training loop on CUDA; test
+  accuracy and a confusion table on our recordings.
+- Export to ONNX; a network this small runs on the Jetson with plain numpy in under 1 ms.
+
+Both datasets are research data: credit them, don't build a product on them (Le2i is
+non-commercial).
 
 ## Licenses
 
@@ -203,5 +244,6 @@ The fall model is AGPL-3.0 (declared by its author); anything derived from it (t
 a fine-tuned model) keeps that license and attribution. PyTorch is BSD-style.
 Step 6 data: OmniFall labels CC BY-NC-SA 4.0; GMDCSA24 CC BY 4.0 (Alam et al., Data in Brief
 2024); Le2i CC BY-NC-SA (Charfi et al., Laboratoire Le2i / UBFC). The model we train from them
-is ours (no AGPL code or weights involved), but must credit the datasets and stays non-commercial
-because of Le2i and the OmniFall labels.
+is ours, but must credit the datasets and stays non-commercial because of Le2i and the OmniFall
+labels. Ultralytics YOLO11-pose (AGPL-3.0) is used only as a tool to produce the training
+keypoints; the classifier we train contains none of its code or weights.
