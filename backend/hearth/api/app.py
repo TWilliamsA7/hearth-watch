@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager, suppress
 import os
 from pathlib import Path
 
+import anyio
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -176,33 +178,33 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
             raise HTTPException(409, str(exc)) from exc
 
     async def stream(websocket: WebSocket, queue: asyncio.Queue, initial_payloads: list[dict]):
-        async def send_messages():
+        # An anyio task group (not raw asyncio tasks) so cancellation composes with
+        # Starlette's own cancel scopes when a client disconnects mid-send.
+        async def send_messages(group):
             for message in initial_payloads:
                 await websocket.send_json(message)
             while True:
                 message = await queue.get()
                 if message is None:
                     await websocket.close(code=1013, reason="Reconnect to refresh state")
-                    return
+                    break
                 await websocket.send_json(message)
+            group.cancel_scope.cancel()
 
-        async def receive_disconnect():
+        async def receive_disconnect(group):
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
-                    return
+                    break
+            group.cancel_scope.cancel()
 
-        tasks = [asyncio.create_task(send_messages()), asyncio.create_task(receive_disconnect())]
         try:
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                with suppress(WebSocketDisconnect):
-                    task.result()
+            with suppress(WebSocketDisconnect):
+                async with anyio.create_task_group() as group:
+                    group.start_soon(send_messages, group)
+                    group.start_soon(receive_disconnect, group)
         finally:
             monitor.unsubscribe(queue)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
 
     @app.websocket("/ws/nurse/{nurse_id}")
     async def nurse_feed(websocket: WebSocket, nurse_id: str):
