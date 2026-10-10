@@ -30,6 +30,7 @@ from hearth.eval.real_monitor import CONFIG_ENV, OVERRIDES_ENV, load_config
 from hearth.eval.scoring import EvalConfig, evaluate, summarize
 from hearth.eval.study import DEFAULT_STUDY_DIR, build_report, plan_study, run_study, study_markdown, write_study
 from hearth.sim.generate import ROOMS, GenSpec
+from hearth.sim.generator import NoiseConfig
 from hearth.sim.scenario import find_scenario, load_all
 
 
@@ -67,10 +68,14 @@ def _apply_monitor_config(args: argparse.Namespace) -> None:
         load_config()  # fail now on a bad file or key, not inside a worker
 
 
+def _noise(args: argparse.Namespace) -> NoiseConfig | None:
+    return NoiseConfig.edge_like() if getattr(args, "edge_like", False) else None
+
+
 def _batch(args: argparse.Namespace) -> int:
     scenarios = [find_scenario(s) for s in args.scenarios] if args.scenarios else list(load_all().values())
     config = EvalConfig(alert_tolerance=args.tolerance)
-    reports = run_batch(scenarios, args.seeds, load_monitor_factory(args.monitor), config)
+    reports = run_batch(scenarios, args.seeds, load_monitor_factory(args.monitor), config, noise=_noise(args))
     summary = summarize(reports)
 
     out = Path(args.out)
@@ -97,7 +102,8 @@ def _study(args: argparse.Namespace) -> int:
     plan = plan_study(base, count=args.count, people=_range(args.people), rooms=args.rooms, seed=args.seed,
                       sweep=args.sweep)  # fmt: skip
     print(f"Running {len(plan)} generated scenarios on {args.jobs} worker(s)...")
-    outcomes = run_study(plan, args.monitor, EvalConfig(alert_tolerance=args.tolerance), jobs=args.jobs)
+    outcomes = run_study(plan, args.monitor, EvalConfig(alert_tolerance=args.tolerance), jobs=args.jobs,
+                         noise=_noise(args))
     out = Path(args.out)
     report = build_report(outcomes, args.monitor, worst=args.worst, reproduce_dir=out / "scenarios")
     write_study(report, outcomes, out)
@@ -159,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--monitor-config", help="monitor config JSON (default hearth/monitor/config.json)")
         p.add_argument("--set", action="append", metavar="KEY=VALUE",
                        help="override one monitor config field, e.g. --set floor_hold_seconds=2 (repeatable)")
+        p.add_argument("--edge-like", action="store_true",
+                       help="emit observations shaped like the Jetson's (no keypoint confidence, face "
+                            "checked every 0.5 s, brief dropouts skipped)")
 
     args = parser.parse_args(argv)
     _apply_monitor_config(args)

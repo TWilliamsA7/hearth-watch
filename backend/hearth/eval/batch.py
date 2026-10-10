@@ -34,6 +34,7 @@ from hearth_schema.models import Event, Heartbeat, Observation
 
 from hearth.eval.report import EvaluationReport, EvaluationSummary
 from hearth.eval.scoring import SOURCE_LEVEL_EVENTS, EvalConfig, evaluate
+from hearth.sim.generator import NoiseConfig
 from hearth.sim.runner import SimRun, run_headless
 from hearth.sim.scenario import Scenario
 
@@ -142,9 +143,11 @@ def evaluate_run(
     config: EvalConfig = EvalConfig(),
     *,
     per_person: bool = True,
+    noise: NoiseConfig | None = None,
 ) -> tuple[EvaluationReport, list[Event]]:
-    """per_person=False hands the whole stream to one monitor (for a monitor that tracks people itself)."""
-    run = run_headless(scenario, seed)
+    """per_person=False hands the whole stream to one monitor (for a monitor that tracks people itself).
+    noise: perception noise for the generated observations (e.g. NoiseConfig.edge_like())."""
+    run = run_headless(scenario, seed, noise=noise)
     monitor = PerPersonMonitor(factory) if per_person else factory()
     events = drive(run, monitor, tail=max(config.alert_tolerance, config.check_tolerance) + 1.0)
     return evaluate(events, run.ground_truth, run.start, config=config), events
@@ -156,10 +159,11 @@ def seeds_for(scenario: Scenario, count: int) -> list[int]:
 
 
 def run_batch(
-    scenarios: Iterable[Scenario], seeds: int, factory: MonitorFactory, config: EvalConfig = EvalConfig()
+    scenarios: Iterable[Scenario], seeds: int, factory: MonitorFactory, config: EvalConfig = EvalConfig(),
+    *, noise: NoiseConfig | None = None,
 ) -> list[EvaluationReport]:
     return [
-        evaluate_run(sc, seed, factory, config)[0] for sc in scenarios for seed in seeds_for(sc, seeds)
+        evaluate_run(sc, seed, factory, config, noise=noise)[0] for sc in scenarios for seed in seeds_for(sc, seeds)
     ]
 
 

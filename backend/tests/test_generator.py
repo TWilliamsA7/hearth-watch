@@ -187,3 +187,24 @@ def test_fast_sit_is_a_genuine_false_alarm_risk():
     gt = next(g for g in sc.ground_truth() if g.person_id == "p3" and g.truth_label == "sitting")
     peak = max(o.features.vertical_velocity or 0 for o in off if o.person_id == "p3" and gt.t_start <= seconds(o) < gt.t_end)
     assert peak > 0.3
+
+
+def test_edge_like_observations_look_like_the_jetsons():
+    from hearth.sim.generator import NoiseConfig, ObservationGenerator
+    from hearth.sim.scenario import load_all
+
+    gen = ObservationGenerator(load_all()["possible-fall-01"], noise=NoiseConfig.edge_like())
+    obs = [o for o in gen.stream() if hasattr(o, "person_detected")]
+    keypoints = [k for o in obs for k in o.keypoints or []]
+    assert keypoints and all(k.confidence is None for k in keypoints)
+    checked = [o for o in obs if o.face_present is not None]
+    assert 0 < len(checked) < len(obs) / 3  # one face check per 0.5 s at 12 fps
+    assert any(o.features and o.features.torso_angle_deg is not None for o in obs)
+
+
+def test_edge_like_is_off_by_default():
+    from hearth.sim.generator import ObservationGenerator
+    from hearth.sim.scenario import load_all
+
+    obs = [o for o in ObservationGenerator(load_all()["possible-fall-01"]).stream() if hasattr(o, "person_detected")]
+    assert all(o.face_present is not None for o in obs)

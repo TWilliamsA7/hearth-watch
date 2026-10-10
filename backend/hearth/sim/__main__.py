@@ -33,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--out", default=DEFAULT_OUT_DIR, help=f"output directory (default {DEFAULT_OUT_DIR})")
     run.add_argument("--now", action="store_true", help="timestamp from the current time instead of a fixed epoch")
     run.add_argument("--clean", action="store_true", help="no perception noise")
+    run.add_argument("--edge-like", action="store_true", help="emit observations shaped like the Jetson's")
 
     gen = sub.add_parser("generate", help="generate random scenarios (YAML), and optionally run them")
     gen.add_argument("--people", type=int, default=GenSpec().people)
@@ -73,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("give scenario ids or --all")
     scenarios = list(load_all().values()) if args.all else [find_scenario(s) for s in args.scenarios]
     start = datetime.now(UTC).replace(microsecond=0) if args.now else SIM_EPOCH
-    noise = NoiseConfig.off() if args.clean else None
+    noise = NoiseConfig.off() if args.clean else NoiseConfig.edge_like() if args.edge_like else None
     for sc in scenarios:
         result = run_headless(sc, args.seed, start=start, noise=noise)
         paths = write_run(result, args.out)
