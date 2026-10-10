@@ -19,6 +19,10 @@ export interface AlertResult {
   event_id: string;
   t: number;
   outcome: "true_positive" | "duplicate" | "false_positive";
+  /**
+   * Resident the record concerns; None in single-person runs.
+   */
+  person_id: string | null;
   segment_id: string | null;
   truth_label:
     | (
@@ -58,6 +62,10 @@ export interface EvaluationReport {
   source: string;
   start: string;
   duration: number;
+  /**
+   * Resident ids; empty for single-person runs.
+   */
+  people: string[];
   alert_tolerance: number;
   counts: Counts;
   detection_delays: number[];
@@ -71,6 +79,10 @@ export interface EvaluationReport {
  */
 export interface SegmentResult {
   segment_id: string;
+  /**
+   * Resident the record concerns; None in single-person runs.
+   */
+  person_id: string | null;
   truth_label:
     | "walking"
     | "standing"
@@ -132,6 +144,10 @@ export interface TimelineEvent {
     | "source_offline"
     | "source_online"
     | "alert_acknowledged";
+  /**
+   * Resident the record concerns; None in single-person runs.
+   */
+  person_id: string | null;
 }
 /**
  * Totals across many runs. These are simulated results, not real-world accuracy.
@@ -169,6 +185,7 @@ export interface RunInfo {
   fps: number;
   room_id: string;
   scene: Scene;
+  residents: string[];
   observations: number;
   heartbeats: number;
 }
@@ -178,17 +195,25 @@ export interface RunInfo {
  */
 export interface Scene {
   /**
-   * Frame y of the floor line under the person.
+   * Frame y of the floor line under a person at the front.
    */
   floor_y: number;
   /**
-   * Standing height as a fraction of frame height.
+   * Standing height at the front, as a fraction of frame height.
    */
   person_height: number;
   /**
    * Simulated camera width / height.
    */
   frame_aspect: number;
+  /**
+   * How far the floor line rises in the frame for a person at depth 1 (back wall).
+   */
+  depth_rise: number;
+  /**
+   * How much smaller a person at depth 1 appears than one at depth 0.
+   */
+  depth_shrink: number;
   objects: SceneObject[];
 }
 /**
@@ -198,7 +223,7 @@ export interface Scene {
  * via the `definition` "SceneObject".
  */
 export interface SceneObject {
-  kind: "bed" | "chair" | "mat" | "occluder";
+  kind: "bed" | "chair" | "couch" | "mat" | "occluder";
   x: number;
   y: number;
   w: number;

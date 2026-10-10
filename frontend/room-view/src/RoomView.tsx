@@ -9,8 +9,10 @@ export interface RoomViewProps extends ViewFilter {
   feed: FeedSource;
   /** Room geometry. Simulated runs supply it (RunInfo.scene); live rooms may omit it. */
   scene?: Scene | null;
-  /** Owned by the dashboard's alert state (open, not yet resolved). */
+  /** Owned by the dashboard's alert state (open, not yet resolved). Draws the red room border. */
   alertActive?: boolean;
+  /** person_ids with an open alert; their skeletons turn red. */
+  alertPersonIds?: readonly string[];
   /** Treat the room as unknown after this long without an observation. Matches the backend's 3 s. */
   staleAfterMs?: number;
   /** Interpolate between observations for smoother motion (adds about one frame of latency). */
@@ -21,8 +23,9 @@ export interface RoomViewProps extends ViewFilter {
 }
 
 /**
- * The camera view: room backdrop plus the observed skeleton, drawn from contract
- * Observations only. Ground truth never reaches this component.
+ * The camera view: room backdrop plus every observed skeleton, drawn from contract
+ * Observations only. Several people are told apart by person_id and tagged P1, P2...
+ * Ground truth never reaches this component.
  * Sizes itself to its container's width; height follows the scene's frame aspect.
  */
 export function RoomView({
@@ -31,6 +34,7 @@ export function RoomView({
   roomId,
   source,
   alertActive = false,
+  alertPersonIds,
   staleAfterMs = 3000,
   smoothing = true,
   theme = DEFAULT_THEME,
@@ -39,8 +43,8 @@ export function RoomView({
 }: RoomViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const vm = useRef<ViewModel>(INITIAL_VIEW);
-  const props = useRef({ scene, alertActive, staleAfterMs, smoothing, theme });
-  props.current = { scene, alertActive, staleAfterMs, smoothing, theme };
+  const props = useRef({ scene, alertActive, alertPersonIds, staleAfterMs, smoothing, theme });
+  props.current = { scene, alertActive, alertPersonIds, staleAfterMs, smoothing, theme };
 
   useEffect(() => {
     vm.current = INITIAL_VIEW;

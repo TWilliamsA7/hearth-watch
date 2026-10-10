@@ -172,19 +172,26 @@ export class RecordedFeed implements FeedSource {
     this.notify();
   }
 
-  /** Jump to t seconds and re-emit the most recent observation at or before it. */
-  seek(t: number): void {
+  /**
+   * Jump to t seconds and replay the moment leading up to the last observation before it,
+   * so the view rebuilds every person's latest position (not just whoever was in the final
+   * record). Each replayed message keeps its original due time, so a seek into an outage
+   * still shows the last known poses as stale.
+   */
+  seek(t: number, replayMs = RecordedFeed.SEEK_REPLAY_MS): void {
     const target = Math.min(Math.max(t, 0), this.duration) * 1000;
     this.cursor = 0;
-    let latest: { at: number; msg: ServerMessage | null } | null = null;
-    while (this.cursor < this.records.length && this.records[this.cursor].at <= target) {
-      if (this.records[this.cursor].msg) latest = this.records[this.cursor];
-      this.cursor++;
-    }
+    while (this.cursor < this.records.length && this.records[this.cursor].at <= target) this.cursor++;
     this.elapsedMs = target;
-    if (latest?.msg) this.listeners.emit(latest.msg, this.startMs + latest.at);
+    const past = this.records.slice(0, this.cursor).filter((r) => r.msg);
+    const lastAt = past.length ? past[past.length - 1].at : 0;
+    for (const r of past) {
+      if (r.at >= lastAt - replayMs) this.listeners.emit(r.msg!, this.startMs + r.at);
+    }
     this.notify();
   }
+
+  static readonly SEEK_REPLAY_MS = 1000;
 
   dispose(): void {
     this.cancel();

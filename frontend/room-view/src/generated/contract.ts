@@ -32,6 +32,10 @@ export interface Event {
   source_type: "edge" | "simulation" | "replay";
   room_id: string;
   scenario_id: string | null;
+  /**
+   * Anonymous per-session track id of the person the event concerns (e.g. 'p1'). Not an identity. None = single-person source.
+   */
+  person_id: string | null;
   event_type:
     | "possible_fall"
     | "recovered"
@@ -58,6 +62,10 @@ export interface GroundTruth {
   scenario_id: string;
   seed: number;
   segment_id: string;
+  /**
+   * Which simulated resident this segment describes. None = single-resident scenario.
+   */
+  person_id: string | null;
   t_start: number;
   t_end: number;
   truth_label:
@@ -133,6 +141,10 @@ export interface Observation {
   source_type: "edge" | "simulation" | "replay";
   room_id: string;
   scenario_id: string | null;
+  /**
+   * Anonymous per-session track id when a source reports several people (e.g. 'p1'). Not an identity. None = single-person source.
+   */
+  person_id: string | null;
   person_detected: boolean;
   keypoints: Keypoint[] | null;
   features: PostureFeatures | null;

@@ -10,14 +10,23 @@ import type { Keypoint, Scene, SceneObject, SourceType } from "./types";
  */
 export type FeedStatus = "ok" | "waiting" | "stale" | "offline";
 
-export interface FrameState {
-  keypoints: Keypoint[] | null;
-  /** null = no observation received yet. */
-  personDetected: boolean | null;
+/** One person in the frame. personId is null for a single-person source. */
+export interface PersonFrame {
+  personId: string | null;
+  keypoints: Keypoint[];
   /** null = face detection did not run on this frame. */
   facePresent: boolean | null;
+  /** The dashboard has an open alert for this person. */
+  alert: boolean;
+}
+
+export interface FrameState {
+  people: PersonFrame[];
+  /** false = the camera reports nobody; null = no observation received yet. */
+  personDetected: boolean | null;
   sourceType: SourceType | null;
   status: FeedStatus;
+  /** Room-level alert: draws the red frame border. */
   alertActive: boolean;
 }
 
@@ -37,7 +46,7 @@ export interface Theme {
 export const DEFAULT_THEME: Theme = {
   background: "#1b1f27",
   floor: "#262b35",
-  furniture: { bed: "#3a4a63", chair: "#4a3f35", mat: "#2f4a3c", occluder: "#3b3640" },
+  furniture: { bed: "#3a4a63", chair: "#4a3f35", couch: "#4a3d52", mat: "#2f4a3c", occluder: "#3b3640" },
   bone: "#e8edf5",
   joint: "#7cc4ff",
   alert: "#ff5d5d",
@@ -50,7 +59,14 @@ export const DEFAULT_THEME: Theme = {
 const BADGE_TEXT: Record<SourceType, string> = { simulation: "SIMULATED", replay: "REPLAY", edge: "LIVE" };
 
 /** Scene used when none is supplied (e.g. a live room with no configured geometry). */
-export const EMPTY_SCENE: Scene = { floor_y: 0.92, person_height: 0.62, frame_aspect: 4 / 3, objects: [] };
+export const EMPTY_SCENE: Scene = {
+  floor_y: 0.92,
+  person_height: 0.62,
+  frame_aspect: 4 / 3,
+  depth_rise: 0.14,
+  depth_shrink: 0.3,
+  objects: [],
+};
 
 const MIN_CONFIDENCE = 0.3;
 
@@ -82,12 +98,14 @@ export function drawRoom(
   for (const o of furniture) drawObject(ctx, o, px, py, theme);
 
   const live = frame.status === "ok";
-  if (frame.keypoints && frame.personDetected) {
-    ctx.globalAlpha = live ? 1 : 0.3; // keep the last known pose visible, clearly faded
-    drawSkeleton(ctx, frame.keypoints, px, py, unit, frame.alertActive ? theme.alert : theme.bone, theme);
-    if (frame.facePresent && live) drawFaceBox(ctx, frame.keypoints, px, py, unit, theme);
-    ctx.globalAlpha = 1;
+  ctx.globalAlpha = live ? 1 : 0.3; // keep the last known poses visible, clearly faded
+  for (const person of backToFront(frame.people)) {
+    const alert = person.alert || (frame.alertActive && person.personId === null);
+    drawSkeleton(ctx, person.keypoints, px, py, unit, alert ? theme.alert : theme.bone, theme);
+    if (person.facePresent && live) drawFaceBox(ctx, person.keypoints, px, py, unit, theme);
+    if (person.personId) drawTag(ctx, person, px, py, unit, alert ? theme.alert : theme.muted);
   }
+  ctx.globalAlpha = 1;
   for (const o of occluders) drawObject(ctx, o, px, py, theme); // in front of the person
 
   if (frame.alertActive) {
@@ -113,6 +131,30 @@ export function statusMessage(frame: FrameState): string | null {
     default:
       return frame.personDetected === false ? "No person detected" : null;
   }
+}
+
+/** People higher in the frame are further from the camera; draw them first. */
+function backToFront(people: PersonFrame[]): PersonFrame[] {
+  const lowest = (p: PersonFrame) => Math.max(...p.keypoints.map((k) => k.y));
+  return [...people].sort((a, b) => lowest(a) - lowest(b));
+}
+
+/** Anonymous tag ("P1") above the head. A track label, never an identity. */
+function drawTag(
+  ctx: CanvasRenderingContext2D,
+  person: PersonFrame,
+  px: (x: number) => number,
+  py: (y: number) => number,
+  unit: number,
+  color: string,
+): void {
+  const top = person.keypoints.reduce((a, k) => (k.y < a.y ? k : a));
+  ctx.fillStyle = color;
+  ctx.font = `600 ${Math.round(unit * 0.03)}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText(person.personId!.toUpperCase(), px(top.x), py(top.y) - unit * 0.085); // above the face label
+  ctx.textAlign = "start";
 }
 
 function drawObject(

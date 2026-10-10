@@ -11,7 +11,7 @@ function obs(s: number, id: string): StreamRecord {
     type: "observation",
     data: {
       schema_version: "1", obs_id: id, timestamp: at(s), source: "sim", source_type: "simulation",
-      room_id: "room-01", scenario_id: "t", person_detected: false, keypoints: null, features: null,
+      room_id: "room-01", scenario_id: "t", person_id: null, person_detected: false, keypoints: null, features: null,
       face_present: false, face_confidence: null,
     },
   };
@@ -58,13 +58,13 @@ describe("RecordedFeed", () => {
     expect(feed.now()).toBe(Date.parse(START) + 2000);
   });
 
-  it("seek re-emits the latest observation at that point", () => {
+  it("seek replays the last second so the view can rebuild everyone", () => {
     const feed = new RecordedFeed(records, { start: START, duration: 3 });
     const seen = collect(feed);
     feed.seek(1.2);
-    expect(seen).toEqual(["c"]);
+    expect(seen).toEqual(["a", "b", "c"]); // the second up to the last observation (1.0 s)
     feed.tick(1000);
-    expect(seen).toEqual(["c", "d"]);
+    expect(seen).toEqual(["a", "b", "c", "d"]);
   });
 
   it("stops at the end of the run", () => {
@@ -80,7 +80,7 @@ describe("arrival times", () => {
     const arrivals: number[] = [];
     feed.subscribe((_m, receivedAt) => arrivals.push(receivedAt));
     feed.seek(8);
-    expect(arrivals).toEqual([Date.parse(START) + 1000]);
-    expect(feed.now() - arrivals[0]).toBe(7000);
+    expect(arrivals).toEqual([Date.parse(START), Date.parse(START) + 1000]);
+    expect(feed.now() - arrivals[arrivals.length - 1]).toBe(7000);
   });
 });

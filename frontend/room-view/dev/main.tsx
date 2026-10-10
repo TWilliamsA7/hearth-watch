@@ -55,7 +55,7 @@ function App() {
 
   if (!runs.length) return <p>No runs found. Generate some with <code>python -m hearth.sim run --all</code>.</p>;
   const t = state?.t ?? 0;
-  const segment = loaded?.truth.find((g) => g.t_start <= t && t < g.t_end) ?? null;
+  const now = loaded?.truth.filter((g) => g.t_start <= t && t < g.t_end) ?? [];
 
   return (
     <>
@@ -83,8 +83,16 @@ function App() {
         <span>{t.toFixed(2)} / {(state?.duration ?? 0).toFixed(1)} s</span>
       </div>
       <div className="truth">
-        Ground truth (dev only, never shown to the monitor): <b>{segment?.truth_label ?? "—"}</b>
-        {segment?.expects_alert ? " · expects alert" : ""}
+        Ground truth (dev only, never shown to the monitor):{" "}
+        {now.length === 0 && <b>—</b>}
+        {now.map((g) => (
+          <span key={g.segment_id}>
+            {g.person_id ? `${g.person_id.toUpperCase()} ` : ""}
+            <b>{g.truth_label}</b>
+            {g.expects_alert ? " (expects alert)" : ""}
+            {"  "}
+          </span>
+        ))}
       </div>
       <pre>{last ? JSON.stringify({ person_detected: last.person_detected, face_present: last.face_present, ...last.features }, null, 1) : ""}</pre>
     </>

@@ -58,8 +58,10 @@ describe("frame contents", () => {
   it("carries the live source type through for the badge", () => {
     const frame = frameAt(reduce(INITIAL_VIEW, observation(), T0), T0, OPTS);
     expect(frame.sourceType).toBe("edge");
-    expect(frame.facePresent).toBe(true);
-    expect(frame.keypoints).toHaveLength(EDGE.keypoints!.length);
+    expect(frame.people).toHaveLength(1);
+    expect(frame.people[0].personId).toBeNull(); // the fixture predates person_id; absent means single-person
+    expect(frame.people[0].facePresent).toBe(true);
+    expect(frame.people[0].keypoints).toHaveLength(EDGE.keypoints!.length);
   });
 
   it("smooths between consecutive observations", () => {
@@ -67,7 +69,7 @@ describe("frame contents", () => {
     let vm = reduce(INITIAL_VIEW, observation(), T0);
     vm = reduce(vm, observation({ timestamp: new Date(T0 + 100).toISOString(), keypoints: moved }), T0 + 100);
     const half = frameAt(vm, T0 + 150, { ...OPTS, smoothing: true });
-    expect(half.keypoints![0].y).toBeCloseTo(EDGE.keypoints![0].y + 0.05);
+    expect(half.people[0].keypoints[0].y).toBeCloseTo(EDGE.keypoints![0].y + 0.05);
   });
 });
 
@@ -75,5 +77,52 @@ describe("interpolateKeypoints", () => {
   it("drops joints the latest frame did not see", () => {
     const [a, b] = EDGE.keypoints!;
     expect(interpolateKeypoints([a, b], [b], 0.5)!.map((k) => k.name)).toEqual([b.name]);
+  });
+});
+
+describe("several people", () => {
+  const person = (id: string, dx: number, at: number): ServerMessage =>
+    observation({
+      person_id: id,
+      timestamp: new Date(T0 + at).toISOString(),
+      keypoints: EDGE.keypoints!.map((k) => ({ ...k, x: k.x + dx })),
+    });
+
+  it("keeps each person separately and tags them", () => {
+    let vm = reduce(INITIAL_VIEW, person("p1", 0, 0), T0);
+    vm = reduce(vm, person("p2", 0.2, 0), T0);
+    const frame = frameAt(vm, T0, OPTS);
+    expect(frame.people.map((p) => p.personId).sort()).toEqual(["p1", "p2"]);
+    expect(frame.personDetected).toBe(true);
+  });
+
+  it("drops a person the camera stops reporting while others continue", () => {
+    let vm = reduce(INITIAL_VIEW, person("p1", 0, 0), T0);
+    vm = reduce(vm, person("p2", 0.2, 0), T0);
+    for (let ms = 100; ms <= 1000; ms += 100) vm = reduce(vm, person("p1", 0, ms), T0 + ms);
+    expect(frameAt(vm, T0 + 1000, OPTS).people.map((p) => p.personId)).toEqual(["p1"]);
+  });
+
+  it("keeps everyone on screen (faded by status) when the whole feed goes quiet", () => {
+    let vm = reduce(INITIAL_VIEW, person("p1", 0, 0), T0);
+    vm = reduce(vm, person("p2", 0.2, 0), T0);
+    const frame = frameAt(vm, T0 + 5000, OPTS);
+    expect(frame.status).toBe("stale");
+    expect(frame.people).toHaveLength(2);
+  });
+
+  it("a nobody-visible frame clears everyone", () => {
+    let vm = reduce(INITIAL_VIEW, person("p1", 0, 0), T0);
+    vm = reduce(vm, observation({ person_detected: false, keypoints: null }), T0 + 100);
+    const frame = frameAt(vm, T0 + 100, OPTS);
+    expect(frame.people).toEqual([]);
+    expect(frame.personDetected).toBe(false);
+  });
+
+  it("marks only the alerted person", () => {
+    let vm = reduce(INITIAL_VIEW, person("p1", 0, 0), T0);
+    vm = reduce(vm, person("p2", 0.2, 0), T0);
+    const frame = frameAt(vm, T0, { ...OPTS, alertPersonIds: ["p2"] });
+    expect(Object.fromEntries(frame.people.map((p) => [p.personId, p.alert]))).toEqual({ p1: false, p2: true });
   });
 });
