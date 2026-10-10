@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "timestamp": "2026-10-10T02:15:01Z",
+  "source": "jetson-01",
+  "source_type": "edge",
+  "room_id": "room-01",
+  "fps": 11.5,
+  "inference_ms": 62.0,
+  "mem_used_mb": 1480.0
+}

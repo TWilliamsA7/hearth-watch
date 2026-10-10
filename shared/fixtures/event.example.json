@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "event_id": "evt-001",
+  "timestamp": "2026-10-10T02:15:00Z",
+  "source": "jetson-01",
+  "source_type": "edge",
+  "room_id": "room-01",
+  "scenario_id": null,
+  "event_type": "possible_fall",
+  "confidence": null,
+  "metadata": {
+    "posture": "floor_level",
+    "duration_seconds": 3.2
+  }
+}
