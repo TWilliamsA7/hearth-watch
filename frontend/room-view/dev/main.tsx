@@ -1,9 +1,19 @@
-// Dev page: plays recorded simulator runs through the same RoomView the dashboard uses.
+// Dev page: plays recorded simulator runs through the same RoomView (and RoomView3D) the dashboard uses.
 // Generate runs first:  python -m hearth.sim run --all
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { RecordedFeed, RoomView, parseStream, type GroundTruth, type Observation, type PlaybackState, type RunInfo } from "../src";
+import {
+  RecordedFeed,
+  RoomView,
+  RoomView3D,
+  parseStream,
+  type GroundTruth,
+  type Observation,
+  type PlaybackState,
+  type RunInfo,
+  type WorldTrack,
+} from "../src";
 
 function useRuns(): RunInfo[] {
   const [runs, setRuns] = useState<RunInfo[]>([]);
@@ -14,24 +24,29 @@ function useRuns(): RunInfo[] {
 }
 
 function useRun(run: RunInfo | null) {
-  const [loaded, setLoaded] = useState<{ feed: RecordedFeed; truth: GroundTruth[] } | null>(null);
+  const [loaded, setLoaded] = useState<{ feed: RecordedFeed; truth: GroundTruth[]; world: WorldTrack | null } | null>(null);
   useEffect(() => {
     if (!run) return;
     let feed: RecordedFeed | null = null;
     Promise.all([
       fetch(`/dev-api/runs/${run.run_id}/stream`).then((r) => r.text()),
       fetch(`/dev-api/runs/${run.run_id}/truth`).then((r) => r.text()),
-    ]).then(([stream, truth]) => {
+      // Runs recorded before the world track existed have none: re-run the simulator.
+      fetch(`/dev-api/runs/${run.run_id}/world`).then((r) => (r.ok ? (r.json() as Promise<WorldTrack>) : null)),
+    ]).then(([stream, truth, world]) => {
       feed = new RecordedFeed(parseStream(stream), { start: run.start, duration: run.duration });
-      setLoaded({ feed, truth: truth.split("\n").filter(Boolean).map((l) => JSON.parse(l)) });
+      setLoaded({ feed, truth: truth.split("\n").filter(Boolean).map((l) => JSON.parse(l)), world });
     });
     return () => feed?.dispose();
   }, [run]);
   return loaded;
 }
 
-// Deep links for debugging and demo prep: ?run=possible-fall-01-s42&t=13.5
+// Deep links for debugging and demo prep: ?run=possible-fall-01-s42&t=13.5&view=both
 const params = new URLSearchParams(window.location.search);
+
+type View = "2d" | "3d" | "both";
+const VIEWS: View[] = ["2d", "3d", "both"];
 
 function App() {
   const runs = useRuns();
@@ -40,6 +55,7 @@ function App() {
   const loaded = useRun(run);
   const [state, setState] = useState<PlaybackState | null>(null);
   const [last, setLast] = useState<Observation | null>(null);
+  const [view, setView] = useState<View>(VIEWS.find((v) => v === params.get("view")) ?? "both");
 
   useEffect(() => {
     if (!loaded) return;
@@ -75,8 +91,18 @@ function App() {
             {s}×
           </button>
         ))}
+        {VIEWS.map((v) => (
+          <button key={v} disabled={view === v} onClick={() => setView(v)}>
+            {v.toUpperCase()}
+          </button>
+        ))}
       </div>
-      {loaded && run && <RoomView feed={loaded.feed} scene={run.scene} roomId={run.room_id} />}
+      {loaded && run && (
+        <div className="views">
+          {view !== "3d" && <RoomView feed={loaded.feed} scene={run.scene} roomId={run.room_id} />}
+          {view !== "2d" && <RoomView3D world={loaded.world} time={() => loaded.feed.state.t} />}
+        </div>
+      )}
       <div className="bar">
         <input type="range" min={0} max={state?.duration ?? 0} step={0.05} value={t}
           onChange={(e) => loaded?.feed.seek(Number(e.target.value))} />

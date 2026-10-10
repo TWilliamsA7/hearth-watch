@@ -23,15 +23,16 @@ function simRuns(): Plugin {
             res.end(JSON.stringify(runs));
             return;
           }
-          const match = /^\/([a-z0-9-]+-s\d+)\/(stream|truth)$/.exec(path);
+          const match = /^\/([a-z0-9-]+-s\d+)\/(stream|truth|world)$/.exec(path);
           if (!match) {
             res.statusCode = 404;
             res.end();
             return;
           }
           const [, runId, kind] = match;
-          res.setHeader("Content-Type", "application/x-ndjson");
-          res.end(await readFile(resolve(RUNS_DIR, `${runId}.${kind}.jsonl`), "utf8"));
+          const world = kind === "world"; // one JSON document; the others are JSON lines
+          res.setHeader("Content-Type", world ? "application/json" : "application/x-ndjson");
+          res.end(await readFile(resolve(RUNS_DIR, `${runId}.${kind}.${world ? "json" : "jsonl"}`), "utf8"));
         } catch (err) {
           res.statusCode = 500;
           res.end(String(err));

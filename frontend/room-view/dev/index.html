@@ -6,11 +6,12 @@
     <title>Hearth room-view (dev)</title>
     <style>
       body { margin: 0; font-family: system-ui, sans-serif; background: #12151b; color: #e8edf5; }
-      main { max-width: 960px; margin: 0 auto; padding: 16px; }
+      main { max-width: 1400px; margin: 0 auto; padding: 16px; }
       .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
       .truth { font-size: 13px; color: #9aa3b2; }
       .truth b { color: #ffd166; }
       pre { font-size: 12px; color: #9aa3b2; margin: 8px 0 0; }
+      .views { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; align-items: start; }
       input[type="range"] { flex: 1; min-width: 200px; }
     </style>
   </head>
