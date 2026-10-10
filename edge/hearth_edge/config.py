@@ -1,0 +1,44 @@
+"""Edge settings. Every value can be overridden on the run_edge.py command line.
+
+Perception settings only. Fall-detection thresholds live in the backend monitor, never here.
+"""
+
+SOURCE_ID = "jetson-01"
+ROOM_ID = "room-01"
+
+# Laptop backend. Over the Jetson's USB link the laptop is 192.168.55.100.
+BACKEND_URL = "http://192.168.55.100:8000"
+OBSERVATIONS_PATH = "/ingest/observations"
+HEARTBEAT_PATH = "/ingest/heartbeat"
+
+# Camera (Logitech C270 / Arducam, USB UVC). MJPEG keeps USB bandwidth and CPU decode low.
+CAMERA = "/dev/video0"
+WIDTH = 640
+HEIGHT = 480
+
+# poseNet
+POSE_MODEL = "resnet18-body"
+POSE_THRESHOLD = 0.15
+
+# poseNet reports no per-keypoint confidence (measured: Keypoint has only ID, x, y).
+# Keypoints below POSE_THRESHOLD are simply absent. The schema v1 contract still requires a
+# confidence value, so until it becomes optional we send this placeholder, meaning
+# "reported by poseNet above its threshold". Set to None once the contract allows it.
+KEYPOINT_CONFIDENCE_PLACEHOLDER = 1.0
+
+# Face detection (P1). Runs on a subset of frames; other frames send face_present = null.
+FACE_MODEL = "facenet"
+FACE_THRESHOLD = 0.5
+FACE_INTERVAL_S = 0.5
+
+# Observation rate sent to the backend (frames beyond this are processed but not sent).
+OBS_HZ = 10.0
+BATCH_INTERVAL_S = 0.15
+HEARTBEAT_INTERVAL_S = 1.0
+HTTP_TIMEOUT_S = 2.0
+# About 10 s of observations are buffered while the backend is unreachable; older ones drop.
+QUEUE_MAX = 100
+
+# Hip-height smoothing for vertical_velocity, and the gap after which velocity resets.
+HIP_EMA_ALPHA = 0.5
+VELOCITY_RESET_GAP_S = 1.0
