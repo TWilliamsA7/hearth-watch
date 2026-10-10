@@ -1,0 +1,11 @@
+{
+  "repo_id": "SuperSura/hand-gesture-yolo26n",
+  "revision": "26cab531b83cdc9f09808a73c0dc485e35920c6b",
+  "filename": "yolo26n_hand-gesture_12c_v1.pt",
+  "sha256": "5695ba86a2a6e37994d1e9ad49a6e901009b02ae219a12be6c9272cc65f4abc9",
+  "image_size": 800,
+  "detection_confidence_min": 0.25,
+  "device": "cpu",
+  "max_fps": 5.0,
+  "torch_threads": 2
+}

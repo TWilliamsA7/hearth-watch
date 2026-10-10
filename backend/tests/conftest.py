@@ -36,4 +36,4 @@ def clock():
 
 @pytest.fixture
 def service(clock):
-    return MonitorService(MonitorConfig(), clock=clock, utcnow=clock.utcnow)
+    return MonitorService(MonitorConfig(posture_mode="pose_fallback"), clock=clock, utcnow=clock.utcnow)

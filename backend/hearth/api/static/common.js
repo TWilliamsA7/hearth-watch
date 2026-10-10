@@ -40,6 +40,6 @@ export function requestId() { return typeof crypto.randomUUID === 'function' ? c
 export function postureLabel(source) {
   if (!source.online || source.observation_stale || source.posture === 'unknown') return ' · Posture unknown';
   if (!source.posture_model) return ` · ${source.posture === 'standing' ? 'Upright' : 'Floor-level posture'} (pose)`;
-  const label = {standing:'Standing',sitting:'Sitting',fallen:'Fallen'}[source.posture] || 'Unknown';
+  const label = {standing:'Standing',sitting:'Sitting',fallen:'Lying'}[source.posture] || 'Unknown';
   return ` · ${label} (model${source.posture_confidence == null ? '' : ', '+Math.round(source.posture_confidence*100)+'%'})`;
 }

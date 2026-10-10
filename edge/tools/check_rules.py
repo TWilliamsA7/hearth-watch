@@ -12,7 +12,7 @@ For each clip it reports:
      recoveries it would emit, and when.
   2. WHY - for every frame with a person, each condition of the backend's two posture rules
      (mirrored from detector.py) and how often it failed:
-        standing: torso <= upright_angle_max_deg, head above hips, hips above floor_hip_y_min
+        standing: torso <= upright_angle_max_deg, head above hips, hips above upright_hip_y_max
         floor:    floor_angle_min..max_deg torso, head >= floor_head_y_min, hips >= floor_hip_y_min,
                   box aspect >= floor_bbox_aspect_min (or unmeasured)
      plus which body parts poseNet found, the range of each number, and a timeline.
@@ -94,7 +94,7 @@ def frame_conditions(f, c):
     if a is not None and a < c.floor_bbox_aspect_min:
         fails.append("box narrower than %.1f" % c.floor_bbox_aspect_min)
     standing = (t is not None and t <= c.upright_angle_max_deg and h is not None and p is not None
-                and h < p < c.floor_hip_y_min)
+                and h < p < c.upright_hip_y_max)
     return standing, not fails, fails
 
 
@@ -141,6 +141,7 @@ def report(path, config, show_frames=False, out=sys.stdout, hold_s=None):
       % (len(raw), span, (len(raw) - 1) / span if span else 0, len(person),
          ", %d invalid lines skipped" % bad if bad else ""))
 
+    w("posture mode: %s (pose conditions below explain pose evidence only)\n" % config.posture_mode)
     events = run_real_detector(models, config)
     alerts = [e for e in events if e[1] == "possible_fall"]
     if alerts:
@@ -219,7 +220,7 @@ def main(argv=None):
           "standing: torso <= %g deg, hips above %.2f"
           % (os.path.relpath(args.config, repo), config.floor_hold_seconds, config.floor_angle_min_deg,
              config.floor_angle_max_deg, config.floor_head_y_min, config.floor_hip_y_min,
-             config.floor_bbox_aspect_min, config.upright_angle_max_deg, config.floor_hip_y_min))
+             config.floor_bbox_aspect_min, config.upright_angle_max_deg, config.upright_hip_y_max))
     for path in args.files:
         report(path, config, args.frames)
         if args.hold:

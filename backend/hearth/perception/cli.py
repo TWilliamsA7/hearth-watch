@@ -12,6 +12,8 @@ from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from .fall_model import ModelSettings, download_weights, load_model, observation_from_result
+from .hand_model import settings as hand_settings, LABELS as HAND_LABELS, prediction_from_result as hand_prediction
+from .posture_vision import infer_posture, draw_status
 
 
 def post(base, endpoint, body):
@@ -41,16 +43,31 @@ def main(argv=None):
     parser.add_argument("--video-fps", type=float, help="Override missing/incorrect video FPS metadata")
     parser.add_argument("--preview", action="store_true", help="Show local annotated video; Q closes it")
     parser.add_argument("--dry-run", action="store_true", help="Print observations without contacting backend")
+    parser.add_argument("--hand-gestures", action="store_true", help="Also classify hand gestures on the same frames")
+    parser.add_argument("--hand-weights", type=Path, default=Path("models/hand-gesture/gesture.pt"))
+    parser.add_argument("--posture-enhancement", choices=["none", "clahe"], default="clahe",
+                        help="Retry uncertain posture detections with OpenCV local contrast")
+    parser.add_argument("--posture-retry-threshold", type=float, default=.65,
+                        help="Score below which to retry; match backend model_confidence_min")
+    parser.add_argument("--help-gesture", choices=["fist", "palm", "call"], default="fist",
+                        help="Preview guidance only; backend hand_help_label controls alerts")
     args = parser.parse_args(argv)
     if not math.isfinite(args.max_fps) or args.max_fps <= 0:
         parser.error("--max-fps must be positive and finite")
     if args.max_frames is not None and args.max_frames < 1:
         parser.error("--max-frames must be positive")
+    if not math.isfinite(args.posture_retry_threshold) or not 0 < args.posture_retry_threshold <= 1:
+        parser.error("--posture-retry-threshold must be in (0,1]")
     if args.download_only:
         path = download_weights(args.weights, config)
+        if args.hand_gestures:
+            print(f"Verified hand weights: {download_weights(args.hand_weights, hand_settings()).resolve()}")
         print(f"Verified weights: {path.resolve()}\nRevision: {config.revision}")
         return
     model = load_model(args.weights, config, args.runtime_dir)
+    hand_config = hand_settings() if args.hand_gestures else None
+    hand_model = (load_model(args.hand_weights, hand_config, args.runtime_dir, expected_labels=HAND_LABELS)
+                  if hand_config else None)
     import cv2
     import numpy as np
     if args.check:
@@ -61,6 +78,11 @@ def main(argv=None):
         print(json.dumps({"model": config.repo_id, "revision": config.revision, "labels": model.names,
                           "blank_frame_detections": len(results[0].boxes),
                           "cold_inference_ms": round((time.perf_counter()-started)*1000, 1)}))
+        if hand_model:
+            hand_result = hand_model.predict(np.zeros((800,800,3),dtype=np.uint8),device=args.device,
+                imgsz=hand_config.image_size,conf=hand_config.detection_confidence_min,save=False,verbose=False)[0]
+            print(json.dumps({"hand_model":hand_config.repo_id,"labels":hand_model.names,
+                              "blank_prediction":hand_prediction(hand_result,hand_config).model_dump(mode="json")}))
         return
     cap = None
     if args.camera is not None:
@@ -123,11 +145,15 @@ def main(argv=None):
             timestamp = (start_time + timedelta(seconds=frame_index/video_fps)
                          if args.video else datetime.now(timezone.utc))
             inference_start = time.perf_counter()
-            result = model.predict(frame, device=args.device, imgsz=config.image_size,
-                                   conf=config.detection_confidence_min, agnostic_nms=True,
-                                   save=False, verbose=False)[0]
+            observation, result = infer_posture(model, frame, settings=config, device=args.device,
+                context=context, timestamp=timestamp, enhancement=args.posture_enhancement,
+                retry_threshold=args.posture_retry_threshold)
+            hand_result = (hand_model.predict(frame, device=args.device, imgsz=hand_config.image_size,
+                conf=hand_config.detection_confidence_min, agnostic_nms=True, save=False, verbose=False)[0]
+                           if hand_model else None)
             metrics["inference_ms"] = (time.perf_counter()-inference_start)*1000
-            observation = observation_from_result(result, timestamp=timestamp, settings=config, **context)
+            if hand_result is not None:
+                observation.hand_gesture_prediction = hand_prediction(hand_result, hand_config)
             processed += 1
             metrics["fps"] = processed / max(time.monotonic()-started, .001)
             if args.dry_run:
@@ -135,7 +161,12 @@ def main(argv=None):
             else:
                 try:
                     response = post(args.backend, "/ingest/observations", {"observations": [observation.model_dump(mode="json")]})
-                    if response.get("accepted") != 1:
+                    if response.get("stale", 0) or response.get("future", 0):
+                        if time.monotonic()-last_warning >= 5:
+                            print(f"Backend dropped frame outside live timestamp limits: {response}. "
+                                  "Check device clock and inference latency.", file=sys.stderr)
+                            last_warning = time.monotonic()
+                    elif response.get("accepted") != 1:
                         raise RuntimeError(f"Observation was not accepted: {response}")
                 except HTTPError as exc:
                     raise RuntimeError(f"Backend rejected observation ({exc.code}): {exc.read().decode()}") from exc
@@ -146,9 +177,17 @@ def main(argv=None):
                 prediction = observation.posture_prediction
                 print(f"{context['source_type']} {args.room}: {prediction.label} "
                       f"score={prediction.confidence} detections={prediction.detection_count} "
-                      f"inference_ms={metrics['inference_ms']:.0f}", flush=True)
+                      f"input={prediction.input_processing} inference_ms={metrics['inference_ms']:.0f}", flush=True)
+                if observation.hand_gesture_prediction:
+                    gesture = observation.hand_gesture_prediction
+                    print(f"hand: {gesture.label} score={gesture.confidence} detections={gesture.detection_count}", flush=True)
             if args.preview:
-                cv2.imshow("Hearth local model preview - Q to quit", result.plot())
+                annotated = result.plot(img=frame.copy())
+                if hand_result is not None:
+                    annotated = hand_result.plot(img=annotated)
+                annotated = draw_status(annotated, observation,
+                                        posture_threshold=args.posture_retry_threshold, help_label=args.help_gesture)
+                cv2.imshow("Hearth local model preview - Q to quit", annotated)
                 if cv2.waitKey(1) & 0xff == ord("q"):
                     break
             if args.image or (args.max_frames is not None and processed >= args.max_frames):

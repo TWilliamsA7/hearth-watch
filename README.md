@@ -85,7 +85,8 @@ In a second terminal, run the stub (no Jetson or frontend needed):
 
 | Route | Behavior |
 | --- | --- |
-| `POST /ingest/observations` | `ObservationBatch`, 1–500 observations; returns accepted, duplicate and out-of-order counts |
+| `POST /ingest/observations` | `ObservationBatch`, 1–500 observations; returns accepted, duplicates, out_of_order, stale and future counts |
+| `GET /ingest/status` | Cumulative ingestion counts since startup and live edge timestamp limits |
 | `POST /ingest/heartbeat` | `Heartbeat`; returns current `SourceStatus` |
 | `WS /ws/room/room-01` | Typed observation, event, source-status and alert messages; reconnect gets current state and retained events |
 | `GET /rooms/room-01/snapshot` | Latest observations per source/run, retained events, alerts and source statuses |
@@ -299,3 +300,11 @@ Never ask a judge to fall. Never imply lying down proves a fall.
 | 4 — Dashboard + demo | Room view, skeleton, alerts, timeline, scenario controls, evaluation view, demo script | `frontend/` |
 
 Changes to `shared/` affect everyone; coordinate them through the monitoring-core owner.
+
+### Posture determination
+
+Model-only mode (`posture_mode: "model") is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. `pose_fallback` is an explicit legacy test option. A sustained lying classification still requires the configured hold before a possible-fall alert.
+
+### Live edge/model integration
+
+The live config now uses `pose_fallback`: supplied Hugging Face posture predictions remain authoritative, while rotated-poseNet observations without predictions use calibrated pose thresholds. Floor head/hips are 0.40/0.45 for the reported mid-frame mat camera; upright uses its independent `upright_hip_y_max` of 0.65 so standing at hip_y 0.60 can recover incidents. Separate sources are not implicitly fused. See `docs/gaston-edge-integration.md` and `edge/tools/check_rules.py` for clip validation.

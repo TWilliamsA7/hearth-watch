@@ -107,7 +107,7 @@ def observation_from_result(result, *, timestamp: datetime, source: str, source_
                        posture_prediction=prediction, face_present=None)
 
 
-def load_model(path: Path, settings: ModelSettings, runtime_dir: Path):
+def load_model(path: Path, settings: ModelSettings, runtime_dir: Path, *, expected_labels=None):
     verify_weights(path, settings)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     os.environ["YOLO_CONFIG_DIR"] = str(runtime_dir.resolve())
@@ -123,7 +123,8 @@ def load_model(path: Path, settings: ModelSettings, runtime_dir: Path):
     yolo_settings.update({"sync": False})
     torch.set_num_threads(settings.torch_threads)
     model = YOLO(str(path), task="detect")
-    labels = {canonical_label(name) for name in model.names.values()}
-    if labels != {"standing", "sitting", "fallen"}:
+    labels = ({name.strip().lower() for name in model.names.values()} if expected_labels
+              else {canonical_label(name) for name in model.names.values()})
+    if labels != (expected_labels or {"standing", "sitting", "fallen"}):
         raise ValueError(f"Unexpected checkpoint labels: {model.names}")
     return model

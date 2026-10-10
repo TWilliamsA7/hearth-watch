@@ -171,6 +171,7 @@ def test_parse_control_line():
         assert run_edge.parse_control_line(bad) is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Jetson stdin control uses POSIX pipe select; Windows select accepts sockets only")
 def test_read_control_never_blocks_and_reports_end_of_input():
     r, w = os.pipe()
     reader = os.fdopen(r, "r")

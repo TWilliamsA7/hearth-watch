@@ -87,13 +87,14 @@ class FallDetector:
         if state.evidence_mode != mode:
             state.floor_since = state.standing_since = None
             state.evidence_mode = mode
-        if not obs.person_detected or (f is None and prediction is None):
+        if (not obs.person_detected or (f is None and prediction is None)
+                or (c.posture_mode == "model" and prediction is None)):
             state.posture, state.floor_since = "unknown", None
             state.standing_since = None
             return events
         upright = (f is not None and f.torso_angle_deg is not None and f.torso_angle_deg <= c.upright_angle_max_deg
                    and f.head_y is not None and f.hip_y is not None
-                   and f.head_y < f.hip_y < c.floor_hip_y_min)
+                   and f.head_y < f.hip_y < c.upright_hip_y_max)
         floor = (f is not None and f.torso_angle_deg is not None
                  and c.floor_angle_min_deg <= f.torso_angle_deg <= c.floor_angle_max_deg
                  and f.head_y is not None and f.head_y >= c.floor_head_y_min
@@ -134,6 +135,7 @@ class FallDetector:
                     metadata.update(posture="fallen", reason="sustained_model_fallen",
                                     model_id=prediction.model_id, model_revision=prediction.model_revision,
                                     model_confidence=prediction.confidence)
+                    metadata["input_processing"] = prediction.input_processing
                 hips = [p for p in obs.keypoints or []
                         if p.name in {"left_hip", "right_hip"}
                         and p.confidence is not None and p.confidence >= c.zone_keypoint_confidence_min]

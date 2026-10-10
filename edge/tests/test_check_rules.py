@@ -67,20 +67,29 @@ def test_too_short_on_the_floor_gives_no_alert(tmp_path):
     assert result["alerts"] == 0 and "VERDICT: no possible-fall alert" in text
 
 
+def test_calibrated_mid_frame_lying_alerts_then_standing_recovers(tmp_path):
+    standing = dict(STAND, hip_y=.60)
+    lying = dict(FLOOR, torso_angle_deg=72, head_y=.46, hip_y=.58, bbox_aspect=2.4)
+    result, text = run(clip(tmp_path, [(1, standing), (4, lying), (1, standing)]))
+    assert [e[1] for e in result['events']] == ['possible_fall', 'recovered']
+    assert result['standing'] == 20 and result['floor'] == 40
+    assert 'posture mode: pose_fallback' in text
+
+
 def test_face_only_frames_explain_what_is_missing(tmp_path):
     result, text = run(clip(tmp_path, [(2, FACE_ONLY)]))
     assert result["alerts"] == 0 and result["standing"] == 0 and result["floor"] == 0
     assert result["fails"]["no torso angle (needs neck/shoulders + a hip)"] == 20
     assert result["fails"]["no hips"] == 20
-    assert result["fails"]["head above the 0.65 line"] == 20
+    assert "head above the 0.40 line" not in result["fails"]  # measured head is below calibrated line
     assert "100%  no hips" in text
 
 
 def test_lying_too_high_in_the_frame_is_explained(tmp_path):
-    high = dict(FLOOR, head_y=0.5, hip_y=0.55)  # lying, but mid-frame: camera not aimed at floor
+    high = dict(FLOOR, head_y=0.3, hip_y=0.35)  # above this camera's calibrated mat region
     result, text = run(clip(tmp_path, [(4, high)]))
     assert result["alerts"] == 0
-    assert result["fails"] == {"head above the 0.65 line": 40, "hips above the 0.65 line": 40}
+    assert result["fails"] == {"head above the 0.40 line": 40, "hips above the 0.45 line": 40}
 
 
 def test_gap_longer_than_backend_limit_resets_the_hold(tmp_path):

@@ -145,3 +145,7 @@ Use `--video-fps` only to correct missing/incorrect recording FPS metadata. Repl
 - This Python 3.11+ Ultralytics runner is **not compatible with stock JetPack Python 3.6**. Jetson Nano deployment requires verifying a compatible PyTorch/Ultralytics environment or a tested exported runtime; no Nano performance is claimed.
 
 Model source and attribution: Melih Uzunoğlu, `melihuzunoglu/human-fall-detection`, revision `97261b03632a9715a27481b2cfdac6a78e26d2d9`. The model repository declares AGPL-3.0. [Ultralytics prediction documentation](https://docs.ultralytics.com/modes/predict/) describes the result interface used by the adapter. This integration does not establish clinical accuracy.
+
+## Laptop model pipeline
+
+See [MODEL_RUNNER.md](MODEL_RUNNER.md) for the Hugging Face posture/hand models and OpenCV contrast retry. These run on a laptop with camera-frame access. The backend accepts model predictions and calibrated Jetson pose observations through the same ingestion pipeline.

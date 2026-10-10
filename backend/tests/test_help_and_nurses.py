@@ -87,7 +87,7 @@ def test_manual_requests_are_idempotent_and_do_not_mark_camera_online(service):
 
 
 def test_subscriptions_route_by_room_kind_and_duty(clock):
-    service=MonitorService(MonitorConfig(additional_room_ids=["room-02"]),clock=clock,utcnow=clock.utcnow)
+    service=MonitorService(MonitorConfig(posture_mode="pose_fallback", additional_room_ids=["room-02"]),clock=clock,utcnow=clock.utcnow)
     matched=nurse(service)
     other_room=nurse(service, "Other room", rooms=["room-02"])
     other_kind=nurse(service, "Equipment", kinds=["source_offline"])
@@ -137,7 +137,7 @@ def test_off_duty_cannot_accept_but_owner_can_finish_previous_work(service):
 
 
 def test_room_snapshot_isolated(clock):
-    service=MonitorService(MonitorConfig(additional_room_ids=["room-02"]),clock=clock,utcnow=clock.utcnow)
+    service=MonitorService(MonitorConfig(posture_mode="pose_fallback", additional_room_ids=["room-02"]),clock=clock,utcnow=clock.utcnow)
     service.request_help(HelpRequest(request_id="one",room_id="room-02"))
     assert not service.snapshot("room-01").alerts
     assert len(service.snapshot("room-02").alerts)==1
