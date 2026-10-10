@@ -15,12 +15,14 @@ same script.
 
 from __future__ import annotations
 
+import math
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from typing import Literal
 
 from hearth.sim.floorplan import Floor, FloorPlan, Seat, distance, route_segments, to_frame, to_world
+from hearth.sim.generator import ResidentTrack
 from hearth.sim.scenario import Facing, Resident, Segment, TagValue
 
 State = Literal["standing", "sitting", "lying", "fallen", "absent"]
@@ -31,6 +33,10 @@ FallOutcome = Literal["long_lie", "recover"]
 FALL_KINDS: tuple[FallKind, ...] = ("trip", "sit_miss", "stand_up", "faint")
 FALL_CLEARANCE_M = 0.55  # floor needed either side of where someone lands, along their body
 LONG_LIE_MIN_S = 15.0
+PERSONAL_SPACE_M = 0.5  # closest two people come (body centres, or a standing body and a lying one)
+LYING_HALF_LENGTH_M = 0.75  # someone lying on the floor reaches this far either side, along x
+CLASH_STEP_S = 0.1
+LOOKAHEAD_S = 2.5
 
 
 @dataclass(frozen=True)
@@ -72,14 +78,60 @@ class FallPlan:
 
 @dataclass
 class Household:
+    """What residents share while they're planned: the room, its seats, and each other.
+
+    Residents are planned one at a time. Everyone planned so far is fixed (`planned`);
+    the one being planned must keep out of their way (clash()).
+    """
+
     plan: FloorPlan
     bookings: dict[int, list[tuple[float, float]]] = field(default_factory=dict)  # seat index -> busy intervals
+    planned: dict[str, ResidentTrack] = field(default_factory=dict)
 
     def seat_free(self, seat: Seat, t0: float, t1: float) -> bool:
         return all(b1 <= t0 or t1 <= b0 for b0, b1 in self.bookings.get(seat.index, []))
 
     def book(self, seat: Seat, t0: float, t1: float) -> None:
         self.bookings.setdefault(seat.index, []).append((t0, t1))
+
+    def settle(self, actor: Actor) -> None:
+        """Fix an actor's plan; everyone planned after them works around it."""
+        if actor.seat is not None:  # still seated at the end: the seat stays taken
+            self.book(actor.seat, actor.seated_since, math.inf)
+        self.planned[actor.resident_id] = ResidentTrack(actor.resident(), self.plan.scene)
+
+    def body(self, track: ResidentTrack, t: float) -> tuple[Floor, float] | None:
+        """Where a body is on the floor at t, as (centre, half length along x); None if not in the way."""
+        seg = track.plans[track.segment_index(t)].segment
+        if seg.label in ("absent", "sitting") or (seg.label == "lying_intentional" and seg.surface_y is not None):
+            return None  # out of the room, or on furniture that walkers already avoid
+        x, depth = track.position_at(t)
+        lying = seg.label in ("fall", "lying_intentional")
+        return to_world(self.plan.scene, x, depth), LYING_HALF_LENGTH_M if lying else 0.0
+
+    def clash(self, actor: Actor, t0: float, t1: float, *, allow: Collection[str] = ()) -> float | None:
+        """First time in [t0, t1] the actor comes too close to anyone already planned, or None."""
+        others = [tr for rid, tr in self.planned.items() if rid != actor.resident_id and rid not in allow]
+        if not others or t1 <= t0:
+            return None
+        mine = ResidentTrack(actor.resident(), self.plan.scene)
+        steps = max(1, math.ceil((t1 - t0) / CLASH_STEP_S))
+        for k in range(steps + 1):
+            t = t0 + (t1 - t0) * k / steps
+            me = self.body(mine, t)
+            if me is None:
+                continue
+            for other in others:
+                them = self.body(other, t)
+                if them is not None and gap(me, them) < PERSONAL_SPACE_M:
+                    return t
+        return None
+
+
+def gap(a: tuple[Floor, float], b: tuple[Floor, float]) -> float:
+    """Distance between two bodies, each a point or a stretch along x."""
+    (pa, ea), (pb, eb) = a, b
+    return math.hypot(max(0.0, abs(pa[0] - pb[0]) - ea - eb), pa[1] - pb[1])
 
 
 def depth_bin(depth: float) -> str:
@@ -108,6 +160,10 @@ class Actor:
         self.facing: Facing = "camera"
         self.start: tuple[Floor, Facing] = (self.pos, self.facing)
         self.falls: list[Segment] = []
+        self.fall_events: list[tuple[float, Floor]] = []  # (when the fall starts, where they land)
+        self.allow: set[str] = set()  # residents this one may come close to (a responder and the faller)
+        self.clashes = 0  # actions dropped because they'd have walked into someone
+        self.unresolved = 0  # clashes it couldn't avoid
 
     # --- setup and output ---
 
@@ -273,6 +329,7 @@ class Actor:
             "fault": kind, "outcome": outcome, "depth_bin": depth_bin(depth), "persona": self.persona.name,
             "facing": self.facing,
         }
+        self.fall_events.append((self.t, land))
         seg = self._seg("fall", floor_time, self._u(0.6, 1.0), x=round(x, 4), depth=round(depth, 4), tags=tags)
         self.falls.append(seg)
         if self.seat is not None:
@@ -387,7 +444,7 @@ class Actor:
             if self.t >= until - 1.0 and pending is None:
                 break
             if pending is not None and self.t >= pending.at:
-                if self.do_fall(pending, until):
+                if self._try(lambda: self.do_fall(pending, until)):
                     if pending.outcome == "long_lie":
                         break
                     pending = None
@@ -398,9 +455,99 @@ class Actor:
                 kind = pending.kind if failures < 3 else "trip" if failures < 5 else "faint"
                 pending = FallPlan(kind, self.t + 2.0, pending.outcome) if failures < 8 else None
             goal = (pick or _pick_goal)(self)
-            if not self.do_goal(goal, until):
-                self.stand(self._u(1.0, 2.0))
+            if not self._try(lambda: self.do_goal(goal, until)):
+                self.wait()
+        self.hold_clear(until)
+
+    # --- keeping out of each other's way ---
+
+    def _snapshot(self) -> tuple:
+        return (list(self.segments), list(self.legs), self.t, self.state, self.seat, self.seated_since, self.pos,
+                self.facing, list(self.falls), list(self.fall_events),
+                {k: list(v) for k, v in self.home.bookings.items()})  # fmt: skip
+
+    def _restore(self, snap: tuple) -> None:
+        (self.segments, self.legs, self.t, self.state, self.seat, self.seated_since, self.pos, self.facing,
+         self.falls, self.fall_events, self.home.bookings) = snap  # fmt: skip
+
+    def _try(self, action: Callable[[], bool]) -> bool:
+        """Do an action, or undo it if it fails or would walk into someone."""
+        snap = self._snapshot()
+        if not action():
+            self._restore(snap)
+            return False
+        # Look a little past the end too: finishing in someone's path leaves no time to get out of it.
+        if self.home.clash(self, snap[2], self.t + LOOKAHEAD_S, allow=self.allow) is not None:
+            self._restore(snap)
+            self.clashes += 1
+            return False
+        return True
+
+    def _stand_still(self) -> bool:
+        self.stand(self._u(1.0, 2.0))
+        return True
+
+    def wait(self) -> None:
+        """Stay put a moment; if someone is coming through here, step somewhere else."""
+        if self._try(self._stand_still):
+            return
+        x, z = self.pos
+        for r in (0.8, 1.3, 2.0):  # step aside, a little further each time
+            turn = self._u(0.0, math.pi / 4)
+            for k in range(8):
+                a = turn + k * math.pi / 4
+                spot = (x + r * math.cos(a), z + r * math.sin(a))
+                if self.plan.free(spot) and self._try(lambda: self.go(spot)):
+                    return
+        for _ in range(6):
+            if self._try(lambda: self.go(self.plan.random_point(self.rng, visible=False))):
+                return
+        self.unresolved += 1
+        self._stand_still()
+
+    def hold_clear(self, until: float) -> None:
+        """hold(), but keep out of the way of anyone who comes past in the meantime."""
+        snap = self._snapshot()
         self.hold(until)
+        if self.home.clash(self, snap[2], self.t, allow=self.allow) is None:
+            return
+        self._restore(snap)
+        for _ in range(100):
+            if self.t >= until - 0.5:
+                break
+            self.wait()
+        self.hold(until)
+
+    def respond(self, faller: Actor, until: float) -> bool:
+        """Hurry to someone who has fallen and kneel beside them (bending stands in for kneeling)."""
+        if not faller.fall_events:
+            return False
+        _, (fx, fz) = faller.fall_events[0]
+        reach = LYING_HALF_LENGTH_M + PERSONAL_SPACE_M
+        spots = [(fx, fz + 0.6), (fx - reach, fz), (fx + reach, fz), (fx, fz - 0.6)]
+        self.allow.add(faller.resident_id)
+        speed, self.speed = self.speed, round(min(self.speed * 1.3, 1.5), 3)
+        try:
+            for spot in spots:
+                if self.plan.free(spot) and self._try(lambda: self._attend(spot, fx, until)):
+                    return True
+        finally:
+            self.speed = speed
+        self.allow.discard(faller.resident_id)
+        return False
+
+    def _attend(self, spot: Floor, faller_x: float, until: float) -> bool:
+        if not self.go(spot):
+            return False
+        facing: Facing = "left" if faller_x < spot[0] - 0.1 else "right" if faller_x > spot[0] + 0.1 else "camera"
+        self.facing = facing
+        tags: dict[str, TagValue] = {"responder": True}
+        self._seg("bending", self._u(4.0, 8.0), self._u(0.6, 0.9), facing=facing, tags=tags)
+        self._seg("standing", self._u(2.0, 4.0), 0.9, tags=tags)
+        if until - self.t > 6.0:
+            self._seg("bending", self._u(3.0, 6.0), 0.8, tags=tags)
+            self._seg("standing", 1.0, 0.9, tags=tags)
+        return True
 
     def hold(self, until: float) -> None:
         """Carry on with the current activity until `until`."""

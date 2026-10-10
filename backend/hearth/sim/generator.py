@@ -228,6 +228,13 @@ class ResidentTrack:
         seg = self.plans[i].segment
         return (ease_in if seg.label == "fall" else smoothstep)(tau / seg.transition)
 
+    def position_at(self, t: float) -> tuple[float, float]:
+        """(frame x, depth) of the body's root at scenario time t, without building a pose."""
+        i = self.segment_index(t)
+        p = self.plans[i]
+        k = self._progress(i, min(t - p.t_start, p.segment.duration))
+        return p.x_start + (p.x_end - p.x_start) * k, p.depth_start + (p.depth_end - p.depth_start) * k
+
     def pose_at(self, i: int, tau: float) -> ImagePose:
         """Ideal (noise-free) pose during segment i at local time tau, in the camera frame."""
         return self._pose_in(i, tau, _IMAGE)

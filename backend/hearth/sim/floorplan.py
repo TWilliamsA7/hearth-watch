@@ -18,7 +18,7 @@ from __future__ import annotations
 import heapq
 import math
 import random
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from hearth.sim.scenario import ObjectKind, Scene, SceneObject, Segment
@@ -34,6 +34,7 @@ FRONT_DEPTH = 0.02  # nobody stands right at the frame's bottom edge
 BACK_DEPTH = 0.95  # nor flat against the back wall
 WALKABLE: frozenset[ObjectKind] = frozenset({"mat"})
 DOOR_DEPTH = 0.08
+ROOM_TOLERANCE_M = 0.005  # routes hugging a wall drift this far past it through frame-coordinate rounding
 SHORTCUT_MARGIN_M = 0.02  # smoothed routes keep this clear of furniture, so rounding can't clip a corner
 
 
@@ -114,7 +115,8 @@ class FloorPlan:
 
     def in_room(self, p: Floor) -> bool:
         x, z = p
-        return self.x_min - 1e-9 <= x <= self.x_max + 1e-9 and self.z_min - 1e-9 <= z <= self.z_max + 1e-9
+        e = ROOM_TOLERANCE_M
+        return self.x_min - e <= x <= self.x_max + e and self.z_min - e <= z <= self.z_max + e
 
     def free(self, p: Floor, ignore: Collection[int] = (), margin: float = 0.0) -> bool:
         return self.in_room(p) and not (self.blockers(p, margin) - set(ignore))
@@ -139,11 +141,6 @@ class FloorPlan:
         """Walk to the front of a seat, then step back into it."""
         route = self.find_path(start, self.approach(seat), **kw)
         return None if route is None else route + [seat.at(self.scene)]
-
-    def route_from_seat(self, seat: Seat, goal: Floor, **kw) -> list[Floor] | None:
-        """Step forward out of a seat, then walk to goal."""
-        route = self.find_path(self.approach(seat), goal, **kw)
-        return None if route is None else [seat.at(self.scene)] + route
 
     def hiding_spots(self) -> list[tuple[Floor, float]]:
         """(where to stand, frame y below which the body is hidden) behind each occluder."""
@@ -183,14 +180,11 @@ class FloorPlan:
             for k in range(steps + 1)
         )
 
-    def find_path(
-        self, start: Floor, goal: Floor, *, ignore: Collection[int] = (), cost: Callable[[Floor], float] | None = None
-    ) -> list[Floor] | None:
+    def find_path(self, start: Floor, goal: Floor, *, ignore: Collection[int] = ()) -> list[Floor] | None:
         """A smoothed route from start to goal (both included), or None if there is none.
 
         Furniture under the start or goal is ignored, so routes can begin on the couch and
-        end in the chair. cost(p) adds an extra cost per metre walked through p (e.g. to
-        keep away from other people); it must be >= 0.
+        end in the chair.
         """
         ignore = set(ignore) | self.blockers(start) | self.blockers(goal)
         if not (self.in_room(start) and self.in_room(goal)):
@@ -218,7 +212,7 @@ class FloorPlan:
                     if di and dj and not (self._open((c[0] + di, c[1]), ignore) and self._open((c[0], c[1] + dj), ignore)):
                         continue  # don't cut a corner of furniture
                     step = self.cell * (math.sqrt(2.0) if di and dj else 1.0)
-                    nd = d + step * (1.0 + (cost(p) if cost else 0.0))
+                    nd = d + step
                     if nd < best.get(n, math.inf):
                         best[n], came[n] = nd, c
                         heapq.heappush(frontier, (nd + self._octile(n, g), nd, n))
@@ -230,7 +224,11 @@ class FloorPlan:
             cells.append(c)
             c = came[c]
         points = [start] + [self._centre(c) for c in reversed(cells[1:-1])] + [goal]
-        return self._smooth(points, ignore) if cost is None else self._thin(points)
+        route = self._smooth(points, ignore)
+        # The grid can't see everything between a point and the cell it snapped to.
+        if not all(self.line_free(a, b, ignore) for a, b in zip(route, route[1:])):
+            return None
+        return route
 
     def _open(self, c: Cell, ignore: Collection[int]) -> bool:
         return 0 <= c[0] < self.nx and 0 <= c[1] < self.nz and self.free(self._centre(c), ignore)
@@ -251,15 +249,6 @@ class FloorPlan:
             i = j
         return out
 
-    def _thin(self, points: list[Floor]) -> list[Floor]:
-        """Drop points in the middle of straight runs (cost-shaped routes aren't cut short)."""
-        out = [points[0]]
-        for prev, p, nxt in zip(points, points[1:], points[2:]):
-            if (p[0] - prev[0]) * (nxt[1] - p[1]) != (p[1] - prev[1]) * (nxt[0] - p[0]):
-                out.append(p)
-        out.append(points[-1])
-        return out
-
 
 def route_segments(scene: Scene, route: list[Floor], speed: float, *, first_transition: float = 0.3) -> list[Segment]:
     """One walking segment per leg of a route, timed for a walking speed in metres per second."""
@@ -269,7 +258,7 @@ def route_segments(scene: Scene, route: list[Floor], speed: float, *, first_tran
         if length < 0.05:
             continue
         x, depth = to_frame(scene, b)
-        duration = round(max(length / speed, 0.4), 3)
+        duration = round(max(length / speed, 0.25), 3)
         transition = min(first_transition if not segments else 0.2, duration)
         segments.append(Segment(label="walking", duration=duration, transition=transition,
                                 x=round(x, 4), depth=round(min(max(depth, 0.0), 1.0), 4)))  # fmt: skip

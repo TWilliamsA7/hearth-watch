@@ -1,6 +1,6 @@
 import pytest
 from hearth.sim.floorplan import FloorPlan, to_world
-from hearth.sim.generate import ROOMS, GenSpec, generate
+from hearth.sim.generate import ROOMS, GenSpec, close_calls, generate
 from hearth.sim.runner import run_headless
 from hearth.sim.scenario import Scenario, load_scenario, save_scenario
 
@@ -80,3 +80,39 @@ def test_generated_scenarios_run_and_round_trip_through_yaml(tmp_path):
         assert load_scenario(save_scenario(sc, tmp_path / f"{sc.scenario_id}.yaml")) == sc
         run = run_headless(sc)
         assert run.observations and run.ground_truth
+
+
+def test_residents_keep_out_of_each_others_way():
+    """Priority planning isn't perfect in a crowded room, but brushes are rare and recorded."""
+    scenarios = [generate(GenSpec(people=3, room=room, fall_rate=1.0), seed) for room in ROOMS for seed in range(20)]
+    crowded = [sc for sc in scenarios if close_calls(sc)]
+    assert len(crowded) <= 0.1 * len(scenarios)
+    seconds_close = sum(len(close_calls(sc)) for sc in crowded) * 0.1
+    assert seconds_close <= 0.01 * sum(sc.duration for sc in scenarios)
+
+
+def test_a_responder_comes_and_kneels_beside_the_faller():
+    seen = 0
+    for seed in range(20):
+        sc = generate(GenSpec(people=3, fall_rate=1.0, recover_rate=0.0, responder_rate=1.0), seed)
+        if not sc.tags["responder"]:
+            continue
+        seen += 1
+        assert sc.tags["response_s"] > 0
+        faller = next(r for r in sc.cast() if any(s.label == "fall" for s in r.segments))
+        fall = next(s for s in faller.segments if s.label == "fall")
+        helper = next(r for r in sc.cast() if any(s.tags.get("responder") for s in r.segments))
+        assert helper is not faller
+        kneel = next(s for s in helper.segments if s.tags.get("responder"))
+        assert kneel.label == "bending" and not kneel.alerts
+        # Where they knelt: the end of their last walk before kneeling.
+        i = helper.segments.index(kneel)
+        last_walk = next(s for s in reversed(helper.segments[:i]) if s.x is not None)
+        here, there = to_world(sc.scene, last_walk.x, last_walk.depth), to_world(sc.scene, fall.x, fall.depth)
+        assert ((here[0] - there[0]) ** 2 + (here[1] - there[1]) ** 2) ** 0.5 < 1.5
+    assert seen >= 15
+
+
+def test_nobody_helps_when_the_faller_gets_up():
+    for seed in range(10):
+        assert not generate(GenSpec(people=3, fall_rate=1.0, recover_rate=1.0, responder_rate=1.0), seed).tags["responder"]

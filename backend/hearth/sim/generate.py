@@ -3,8 +3,10 @@
     scenario = generate(GenSpec(people=3, fall_rate=1.0), seed=7)
 
 Residents are planned one after another on a shared floor plan (hearth.sim.behavior),
-each pursuing goals from their persona. Faults are decided up front from the seed: whether
-someone falls, who, roughly when and how, and whether the camera drops out for a while.
+each pursuing goals from their persona and keeping out of the way of everyone planned
+before them. Faults are decided up front from the seed: whether someone falls, who,
+roughly when and how, whether someone else comes to help, and whether the camera drops
+out for a while. The faller is planned first, so a helper can head for where they landed.
 Everything that drives a result is written into tags (Scenario.tags for the run,
 Segment.tags for each fall, hard negative and outage) so evaluation can break results down
 by them.
@@ -22,8 +24,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hearth.sim.behavior import FALL_KINDS, PERSONAS, Actor, FallKind, FallPlan, Household
+from hearth.sim.behavior import FALL_KINDS, PERSONAL_SPACE_M, PERSONAS, Actor, FallKind, FallPlan, Household, gap
 from hearth.sim.floorplan import FloorPlan
+from hearth.sim.generator import ResidentTrack
 from hearth.sim.scenario import Scenario, Scene, SceneObject, Segment, TagValue, Variation
 
 GENERATOR_VERSION = "1"
@@ -68,6 +71,7 @@ class GenSpec(BaseModel):
     fall_rate: Unit = Field(default=0.5, description="Chance that someone falls.")
     fall_kinds: dict[FallKind, float] = Field(default_factory=lambda: {k: 1.0 for k in FALL_KINDS})
     recover_rate: Unit = Field(default=0.3, description="Chance a faller gets back up (else they stay down).")
+    responder_rate: Unit = Field(default=0.5, description="Chance someone comes to help a faller who stays down.")
     outage_rate: Unit = Field(default=0.1, description="Chance the camera drops out for a few seconds.")
     personas: dict[str, float] = Field(default_factory=lambda: {"steady": 2.0, "frail": 1.0, "restless": 1.0})
     start_inside: Unit = Field(default=0.7, description="Chance each resident is in the room at the start.")
@@ -102,17 +106,35 @@ def generate(spec: GenSpec, seed: int) -> Scenario:
         fall = FallPlan(_weighted(rng, spec.fall_kinds), round(rng.uniform(0.15, 0.55) * spec.duration, 3),  # type: ignore[arg-type]
                         "recover" if rng.random() < spec.recover_rate else "long_lie")  # fmt: skip
     outage = rng.random() < spec.outage_rate
+    responder, reaction = None, 0.0
+    if fall is not None and fall.outcome == "long_lie" and spec.people > 1 and rng.random() < spec.responder_rate:
+        responder = rng.choice([r for r in ids if r != faller])
+        reaction = rng.uniform(2.0, 8.0)
 
-    actors: list[Actor] = []
-    for rid in ids:
-        actor = Actor(home, rid, personas[rid], random.Random(f"gen/{GENERATOR_VERSION}/{seed}/{rid}"))
-        _start(actor, spec)
-        actor.live(spec.duration, fall if rid == faller else None)
-        actors.append(actor)
-
-    total = max(a.t for a in actors)
-    for a in actors:
-        a.hold(total)
+    planned: dict[str, Actor] = {}
+    total = spec.duration
+    for rid in sorted(ids, key=lambda r: r != faller):  # the faller first
+        actor = _arrive(home, rid, personas[rid], random.Random(f"gen/{GENERATOR_VERSION}/{seed}/{rid}"), spec)
+        fallen = planned[faller] if faller in planned else None
+        if rid == responder and fallen is not None and fallen.fall_events:
+            actor.live(fallen.fall_events[0][0] + reaction)
+            if actor.respond(fallen, total):
+                actor.hold_clear(total)
+            else:
+                actor.live(total)
+        else:
+            actor.live(total, fall if rid == faller else None)
+        if rid == faller:
+            total = max(total, actor.t)
+        home.settle(actor)
+        planned[rid] = actor
+    # Someone's last action may run past the end; everyone else carries on until then too,
+    # still keeping out of the way.
+    total = max(a.t for a in planned.values())
+    for actor in planned.values():
+        actor.hold_clear(total)
+        home.settle(actor)
+    actors = [planned[rid] for rid in ids]
     if outage:
         _insert_outage(actors, rng)
 
@@ -123,6 +145,13 @@ def generate(spec: GenSpec, seed: int) -> Scenario:
     }  # fmt: skip
     if falls:
         tags |= {"fall_kind": str(falls[0].tags["fault"]), "fall_outcome": str(falls[0].tags["outcome"])}
+    helpers = [a for a in actors if any(s.tags.get("responder") for s in a.segments)]
+    tags["responder"] = bool(helpers)
+    if helpers and faller is not None:
+        tags["response_s"] = round(_arrival(helpers[0]) - planned[faller].fall_events[0][0], 2)
+    unresolved = sum(a.unresolved for a in actors)
+    if unresolved:
+        tags["clashes"] = unresolved
     return Scenario(
         scenario_id=scenario_id(spec, seed),
         title=_title(spec, actors),
@@ -134,6 +163,31 @@ def generate(spec: GenSpec, seed: int) -> Scenario:
         tags=tags,
         residents=[a.resident() for a in actors],
     )
+
+
+def _timed(segments: list[Segment]) -> list[tuple[float, Segment]]:
+    """(start time, segment) pairs."""
+    out, t = [], 0.0
+    for s in segments:
+        out.append((t, s))
+        t += s.duration
+    return out
+
+
+def _arrival(helper: Actor) -> float:
+    """When a responder reaches the faller: the start of their first kneel."""
+    return next(t for t, s in _timed(helper.segments) if s.tags.get("responder"))
+
+
+def _arrive(home: Household, rid: str, persona, rng: random.Random, spec: GenSpec) -> Actor:
+    """A resident and their opening moments, placed out of the way of everyone planned so far."""
+    for _ in range(8):
+        actor = Actor(home, rid, persona, rng)
+        _start(actor, spec)
+        if home.clash(actor, 0.0, actor.t) is None:
+            return actor
+    actor.unresolved += 1
+    return actor
 
 
 def _start(actor: Actor, spec: GenSpec) -> None:
@@ -209,3 +263,28 @@ def _description(actors: list[Actor]) -> str:
                 labels.append(s.label)
         lines.append(f"{a.resident_id} ({a.persona.name}, {a.speed} m/s): " + " > ".join(labels))
     return "\n".join(lines)
+
+
+def close_calls(scenario: Scenario, *, step: float = 0.1, tolerance: float = 0.05) -> list[tuple[float, str, str, float]]:
+    """(t, person, person, gap in metres) wherever two residents come closer than personal space.
+
+    A responder kneeling by the person they came to help doesn't count. For checking
+    generated scenarios; hand-written ones may put people as close as they like.
+    """
+    home = Household(FloorPlan(scenario.scene))
+    tracks = {r.resident_id or "": ResidentTrack(r, scenario.scene) for r in scenario.cast()}
+    helpers = {r.resident_id for r in scenario.cast() if any(s.tags.get("responder") for s in r.segments)}
+    fallers = {r.resident_id for r in scenario.cast() if any(s.label == "fall" for s in r.segments)}
+    ids = list(tracks)
+    out = []
+    for k in range(int(scenario.duration / step) + 1):
+        t = k * step
+        bodies = {rid: home.body(tracks[rid], t) for rid in ids}
+        for i, a in enumerate(ids):
+            for b in ids[i + 1 :]:
+                if {a, b} & helpers and {a, b} & fallers:
+                    continue
+                ba, bb = bodies[a], bodies[b]
+                if ba and bb and (g := gap(ba, bb)) < PERSONAL_SPACE_M - tolerance:
+                    out.append((round(t, 3), a, b, round(g, 3)))
+    return out
