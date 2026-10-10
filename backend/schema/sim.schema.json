@@ -71,7 +71,8 @@
         "t",
         "outcome",
         "segment_id",
-        "truth_label"
+        "truth_label",
+        "delay"
       ],
       "title": "AlertResult",
       "type": "object"
@@ -181,6 +182,7 @@
         }
       },
       "required": [
+        "report_version",
         "run_id",
         "scenario_id",
         "seed",
@@ -263,6 +265,7 @@
         }
       },
       "required": [
+        "report_version",
         "runs",
         "scenarios",
         "counts",
@@ -374,6 +377,12 @@
           "type": "array"
         }
       },
+      "required": [
+        "floor_y",
+        "person_height",
+        "frame_aspect",
+        "objects"
+      ],
       "title": "Scene",
       "type": "object"
     },
@@ -529,7 +538,10 @@
         "t_start",
         "t_end",
         "expected_event",
-        "detected"
+        "detected",
+        "delay",
+        "matched_event_id",
+        "false_alerts"
       ],
       "title": "SegmentResult",
       "type": "object"

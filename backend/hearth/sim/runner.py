@@ -26,7 +26,7 @@ class RunInfo(BaseModel):
     """Run metadata (<run>.run.json). The dashboard uses it to draw the room and place
     events on the scenario clock (t = timestamp - start)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
 
     run_id: str
     scenario_id: str

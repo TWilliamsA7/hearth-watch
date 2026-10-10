@@ -19,7 +19,7 @@ AlertOutcome = Literal["true_positive", "duplicate", "false_positive"]
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
 
 
 class SegmentResult(_Model):
