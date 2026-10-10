@@ -50,6 +50,22 @@ def _on_plane(camera: Camera, u: float, v: float, y: float) -> Vec3 | None:
     return (o[0] + d[0] * s, y, o[2] + d[2] * s)
 
 
+FALLBACK_DISTANCE_M = 2.5  # how far into the room someone is assumed to be when the floor can't tell
+
+
+def _at_distance(camera: Camera, points: dict[str, tuple[float, float]], dist: float) -> Vec3 | None:
+    """The point `dist` metres from the lens (across the floor) along the mean seen joint's ray."""
+    uv = _mean(points, tuple(points))
+    if uv is None:
+        return None
+    d, o = camera.ray(*uv), camera.position
+    along = math.hypot(d[0], d[2])
+    if along <= 1e-6:
+        return None
+    s = dist / along
+    return (o[0] + d[0] * s, o[1] + d[1] * s, o[2] + d[2] * s)
+
+
 def _mean(points: dict[str, tuple[float, float]], names: tuple[str, ...]) -> tuple[float, float] | None:
     found = [points[n] for n in names if n in points]
     if not found:
@@ -98,6 +114,11 @@ def lift(keypoints: list[tuple[str, float, float]], camera: Camera, room: Room, 
                 anchor = _on_plane(camera, uv[0], uv[1], ANKLE_Y if frac is None else frac * height)
                 if anchor is not None:
                     break
+        if anchor is None:
+            # Nothing whose height we can assume meets the floor-based plane (e.g. only a neck and
+            # an arm at the top of the frame). Still show them: at a typical distance on that ray.
+            # One stray keypoint isn't enough evidence of a person.
+            anchor = _at_distance(camera, points, FALLBACK_DISTANCE_M) if len(points) >= 2 else None
         if anchor is None:
             return None
         if _depth(camera, anchor) < 0.3:

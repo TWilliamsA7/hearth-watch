@@ -98,3 +98,11 @@ def test_unseen_joints_are_filled_in_so_the_avatar_is_a_whole_person():
     assert got is not None
     assert {"left_hip", "right_hip", "nose", "left_ankle", "right_ankle"} <= set(got.joints)
     assert got.joints["left_ankle"][1] < 0.2 and got.joints["nose"][1] > 1.4  # feet down, head up
+
+
+def test_a_few_joints_at_the_top_of_the_frame_still_place_someone():
+    """What the Jetson sent with someone half out of view: a shoulder, an elbow and the neck."""
+    camera = Camera(ROOM, CameraSpec(preset="jetson"))
+    got = lift([("neck", 0.55, 0.05), ("left_shoulder", 0.6, 0.06), ("left_elbow", 0.63, 0.2)], camera, ROOM)
+    assert got is not None and -ROOM.depth < got.root[1] < 0
+    assert {"left_hip", "right_hip", "neck"} <= set(got.joints)  # a whole person for the avatar

@@ -72,6 +72,7 @@ class LiveLink:
         self._heading: float | None = None
         self._last_seen: datetime | None = None
         self._present = False
+        self._person_at: float | None = None  # monitor clock when someone was last made out
         controller.tick_hooks.append(self.update)
         monitor.event_listeners.append(self._on_event)
 
@@ -138,12 +139,17 @@ class LiveLink:
         obs = self._latest()
         if obs is not None:
             self._last_seen = obs.timestamp
-        if obs is None or not self._fresh() or not obs.person_detected or not obs.keypoints:
-            if self._present:
+        now = self.monitor.clock()
+        seen = obs is not None and self._fresh() and obs.person_detected and bool(obs.keypoints)
+        if not seen:
+            # poseNet misses people for a frame or two; only call them gone after STALE_S.
+            gone = self._person_at is None or now - self._person_at > STALE_S
+            if self._present and gone:
                 w.set_external(self.source, None)
                 self._present = False
                 self._root = self._heading = None
             return
+        self._person_at = now
         posture, label = self._monitor_posture(obs)
         body = lift([(k.name, k.x, k.y) for k in obs.keypoints], w.camera, w.room, height=self.height,
                     posture=posture)  # fmt: skip
