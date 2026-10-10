@@ -18,11 +18,10 @@ from pathlib import Path
 
 from hearth_schema.models import Event, GroundTruth
 
-from hearth.eval.batch import DEFAULT_MONITOR, load_monitor_factory, run_batch, summary_markdown
+from hearth.eval.batch import DEFAULT_MONITOR, DEFAULT_OUT_DIR, load_monitor_factory, run_batch, summary_markdown
 from hearth.eval.scoring import EvalConfig, evaluate, summarize
 from hearth.sim.scenario import find_scenario, load_all
 
-DEFAULT_OUT_DIR = Path(__file__).resolve().parents[3] / "recordings" / "eval"
 
 
 def read_events(path: Path) -> list[Event]:

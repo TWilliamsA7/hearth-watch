@@ -26,6 +26,7 @@ import importlib
 import statistics
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Protocol
 
 from hearth_schema.models import Event, Heartbeat, Observation
@@ -36,6 +37,7 @@ from hearth.sim.runner import SimRun, run_headless
 from hearth.sim.scenario import Scenario
 
 DEFAULT_MONITOR = "hearth.monitor:create_monitor"
+DEFAULT_OUT_DIR = Path(__file__).resolve().parents[3] / "recordings" / "eval"
 TICK_SECONDS = 0.25
 
 
