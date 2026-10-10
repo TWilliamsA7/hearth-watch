@@ -26,8 +26,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 
-Facing = Literal["camera", "left", "right"]
-PoseName = Literal["standing", "sitting", "bending", "lying", "fallen"]
+Facing = Literal["camera", "left", "right", "away"]
+PoseName = Literal[
+    "standing", "sitting", "bending", "lying", "fallen", "supine", "prone", "side_lying", "kneel", "half_kneel",
+    "hands_knees", "crouch", "floor_sit", "half_stand", "stumble", "lunge", "buckle", "lean_back",
+]
+Motion = Literal["collapse", "trip", "faint", "sit_miss", "stand_up", "collision", "stumble", "get_up"]
+"""A choreographed movement through several poses (hearth.sim.motion)."""
 ObjectKind = Literal["bed", "chair", "couch", "mat", "occluder"]
 TagValue = str | int | float | bool
 
@@ -106,6 +111,16 @@ class Segment(_Model):
     facing: Facing | None = Field(
         default=None, description="Defaults to the walking direction, else the previous facing."
     )
+    heading: float | None = Field(
+        default=None,
+        description="Radians, overriding facing: 0 faces the camera, pi/2 image right, pi away (as WorldPerson.heading).",
+    )
+    motion: Motion | None = Field(
+        default=None,
+        description="Move through a choreographed sequence of poses instead of blending straight to the label's pose. "
+        "A 'fall' with none collapses sideways.",
+    )
+    variant: int | None = Field(default=None, description="Seeds the motion's variations (limbs, timing).")
     surface_y: Unit | None = Field(
         default=None, description="Frame y of the surface the person rests on (bed top). Defaults to the floor."
     )
@@ -140,6 +155,7 @@ class Resident(_Model):
     start_x: float = 0.5
     start_depth: Unit = 0.0
     start_facing: Facing = "camera"
+    start_heading: float | None = Field(default=None, description="Radians, overriding start_facing.")
     segments: list[Segment] = Field(min_length=1)
 
     @property

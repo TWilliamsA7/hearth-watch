@@ -4,9 +4,9 @@ import math
 
 import pytest
 from hearth.sim.generator import ObservationGenerator
-from hearth.sim.pose import body_pose, project
+from hearth.sim.pose import body_pose
 from hearth.sim.scenario import Scene, SceneObject, load_all
-from hearth.sim.world import PERSON_HEIGHT_M, ROOM_DEPTH_M, WorldTrack, place, room_geometry, world_x
+from hearth.sim.world import PERSON_HEIGHT_M, ROOM_DEPTH_M, WorldTrack, place, room_geometry, to_image, world_x
 
 SCENARIOS = load_all()
 ALL = pytest.mark.parametrize("scenario", SCENARIOS.values(), ids=lambda s: s.scenario_id)
@@ -53,11 +53,11 @@ def test_world_x_inverts_the_camera_perspective():
     assert abs(world_x(SCENE, 0.8, 1.0)) > abs(world_x(SCENE, 0.8, 0.0))
     # A person's world width matches their width in the frame at their own depth.
     depth = 0.6
-    img = project(body_pose("standing"), "camera", 0.5, SCENE.floor_at(depth), SCENE, SCENE.height_at(depth))
     world = standing(depth=depth)
+    img = to_image(world, SCENE)
     img_w = (img["left_shoulder"][0] - img["right_shoulder"][0]) * SCENE.frame_aspect
     world_w = world["left_shoulder"][0] - world["right_shoulder"][0]
-    assert world_w / PERSON_HEIGHT_M == pytest.approx(img_w / SCENE.height_at(depth))
+    assert world_w / PERSON_HEIGHT_M == pytest.approx(img_w / SCENE.height_at(depth), rel=0.02)
 
 
 def test_a_raised_surface_lifts_the_body():

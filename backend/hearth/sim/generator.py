@@ -16,6 +16,7 @@ from a virtual clock. The same scenario and seed always produce identical output
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import math
 import random
 from collections.abc import Callable, Iterator
@@ -25,30 +26,34 @@ from datetime import UTC, datetime, timedelta
 from hearth_schema.models import Heartbeat, Observation
 
 from hearth.sim.features import compute_features
+from hearth.sim.motion import Key, timeline
 from hearth.sim.pose import (
     JOINTS,
-    SIDE_ONLY_POSES,
-    STEP_HZ,
+    KEY_POSES,
     BodyPose,
-    ImagePose,
-    blend,
+    blend_body,
     body_pose,
-    ease_in,
-    project,
+    gait_amount,
+    hips_of,
     smoothstep,
+    stride_length,
 )
-from hearth.sim.scenario import Facing, PoseName, Resident, Scenario, Scene, Segment
+from hearth.sim.scenario import PoseName, Resident, Scenario, Scene, Segment
 from hearth.sim.world import (
     HEADING,
     PERSON_HEIGHT_M,
+    ImagePose,
     WorldFrame,
     WorldPerson,
     WorldPose,
     WorldRoute,
     WorldTrack,
-    blend_world,
-    place,
+    body,
+    frame_depth,
+    frame_x,
+    lift,
     room_geometry,
+    to_image,
     world_person,
     world_x,
     world_z,
@@ -69,12 +74,21 @@ LABEL_POSE: dict[str, PoseName] = {
 }
 """Labels not listed (occluded, absent, camera_outage) hold the previous pose."""
 
+LIES_ALONG: frozenset[str] = frozenset({"lying", "fallen", "supine", "prone", "side_lying"})
+"""Poses that, without a heading of their own, are drawn side-on (as hand-written scenarios expect)."""
+
 MIN_VISIBLE_KEYPOINTS = 4
 
 BOX_PADDING = 0.01
 """How far around a nearer person's keypoints their body hides people behind them."""
 
+ACCEL_M = 0.6
+"""A walk speeds up over about this distance at the start and slows down over it at the end."""
+CORNER_M = 0.3
+"""Heading turns from one leg of a walk to the next over this distance either side of the corner."""
+
 Box = tuple[float, float, float, float]  # x0, y0, x1, y1
+Floor = tuple[float, float]  # (x, z) metres
 
 
 @dataclass(frozen=True)
@@ -90,11 +104,105 @@ class NoiseConfig:
     face_rate_front: float = 0.95
     face_rate_side: float = 0.35
     face_rate_lying: float = 0.15
+    face_rate_away: float = 0.02
 
     @classmethod
     def off(cls) -> NoiseConfig:
         return cls(jitter=0.0, confidence_sd=0.0, keypoint_dropout=0.0, frame_drop=0.0, lying_penalty=0.0,
-                   face_rate_front=1.0, face_rate_side=0.0, face_rate_lying=0.0)  # fmt: skip
+                   face_rate_front=1.0, face_rate_side=0.0, face_rate_lying=0.0, face_rate_away=0.0)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Stance:
+    """A body at one instant, before it is put in the room: pose, heading, where, how high."""
+
+    body: BodyPose
+    heading: float
+    x: float  # root on the floor, metres (world x, z)
+    z: float
+    base: float  # metres above the floor (a bed's surface)
+
+    def flipped(self) -> Stance:
+        """The same body described from the opposite heading (no visible change)."""
+        return Stance({j: (-f, v, -l) for j, (f, v, l) in self.body.items()}, self.heading + math.pi,
+                      self.x, self.z, self.base)  # fmt: skip
+
+
+def _turn(a: float, b: float) -> float:
+    """The short way round from heading a to heading b."""
+    return (b - a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def blend_stance(a: Stance, b: Stance, alpha: float) -> Stance:
+    if alpha <= 0.0:
+        return a
+    if alpha >= 1.0:
+        return b
+    return Stance(blend_body(a.body, b.body, alpha), a.heading + _turn(a.heading, b.heading) * alpha,
+                  a.x + (b.x - a.x) * alpha, a.z + (b.z - a.z) * alpha, a.base + (b.base - a.base) * alpha)  # fmt: skip
+
+
+@dataclass(frozen=True, eq=False)
+class _Walk:
+    """A run of consecutive walking segments, walked as one: speeding up, cruising, slowing down."""
+
+    t0: float
+    duration: float
+    points: list[Floor]
+    cum: list[float]  # distance along the route to each point
+
+    @property
+    def length(self) -> float:
+        return self.cum[-1]
+
+    @property
+    def cruise(self) -> float:
+        a = min(ACCEL_M, self.length / 3)
+        return (self.length + 2 * a) / self.duration
+
+    def distance(self, t: float) -> tuple[float, float]:
+        """(metres along the route, speed) t seconds into the walk."""
+        L, D = self.length, self.duration
+        t = min(max(t, 0.0), D)
+        if L < 0.05:
+            return L * t / D, L / D
+        a, v = min(ACCEL_M, L / 3), self.cruise
+        ta = 2 * a / v
+        if t < ta:
+            return 0.5 * v / ta * t * t, v * t / ta
+        if t > D - ta:
+            r = D - t
+            return L - 0.5 * v / ta * r * r, v * r / ta
+        return a + v * (t - ta), v
+
+    def at(self, s: float) -> tuple[Floor, float | None]:
+        """(point, heading) s metres along the route; heading None on a route with no length."""
+        pts, cum = self.points, self.cum
+        k = max(0, min(bisect.bisect_right(cum, s) - 1, len(pts) - 2))
+        a, b = pts[k], pts[k + 1]
+        seg = cum[k + 1] - cum[k]
+        r = min(max((s - cum[k]) / seg, 0.0), 1.0) if seg > 1e-9 else 1.0
+        point = (a[0] + (b[0] - a[0]) * r, a[1] + (b[1] - a[1]) * r)
+        heading = self._dir(k)
+        if heading is None:
+            return point, None
+        # Round the corners: start turning before one, finish after it.
+        for corner, near, far in ((k + 1, k, k + 1), (k, k - 1, k)):
+            if not 0 < corner < len(pts) - 1:
+                continue
+            h0, h1 = self._dir(near), self._dir(far)
+            if h0 is None or h1 is None:
+                continue
+            rad = min(CORNER_M, (cum[corner] - cum[near]) / 2, (cum[far + 1] - cum[corner]) / 2)
+            if rad > 1e-6 and abs(s - cum[corner]) < rad:
+                return point, h0 + _turn(h0, h1) * smoothstep((s - cum[corner] + rad) / (2 * rad))
+        return point, heading
+
+    def _dir(self, k: int) -> float | None:
+        a, b = self.points[k], self.points[k + 1]
+        if math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-6:
+            return None
+        return math.atan2(b[0] - a[0], b[1] - a[1])
 
 
 @dataclass(frozen=True)
@@ -103,37 +211,17 @@ class _Plan:
 
     segment: Segment
     t_start: float
-    pose: PoseName
-    facing: Facing
-    x_start: float
+    pose: PoseName  # the pose it ends in (for a motion, its last key's)
+    heading: float  # radians, the heading it ends with
+    start: Floor
+    end: Floor
+    base: float  # metres above the floor it ends at
+    x_start: float  # frame x and depth of start and end, as the scenario gives them
     x_end: float
     depth_start: float
     depth_end: float
-
-
-@dataclass(frozen=True)
-class _Placement:
-    """Everything needed to put a body in either space: key pose, facing and position."""
-
-    body: BodyPose
-    facing: Facing
-    x: float
-    base_y: float
-    depth: float
-    height: float
-
-
-@dataclass(frozen=True)
-class _Space:
-    """A way of turning a placement into joint positions: the camera frame or the room."""
-
-    name: str
-    project: Callable[[_Placement, Scene], dict]
-    blend: Callable[[dict, dict, float], dict]
-
-
-_IMAGE = _Space("image", lambda p, sc: project(p.body, p.facing, p.x, p.base_y, sc, p.height), blend)
-_WORLD = _Space("world", lambda p, sc: place(p.body, p.facing, p.x, p.base_y, p.depth, sc, p.height), blend_world)
+    walk: _Walk | None = None
+    keys: list[Key] | None = None
 
 
 @dataclass(frozen=True)
@@ -144,10 +232,19 @@ class PersonState:
     plan: _Plan
     pose: ImagePose
     depth: float
+    world: WorldPose
+    heading: float
 
     @property
     def label(self) -> str:
         return self.plan.segment.label
+
+    @property
+    def lying(self) -> bool:
+        """Is the body along the floor (or a bed) rather than upright?"""
+        nx, ny, nz = self.world["neck"]
+        hx, hy, hz = (sum(c) / 2 for c in zip(self.world["left_hip"], self.world["right_hip"]))
+        return abs(ny - hy) < math.hypot(nx - hx, nz - hz)
 
 
 class ResidentTrack:
@@ -156,134 +253,213 @@ class ResidentTrack:
     def __init__(self, resident: Resident, scene: Scene) -> None:
         self.resident = resident
         self.scene = scene
+        self.size = PERSON_HEIGHT_M * resident.height
         self.plans = self._plan_segments()
         self._starts = [p.t_start for p in self.plans]
-        self._start_poses: dict[tuple[str, int], dict] = {}
+        self._start_stances: dict[int, Stance] = {}
 
     @property
     def person_id(self) -> str | None:
         return self.resident.resident_id
 
+    def _world(self, x: float, depth: float) -> Floor:
+        return world_x(self.scene, x, depth), world_z(depth)
+
     def _plan_segments(self) -> list[_Plan]:
         res = self.resident
         plans: list[_Plan] = []
         pose: PoseName = "standing"
-        facing: Facing = res.start_facing
+        heading = res.start_heading if res.start_heading is not None else HEADING[res.start_facing]
         x, depth = res.start_x, res.start_depth
+        base = 0.0
         for seg, (t0, _) in zip(res.segments, res.segment_times()):
-            pose = seg.pose or LABEL_POSE.get(seg.label, pose)
+            label_pose = seg.pose or LABEL_POSE.get(seg.label, pose)
             x_end = x if seg.x is None else seg.x
             depth_end = depth if seg.depth is None else seg.depth
-            if seg.facing is not None:
-                facing = seg.facing
-            elif seg.label == "walking" and x_end != x:
-                facing = "right" if x_end > x else "left"
-            if pose in SIDE_ONLY_POSES and facing == "camera":
-                facing = "right"
-            plans.append(_Plan(seg, t0, pose, facing, x, x_end, depth, depth_end))
+            start, end = self._world(x, depth), self._world(x_end, depth_end)
+            explicit = seg.heading is not None or seg.facing is not None
+            if seg.heading is not None:
+                heading = seg.heading
+            elif seg.facing is not None:
+                heading = HEADING[seg.facing]
+            elif seg.label == "walking" and math.hypot(end[0] - start[0], end[1] - start[1]) > 1e-6:
+                heading = math.atan2(end[0] - start[0], end[1] - start[1])
+            keys = None
+            if seg.motion is not None or seg.label == "fall":
+                motion = seg.motion or "collapse"
+                pace = seg.transition if motion == "collapse" else 1.0
+                keys = timeline(motion, seg.variant, pace=pace, fit=seg.duration)
+                label_pose = _pose_name(keys[-1].pose) or label_pose
+            if label_pose in LIES_ALONG and not explicit and abs(math.sin(heading)) < math.sin(math.pi / 4):
+                heading = math.pi / 2  # lying towards or away from the camera: draw it side-on instead
+            if seg.label not in ("absent", "camera_outage", "occluded") or seg.surface_y is not None:
+                base = lift(self.scene, seg.surface_y, depth_end)
+            pose = label_pose
+            plans.append(_Plan(seg, t0, pose, heading, start, end, base, x, x_end, depth, depth_end, keys=keys))
             x, depth = x_end, depth_end
-        return plans
+        return self._join_walks(plans)
+
+    @staticmethod
+    def _join_walks(plans: list[_Plan]) -> list[_Plan]:
+        """Consecutive walking segments are one walk."""
+        out: list[_Plan] = []
+        i = 0
+        while i < len(plans):
+            if plans[i].segment.label != "walking":
+                out.append(plans[i])
+                i += 1
+                continue
+            j = i
+            while j < len(plans) and plans[j].segment.label == "walking":
+                j += 1
+            run = plans[i:j]
+            points = [run[0].start] + [p.end for p in run]
+            cum = [0.0]
+            for a, b in zip(points, points[1:]):
+                cum.append(cum[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+            walk = _Walk(run[0].t_start, sum(p.segment.duration for p in run), points, cum)
+            out.extend(dataclasses.replace(p, walk=walk) for p in run)
+            i = j
+        return out
 
     def segment_index(self, t: float) -> int:
         return max(0, bisect.bisect_right(self._starts, t + 1e-9) - 1)
 
     def _progress(self, i: int, tau: float) -> float:
-        """How far segment i has moved towards its target position (0..1)."""
+        """How far a still segment i has moved towards its target position (0..1)."""
         seg = self.plans[i].segment
-        if seg.label == "walking":
-            return min(tau / seg.duration, 1.0)
         return smoothstep(tau / seg.transition if seg.transition else 1.0)
 
-    def depth_at(self, i: int, tau: float) -> float:
+    def _target(self, i: int, tau: float) -> Stance:
+        """Where segment i's own motion puts the body at local time tau, before blending in."""
         p = self.plans[i]
-        return p.depth_start + (p.depth_end - p.depth_start) * self._progress(i, tau)
+        if p.walk is not None:
+            w = p.walk
+            s, speed = w.distance(p.t_start + tau - w.t0)
+            (x, z), heading = w.at(s)
+            stride = stride_length(w.cruise, self.size)
+            amount = gait_amount(stride, self.size) * (0.3 + 0.7 * min(speed / w.cruise, 1.0))
+            gait = body_pose("standing", 2.0 * math.pi * s / stride, amount)
+            return Stance(gait, p.heading if heading is None else heading, x, z, 0.0)
+        k = self._progress(i, tau)
+        x, z = p.start[0] + (p.end[0] - p.start[0]) * k, p.start[1] + (p.end[1] - p.start[1]) * k
+        return Stance(body_pose(p.pose), p.heading, x, z, p.base)
 
-    def _placement(self, i: int, tau: float) -> _Placement:
-        """Where segment i's motion puts the body at local time tau, before blending in."""
+    def _start_stance(self, i: int) -> Stance:
+        if i not in self._start_stances:
+            if i == 0:
+                self._start_stances[i] = self._target(0, 0.0)
+            else:
+                self._start_stances[i] = self.stance(i - 1, self.plans[i - 1].segment.duration)
+        return self._start_stances[i]
+
+    def stance(self, i: int, tau: float) -> Stance:
+        """The body during segment i at local time tau."""
         p = self.plans[i]
         seg = p.segment
-        k = self._progress(i, tau)
-        x = p.x_start + (p.x_end - p.x_start) * k
-        depth = self.depth_at(i, tau)
-        gait = 2.0 * math.pi * STEP_HZ * tau if seg.label == "walking" else None
-        base_y = self.scene.floor_at(depth) if seg.surface_y is None else seg.surface_y
-        height = self.scene.height_at(depth, self.resident.height)
-        return _Placement(body_pose(p.pose, gait), p.facing, x, base_y, depth, height)
-
-    def _start_pose(self, i: int, space: _Space) -> dict:
-        key = (space.name, i)
-        if key not in self._start_poses:
-            if i == 0:
-                self._start_poses[key] = space.project(self._placement(0, 0.0), self.scene)
-            else:
-                self._start_poses[key] = self._pose_in(i - 1, self.plans[i - 1].segment.duration, space)
-        return self._start_poses[key]
-
-    def _pose_in(self, i: int, tau: float, space: _Space) -> dict:
-        seg = self.plans[i].segment
         tau = min(tau, seg.duration)  # after their script ends, a resident holds their last pose
-        target = space.project(self._placement(i, tau), self.scene)
+        if p.keys is not None and i > 0:
+            return self._play(i, tau)
+        target = self._target(i, tau)
         if i == 0 or seg.transition == 0.0 or tau >= seg.transition:
             return target
-        return space.blend(self._start_pose(i, space), target, self._ease(i, tau))
+        if p.walk is not None and self.plans[i - 1].walk is p.walk:
+            return target  # one leg of a walk runs straight on into the next
+        return blend_stance(self._start_stance(i), target, smoothstep(tau / seg.transition))
 
-    def _ease(self, i: int, tau: float) -> float:
-        seg = self.plans[i].segment
-        return (ease_in if seg.label == "fall" else smoothstep)(tau / seg.transition)
+    def _play(self, i: int, tau: float) -> Stance:
+        """A motion's keys, from wherever the body was when the segment began."""
+        p = self.plans[i]
+        assert p.keys is not None
+        start = self._start_stance(i)
+        if _flat(start.body) and _head_forward(start.body) != _head_forward(p.keys[0].pose):
+            start = start.flipped()  # lying the other way round: describe it from the other end
+        turn = _turn(start.heading, p.heading)
 
-    def position_at(self, t: float) -> tuple[float, float]:
-        """(frame x, depth) of the body's root at scenario time t, without building a pose."""
+        def at(key: Key) -> Stance:
+            return Stance(key.pose, start.heading + turn * key.turn,
+                          p.start[0] + (p.end[0] - p.start[0]) * key.move,
+                          p.start[1] + (p.end[1] - p.start[1]) * key.move,
+                          start.base + (p.base - start.base) * key.move)  # fmt: skip
+
+        prev_t, prev = 0.0, start
+        for key in p.keys:
+            if tau < key.at:
+                span = key.at - prev_t
+                return blend_stance(prev, at(key), key.ease((tau - prev_t) / span) if span > 0 else 1.0)
+            prev_t, prev = key.at, at(key)
+        return prev
+
+    def _world_pose(self, st: Stance) -> WorldPose:
+        return body(st.body, st.heading, st.x, st.z, st.base, self.size)
+
+    def root_at(self, t: float) -> Floor:
+        """(x, z) in metres of the body's root at scenario time t."""
         i = self.segment_index(t)
         p = self.plans[i]
-        k = self._progress(i, min(t - p.t_start, p.segment.duration))
-        return p.x_start + (p.x_end - p.x_start) * k, p.depth_start + (p.depth_end - p.depth_start) * k
+        tau = min(t - p.t_start, p.segment.duration)
+        if p.walk is not None:
+            return p.walk.at(p.walk.distance(t - p.walk.t0)[0])[0]
+        if p.keys is not None and i > 0:
+            st = self.stance(i, tau)
+            return st.x, st.z
+        k = self._progress(i, tau)
+        return p.start[0] + (p.end[0] - p.start[0]) * k, p.start[1] + (p.end[1] - p.start[1]) * k
+
+    def position_at(self, t: float) -> tuple[float, float]:
+        """(frame x, depth) of the body's root at scenario time t."""
+        x, z = self.root_at(t)
+        depth = frame_depth(z)
+        return frame_x(self.scene, x, depth), depth
 
     def pose_at(self, i: int, tau: float) -> ImagePose:
         """Ideal (noise-free) pose during segment i at local time tau, in the camera frame."""
-        return self._pose_in(i, tau, _IMAGE)
+        return to_image(self.world_pose_at(i, tau), self.scene)
 
     def world_pose_at(self, i: int, tau: float) -> WorldPose:
         """The same body as pose_at, in metres in the room (see hearth.sim.world)."""
-        return self._pose_in(i, tau, _WORLD)
+        return self._world_pose(self.stance(i, tau))
 
     def heading_at(self, i: int, tau: float) -> float:
-        """Which way the body faces (radians), turning through each transition with the pose."""
-        seg = self.plans[i].segment
-        target = HEADING[self.plans[i].facing]
-        if i == 0 or seg.transition == 0.0 or tau >= seg.transition:
-            return target
-        start = self.heading_at(i - 1, self.plans[i - 1].segment.duration)
-        turn = (target - start + math.pi) % (2.0 * math.pi) - math.pi  # the short way round
-        return start + turn * self._ease(i, tau)
+        """Which way the body faces (radians)."""
+        return self.stance(i, tau).heading
 
     def state_at(self, t: float) -> PersonState:
         i = self.segment_index(t)
-        tau = t - self.plans[i].t_start
-        return PersonState(self, self.plans[i], self.pose_at(i, tau), self.depth_at(i, min(tau, self.plans[i].segment.duration)))
+        st = self.stance(i, t - self.plans[i].t_start)
+        world = self._world_pose(st)
+        return PersonState(self, self.plans[i], to_image(world, self.scene), frame_depth(st.z), world, st.heading)
 
     def routes(self) -> list[WorldRoute]:
-        """Each run of consecutive walking segments as one route on the floor."""
+        """Each walk as one route on the floor."""
         out: list[WorldRoute] = []
-        prev_walking = False
         for p in self.plans:
-            walking = p.segment.label == "walking"
-            end = (round(world_x(self.scene, p.x_end, p.depth_end), 3), round(world_z(p.depth_end), 3))
-            if walking and prev_walking:
-                last = out[-1]
-                out[-1] = last.model_copy(update={"t_end": round(p.t_start + p.segment.duration, 6),
-                                                  "points": [*last.points, end]})  # fmt: skip
-            elif walking:
-                start = (round(world_x(self.scene, p.x_start, p.depth_start), 3), round(world_z(p.depth_start), 3))
-                out.append(WorldRoute(person_id=self.person_id, t_start=round(p.t_start, 6),
-                                      t_end=round(p.t_start + p.segment.duration, 6), points=[start, end]))  # fmt: skip
-            prev_walking = walking
+            w = p.walk
+            if w is None or (out and out[-1].t_start == round(w.t0, 6)):
+                continue
+            out.append(WorldRoute(person_id=self.person_id, t_start=round(w.t0, 6), t_end=round(w.t0 + w.duration, 6),
+                                  points=[(round(x, 3), round(z, 3)) for x, z in w.points]))  # fmt: skip
         return out
 
     def world_at(self, t: float) -> WorldPerson:
         i = self.segment_index(t)
-        tau = min(t - self.plans[i].t_start, self.plans[i].segment.duration)
-        height = PERSON_HEIGHT_M * self.resident.height
-        return world_person(self.person_id, self.heading_at(i, tau), self.world_pose_at(i, tau), height)
+        st = self.stance(i, t - self.plans[i].t_start)
+        return world_person(self.person_id, st.heading, self._world_pose(st), self.size)
+
+
+def _head_forward(pose: BodyPose) -> bool:
+    """Is the head ahead of the hips (along f)?"""
+    return pose["nose"][0] >= hips_of(pose)[0]
+
+
+def _flat(pose: BodyPose) -> bool:
+    """Is the body lying along the floor?"""
+    neck, hips = pose["neck"], hips_of(pose)
+    return abs(neck[1] - hips[1]) < abs(neck[0] - hips[0])
+
+
+def _pose_name(pose: BodyPose) -> PoseName | None:
+    return next((name for name, p in KEY_POSES.items() if p is pose), None)  # type: ignore[return-value]
 
 
 class ObservationGenerator:
@@ -418,7 +594,7 @@ class ObservationGenerator:
 
         prev_y, dt = (prev_hip[1], t - prev_hip[0]) if prev_hip else (None, None)
         features = compute_features(keypoints, self.scenario.scene.frame_aspect, prev_y, dt)
-        face_present, face_conf = self._face(rng, keypoints, person.plan)
+        face_present, face_conf = self._face(rng, keypoints, person)
         obs = self._base(n, t, person.track.person_id)
         obs.update(
             person_detected=True,
@@ -432,7 +608,7 @@ class ObservationGenerator:
     def _keypoints(self, rng: random.Random, person: PersonState, in_front: list[Box]) -> list[dict]:
         nz = self.noise
         plan = person.plan
-        lying = plan.pose in SIDE_ONLY_POSES
+        lying = person.lying
         jitter = nz.jitter * (1.5 if lying else 1.0)
         conf_mean = nz.confidence_mean - (nz.lying_penalty if lying else 0.0)
         occluder_top = plan.segment.occluder_top if plan.segment.label == "occluded" else None
@@ -456,18 +632,25 @@ class ObservationGenerator:
                         "confidence": round(min(max(conf, 0.05), 0.99), 3)})  # fmt: skip
         return out
 
-    def _face(self, rng: random.Random, keypoints: list[dict], plan: _Plan) -> tuple[bool, float | None]:
+    def _face(self, rng: random.Random, keypoints: list[dict], person: PersonState) -> tuple[bool, float | None]:
         nz = self.noise
-        if plan.pose in SIDE_ONLY_POSES:
+        facing = _nearest_facing(person.heading)
+        if person.lying:
             rate = nz.face_rate_lying
-        elif plan.facing == "camera":
-            rate = nz.face_rate_front if plan.pose != "bending" else nz.face_rate_side
+        elif facing == "camera":
+            rate = nz.face_rate_front if person.plan.pose != "bending" else nz.face_rate_side
+        elif facing == "away":
+            rate = nz.face_rate_away
         else:
             rate = nz.face_rate_side
         roll, conf = rng.random(), rng.uniform(0.6, 0.95)
         if not any(k["name"] == "nose" for k in keypoints) or roll >= rate:
             return False, None
         return True, round(conf, 3)
+
+
+def _nearest_facing(heading: float) -> str:
+    return min(HEADING, key=lambda name: abs(_turn(HEADING[name], heading)))
 
 
 def _body_box(pose: ImagePose) -> Box:
