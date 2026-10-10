@@ -3,10 +3,13 @@
 import time
 
 from fastapi.testclient import TestClient
-from hearth.api.app import create_app, ingest_records
+import asyncio
+
+from hearth.api.app import create_app
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
 from hearth.sim.runner import run_headless
+from hearth.sim.mount import Simulation
 from hearth.sim.scenario import load_all
 
 SCENARIOS = load_all()
@@ -25,7 +28,7 @@ def test_app_mounts_sim_and_eval_routes():
 
 
 def test_simulation_can_be_left_out():
-    with TestClient(create_app(service=shipped_service(), simulation=False)) as client:
+    with TestClient(create_app(service=shipped_service(), with_simulation=False)) as client:
         assert client.get("/sim/status").status_code == 404
 
 
@@ -33,7 +36,7 @@ def test_several_people_in_one_frame_all_reach_the_live_monitor():
     """Three residents share each frame's timestamp; none may be dropped as out_of_order."""
     service = shipped_service()
     run = run_headless(SCENARIOS["day-room-01"])  # p3 falls
-    events = ingest_records(service, run.items)
+    events = asyncio.run(Simulation(service).ingest(run.items))
     assert service.ingest_totals["out_of_order"] == 0
     assert service.ingest_totals["accepted"] == len(run.observations)
     falls = [e for e in events if e.event_type == "possible_fall"]

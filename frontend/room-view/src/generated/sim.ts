@@ -1,16 +1,29 @@
 /* Generated from backend/schema/sim.schema.json by scripts/gen-types.mjs. Do not edit. */
 
 export interface HearthSimApi {
+  ActorDetail?: ActorDetail;
   AlertResult?: AlertResult;
+  CameraSpec?: CameraSpec;
   Counts?: Counts;
+  EngineSpec?: EngineSpec;
   EvaluationReport?: EvaluationReport;
   EvaluationSummary?: EvaluationSummary;
   FallBreakdown?: FallBreakdown;
   FalseAlertBreakdown?: FalseAlertBreakdown;
+  IncidentRecord?: IncidentRecord;
+  IncidentSpec?: IncidentSpec;
+  LiveActorInfo?: LiveActorInfo;
+  LiveAppearance?: LiveAppearance;
+  LiveConversation?: LiveConversation;
+  LiveFrame?: LiveFrame;
+  LivePerson?: LivePerson;
+  LiveStatus?: LiveStatus;
+  LiveWorld?: LiveWorld;
   Rate?: Rate;
+  RoomSpec?: RoomSpec1;
   RunInfo?: RunInfo;
   ScenarioInfo?: ScenarioInfo;
-  Scene?: Scene;
+  Scene?: Scene1;
   SceneObject?: SceneObject;
   SegmentResult?: SegmentResult;
   SimStatus?: SimStatus;
@@ -18,12 +31,144 @@ export interface HearthSimApi {
   StudyRun?: StudyRun;
   TimelineEvent?: TimelineEvent;
   TruthNow?: TruthNow;
+  WorldDoor?: WorldDoor;
   WorldFrame?: WorldFrame;
   WorldObject?: WorldObject;
   WorldPerson?: WorldPerson;
   WorldRoom?: WorldRoom;
   WorldRoute?: WorldRoute;
   WorldTrack?: WorldTrack;
+  WorldWindow?: WorldWindow;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "ActorDetail".
+ */
+export interface ActorDetail {
+  info: LiveActorInfo;
+  now: LivePerson;
+  /**
+   * Scenario seconds the current intent began.
+   */
+  since: number;
+  /**
+   * Activities still to come.
+   */
+  plan: string[];
+  /**
+   * Recent intents and when they began.
+   */
+  history: [string, number][];
+  cooldowns: {
+    [k: string]: number;
+  };
+  incidents: IncidentRecord[];
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveActorInfo".
+ */
+export interface LiveActorInfo {
+  person_id: string;
+  archetype: string;
+  height: number;
+  /**
+   * Cruising pace, m/s.
+   */
+  speed: number;
+  sociability: number;
+  mobility: string;
+  appearance: LiveAppearance;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveAppearance".
+ */
+export interface LiveAppearance {
+  skin: string;
+  top: string;
+  bottom: string;
+  hair: string;
+  /**
+   * Width relative to average.
+   */
+  build: number;
+}
+/**
+ * A WorldPerson plus what they're up to. Ground truth: for people watching only.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LivePerson".
+ */
+export interface LivePerson {
+  /**
+   * Matches Observation.person_id; None in a single-person run.
+   */
+  person_id: string | null;
+  /**
+   * Radians about +y; 0 faces the camera, +pi/2 faces image right.
+   */
+  heading: number;
+  /**
+   * Standing height in metres. Constant per person, unlike limb lengths in motion.
+   */
+  height: number;
+  /**
+   * Metres; every joint, visible to the camera or not.
+   */
+  joints: {
+    /**
+     * @minItems 3
+     * @maxItems 3
+     */
+    [k: string]: [number, number, number];
+  };
+  /**
+   * Ground-truth label right now (TruthLabel).
+   */
+  label: string;
+  /**
+   * What they're doing this moment, e.g. 'sitting down', 'talking'.
+   */
+  activity: string;
+  /**
+   * What the current plan is for: sit, rest, chat, fall...
+   */
+  intent: string;
+  posture: string;
+  destination: [number, number] | null;
+  /**
+   * Rest of the route, floor (x, z).
+   */
+  path: [number, number][];
+  conversation: string | null;
+  incident: string | null;
+  /**
+   * Fraction of joints the camera could see last frame (0..1), before noise.
+   */
+  visible: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "IncidentRecord".
+ */
+export interface IncidentRecord {
+  incident_id: string;
+  kind: "fall" | "inactivity" | "pacing" | "exit_loiter";
+  source: "manual" | "scheduled" | "procedural";
+  person_id: string;
+  t_start: number;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  location: [number, number];
+  posture_before: string;
+  posture_after: string | null;
+  motion: string | null;
+  t_floor: number | null;
+  t_recovered: number | null;
+  t_end: number | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -55,6 +200,20 @@ export interface AlertResult {
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "CameraSpec".
+ */
+export interface CameraSpec {
+  preset: "corner_left" | "corner_right" | "front" | "ceiling";
+  height: number;
+  /**
+   * Vertical field of view, degrees.
+   */
+  fov: number;
+  aspect: number;
+  fps: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
  * via the `definition` "Counts".
  */
 export interface Counts {
@@ -63,6 +222,103 @@ export interface Counts {
   false_positives: number;
   missed: number;
   duplicates: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "EngineSpec".
+ */
+export interface EngineSpec {
+  room: RoomSpec;
+  actors: number;
+  camera: CameraSpec1;
+  lighting: "day" | "evening" | "dim";
+  /**
+   * Scales how often people change activity (2 = dwell half as long).
+   */
+  activity_frequency: number;
+  /**
+   * Scales how often people start conversations (0 = never).
+   */
+  social_frequency: number;
+  /**
+   * Scheduled incidents.
+   */
+  incidents: IncidentSpec[];
+  /**
+   * Procedural incidents per actor-hour, by kind. Empty = none (the default).
+   */
+  incident_rates: {
+    [k: string]: number;
+  };
+  /**
+   * Perception noise on the camera's keypoints.
+   */
+  noise: boolean;
+  room_id: string;
+}
+export interface RoomSpec {
+  /**
+   * Metres, wall to wall across the camera's view. None = drawn from the seed.
+   */
+  width: number | null;
+  /**
+   * Metres, front to back.
+   */
+  depth: number | null;
+  height: number;
+  /**
+   * 0 = a bare room with a chair or two, 1 = as much as fits.
+   */
+  furniture_density: number;
+  doors: number;
+  window: boolean;
+}
+export interface CameraSpec1 {
+  preset: "corner_left" | "corner_right" | "front" | "ceiling";
+  height: number;
+  /**
+   * Vertical field of view, degrees.
+   */
+  fov: number;
+  aspect: number;
+  fps: number;
+}
+/**
+ * One incident, at a time (scheduled) or now (manual).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "IncidentSpec".
+ */
+export interface IncidentSpec {
+  kind: "fall" | "inactivity" | "pacing" | "exit_loiter";
+  /**
+   * Scenario seconds (scheduled incidents).
+   */
+  t: number;
+  /**
+   * person_id; None = someone suitable, chosen by the seed.
+   */
+  actor: string | null;
+  /**
+   * Falls: how. None = what suits the posture.
+   */
+  motion: ("trip" | "faint" | "collapse" | "sit_miss" | "stand_up") | null;
+  /**
+   * Inactivity: how long. Falls: time on the floor before getting up.
+   */
+  duration: number | null;
+  /**
+   * Falls: get up after `duration` (else stay down until reset).
+   */
+  recover: boolean;
+  /**
+   * Pacing legs or exit visits.
+   */
+  repeats: number;
+  /**
+   * Falls: stage it where the camera has a clear, side-on view (as hand-written scenarios do). False = wherever there's room, seen or not: the unbiased setting for validation.
+   */
+  in_view: boolean;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -229,29 +485,174 @@ export interface FalseAlertBreakdown {
   per_hour: number | null;
 }
 /**
- * Run metadata (<run>.run.json). The dashboard uses it to draw the room and place
- * events on the scenario clock (t = timestamp - start).
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveConversation".
+ */
+export interface LiveConversation {
+  conv_id: string;
+  members: string[];
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  centre: [number, number];
+}
+/**
+ * Everyone right now. Pushed over WS /sim/live/ws as {"type": "frame", "data": ...}.
  *
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
- * via the `definition` "RunInfo".
+ * via the `definition` "LiveFrame".
  */
-export interface RunInfo {
-  run_id: string;
-  scenario_id: string;
-  title: string;
-  seed: number;
-  start: string;
-  duration: number;
-  fps: number;
-  room_id: string;
-  scene: Scene;
-  residents: string[];
-  observations: number;
-  heartbeats: number;
+export interface LiveFrame {
+  t: number;
+  state: "idle" | "playing" | "paused";
+  speed: number;
+  people: LivePerson[];
+  conversations: LiveConversation[];
+  /**
+   * Incidents in progress.
+   */
+  incidents: IncidentRecord[];
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
- * via the `definition` "Scene".
+ * via the `definition` "LiveStatus".
+ */
+export interface LiveStatus {
+  state: "idle" | "playing" | "paused";
+  run_id: string | null;
+  scenario_id: string | null;
+  seed: number | null;
+  t: number;
+  speed: number;
+  actors: number;
+}
+/**
+ * The run's fixed parts: sent once per connection and on every new room ({"type": "world"}).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveWorld".
+ */
+export interface LiveWorld {
+  run_id: string;
+  scenario_id: string;
+  seed: number;
+  spec: EngineSpec;
+  room: WorldRoom;
+  scene: Scene;
+  actors: LiveActorInfo[];
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldRoom".
+ */
+export interface WorldRoom {
+  /**
+   * Metres the camera sees across at depth 0.
+   */
+  width_front: number;
+  /**
+   * Metres the camera sees across at the back wall.
+   */
+  width_back: number;
+  depth: number;
+  height: number;
+  /**
+   * Approximate; for display only.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  camera_position: [number, number, number];
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  camera_target: [number, number, number];
+  /**
+   * Vertical field of view, degrees.
+   */
+  camera_fov: number;
+  objects: WorldObject[];
+  /**
+   * Live rooms: the walls as (x0, z0, x1, z1). None = the scripted room (width_back x depth).
+   */
+  bounds: [number, number, number, number] | null;
+  doors: WorldDoor[];
+  windows: WorldWindow[];
+  /**
+   * Width / height of the camera image.
+   */
+  camera_aspect: number | null;
+  /**
+   * Live rooms: day, evening or dim.
+   */
+  lighting: string | null;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldObject".
+ */
+export interface WorldObject {
+  kind: "bed" | "chair" | "couch" | "mat" | "occluder";
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  center: [number, number, number];
+  /**
+   * Width (x), height (y), depth (z) in metres.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  size: [number, number, number];
+  /**
+   * Radians about +y: the heading its front faces (as WorldPerson.heading).
+   */
+  rotation: number;
+  /**
+   * The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind.
+   */
+  variant: string | null;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldDoor".
+ */
+export interface WorldDoor {
+  door_id: string;
+  wall: "back" | "left" | "right" | "front";
+  /**
+   * Floor point (x, z) at the middle of the opening.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  center: [number, number];
+  width: number;
+  /**
+   * Radians: the way into the room.
+   */
+  heading_in: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldWindow".
+ */
+export interface WorldWindow {
+  wall: "back" | "left" | "right" | "front";
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  center: [number, number];
+  width: number;
+  sill: number;
+  height: number;
+}
+/**
+ * The furniture as the camera sees it, for the 2D camera view.
  */
 export interface Scene {
   /**
@@ -291,6 +692,75 @@ export interface SceneObject {
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "RoomSpec".
+ */
+export interface RoomSpec1 {
+  /**
+   * Metres, wall to wall across the camera's view. None = drawn from the seed.
+   */
+  width: number | null;
+  /**
+   * Metres, front to back.
+   */
+  depth: number | null;
+  height: number;
+  /**
+   * 0 = a bare room with a chair or two, 1 = as much as fits.
+   */
+  furniture_density: number;
+  doors: number;
+  window: boolean;
+}
+/**
+ * Run metadata (<run>.run.json). The dashboard uses it to draw the room and place
+ * events on the scenario clock (t = timestamp - start).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "RunInfo".
+ */
+export interface RunInfo {
+  run_id: string;
+  scenario_id: string;
+  title: string;
+  seed: number;
+  start: string;
+  duration: number;
+  fps: number;
+  room_id: string;
+  scene: Scene1;
+  residents: string[];
+  observations: number;
+  heartbeats: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "Scene".
+ */
+export interface Scene1 {
+  /**
+   * Frame y of the floor line under a person at the front.
+   */
+  floor_y: number;
+  /**
+   * Standing height at the front, as a fraction of frame height.
+   */
+  person_height: number;
+  /**
+   * Simulated camera width / height.
+   */
+  frame_aspect: number;
+  /**
+   * How far the floor line rises in the frame for a person at depth 1 (back wall).
+   */
+  depth_rise: number;
+  /**
+   * How much smaller a person at depth 1 appears than one at depth 0.
+   */
+  depth_shrink: number;
+  objects: SceneObject[];
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
  * via the `definition` "ScenarioInfo".
  */
 export interface ScenarioInfo {
@@ -309,7 +779,7 @@ export interface ScenarioInfo {
    * Resident ids; empty for a single-person scenario.
    */
   residents: string[];
-  scene: Scene;
+  scene: Scene1;
   /**
    * Scenario.tags, e.g. generator settings.
    */
@@ -335,7 +805,7 @@ export interface SimStatus {
   t: number;
   duration: number | null;
   speed: number;
-  scene: Scene | null;
+  scene: Scene1 | null;
   truth: TruthNow[];
 }
 /**
@@ -442,58 +912,6 @@ export interface WorldPerson {
      */
     [k: string]: [number, number, number];
   };
-}
-/**
- * This interface was referenced by `HearthSimApi`'s JSON-Schema
- * via the `definition` "WorldObject".
- */
-export interface WorldObject {
-  kind: "bed" | "chair" | "couch" | "mat" | "occluder";
-  /**
-   * @minItems 3
-   * @maxItems 3
-   */
-  center: [number, number, number];
-  /**
-   * Width (x), height (y), depth (z) in metres.
-   *
-   * @minItems 3
-   * @maxItems 3
-   */
-  size: [number, number, number];
-}
-/**
- * This interface was referenced by `HearthSimApi`'s JSON-Schema
- * via the `definition` "WorldRoom".
- */
-export interface WorldRoom {
-  /**
-   * Metres the camera sees across at depth 0.
-   */
-  width_front: number;
-  /**
-   * Metres the camera sees across at the back wall.
-   */
-  width_back: number;
-  depth: number;
-  height: number;
-  /**
-   * Approximate; for display only.
-   *
-   * @minItems 3
-   * @maxItems 3
-   */
-  camera_position: [number, number, number];
-  /**
-   * @minItems 3
-   * @maxItems 3
-   */
-  camera_target: [number, number, number];
-  /**
-   * Vertical field of view, degrees.
-   */
-  camera_fov: number;
-  objects: WorldObject[];
 }
 /**
  * One continuous walk: the straight legs a resident takes from t_start to t_end.

@@ -133,6 +133,40 @@ Example `zones` configuration (replace with calibrated geometry):
 
 The event log retains the latest 10,000 events by default; JSONL export includes only those retained events. Export before the capacity is exceeded or the backend restarts. Alerts and source/run state stay in memory until restart; this is a single-session hackathon backend, not durable storage. Old simulation runs remain visible by ID and can be filtered by the dashboard/evaluator.
 
+## Live simulation (Sim Studio)
+
+The live engine (`backend/hearth/sim/live/`) generates a furnished room from a seed and fills it with autonomous residents who sit, rest, walk to the window, browse the shelves, bend to pick things up, leave and come back, and hold seated or standing conversations. Each resident runs their own state machine; nothing is scripted in advance. A pinhole camera in the room produces the same contract Observations as every other source, through the same monitor. Ground truth is written as it happens and never reaches the monitor.
+
+```powershell
+# Backend (mounts /sim, /sim/live and /eval on the monitoring core)
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
+# Studio (in frontend/room-view; set HEARTH_BACKEND if the backend isn't on :8000)
+npm install; npm run dev    # then open http://localhost:5174/studio.html
+```
+
+In the Studio, press **Generate room**:
+
+- **Left panel:** choose the seed, size, residents, furniture, camera and lighting; set the behaviour sliders; trigger incidents (fall, inactivity, pacing, exit loitering) for the selected resident.
+- **Right panel:** click anyone to inspect their plan, history, camera visibility and incidents.
+- **Bottom strip:** what the camera reports (the monitor's input) and the monitor's events.
+- **Keys:** `Space` plays and pauses, `1`–`4` switch views (orbit, top, camera point of view, follow), `F` follows the selected resident, and `H` hides ground truth for blind demos.
+
+Headless runs write the usual run files and can be scored against the real monitor:
+
+```powershell
+.\.venv\Scripts\python.exe -m hearth.sim live --people 6 --seed 3 --duration 300 --fall-at 120 --evaluate
+.\.venv\Scripts\python.exe -m hearth.sim live --scenario live-fall-01 --evaluate
+```
+
+Incidents happen only when triggered, scheduled (`EngineSpec.incidents`) or given a rate (`EngineSpec.incident_rates`, zero by default). Manual and scheduled falls are staged where the camera has a clear, side-on view. Set `in_view: false` for unbiased validation.
+
+**Simulated finding.** The pose rules' floor thresholds (`floor_head_y_min` 0.40, `floor_hip_y_min` 0.45, torso angle 60–120°) were calibrated for one mat-level camera. Seen from a camera high in a corner, falls at the back of the room project above those lines. A body lying along the camera's view also reads as an angle past 120°, and noise flickering past that limit resets the 3 s hold. Results on 12 seeded live runs with one staged fall each:
+
+- 3 of the 12 falls were detected.
+- No run raised a false alert.
+
+These are simulated results only, not measured accuracy. The thresholds need per-camera calibration before they mean anything.
+
 ## Scope
 
 The initial demo uses one camera and one person at a time. The backend now supports configured logical rooms for nurse subscription routing, without a building map or cross-camera identity tracking.

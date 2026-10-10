@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 
-import { makeTag, stickFigureRig, type PersonRig, type RigFactory, type RigState } from "./scene3d";
+import { makeTag, stickFigureRig, type Appearance, type PersonRig, type RigFactory, type RigState } from "./scene3d";
 import { HEAD_POINTS } from "./skeleton";
 import type { WorldPerson } from "./types";
 import type { Vec3 } from "./world";
@@ -79,6 +79,8 @@ export interface Template {
   restBasisInv: THREE.Matrix4;
   /** Rest height in model units, feet to top of head. */
   height: number;
+  /** The head's rest rotation and which way the face points, in the head bone's own frame. */
+  headRest?: { quaternion: THREE.Quaternion; face: THREE.Vector3 };
 }
 
 const templates = new Map<string, Promise<Template>>();
@@ -106,10 +108,75 @@ export function mannequinTemplate(scene: THREE.Object3D): Template {
   const basis = bodyBasis(pos("thigh_l"), pos("thigh_r"), pos("neck_01"));
   if (!basis) throw new Error("mannequin rest pose has no usable hips");
   const height = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
-  return { scene, rest, restBasisInv: basis.invert(), height };
+  // The face points along the rest body's forward axis (basis column z).
+  let headRest: Template["headRest"];
+  const head = scene.getObjectByName("Head");
+  if (head) {
+    const forward = new THREE.Vector3().setFromMatrixColumn(basis, 2).normalize();
+    const inv = head.getWorldQuaternion(new THREE.Quaternion()).invert();
+    headRest = { quaternion: head.quaternion.clone(), face: forward.applyQuaternion(inv).normalize() };
+  }
+  return { scene, rest, restBasisInv: basis.invert(), height, headRest };
 }
 
 const v3 = (p: Vec3) => new THREE.Vector3(p[0], p[1], p[2]);
+
+/** Which part of the outfit a bone's skin belongs to. */
+type Region = "skin" | "hair" | "top" | "bottom" | "shoes";
+
+function regionOf(bone: string): Region {
+  if (/^(Head|neck_01|hand_|index_|middle_|ring_|pinky_|thumb_)/.test(bone)) return "skin";
+  if (/^(foot_|ball_)/.test(bone)) return "shoes";
+  if (/^(pelvis|thigh_|calf_)/.test(bone)) return "bottom";
+  return "top"; // spine, clavicles, arms: a long-sleeved top
+}
+
+/** Colour every vertex by the bone that moves it most: skin, hair, top, trousers, shoes. */
+export function paintByBones(mesh: THREE.SkinnedMesh, look: Appearance): void {
+  const geo = mesh.geometry;
+  const idx = geo.getAttribute("skinIndex");
+  const wts = geo.getAttribute("skinWeight");
+  const pos = geo.getAttribute("position");
+  if (!idx || !wts || !pos) return;
+  geo.computeBoundingBox();
+  const box = geo.boundingBox!;
+  // Model up axis: the longest side of the bind-pose box.
+  const size = box.getSize(new THREE.Vector3());
+  const up = size.y >= size.z ? 1 : 2;
+  const top = up === 1 ? box.max.y : box.max.z;
+  const height = up === 1 ? size.y : size.z;
+  const colors = new Float32Array(pos.count * 3);
+  const pal: Record<Region, THREE.Color> = {
+    skin: new THREE.Color(look.skin),
+    hair: new THREE.Color(look.hair),
+    top: new THREE.Color(look.top),
+    bottom: new THREE.Color(look.bottom),
+    shoes: new THREE.Color("#2a2622"),
+  };
+  const bones = mesh.skeleton.bones;
+  for (let i = 0; i < pos.count; i++) {
+    let best = 0;
+    let bw = -1;
+    for (let k = 0; k < 4; k++) {
+      const w = wts.getComponent(i, k);
+      if (w > bw) {
+        bw = w;
+        best = idx.getComponent(i, k);
+      }
+    }
+    const name = bones[best]?.name ?? "";
+    let region = regionOf(name);
+    const h = up === 1 ? pos.getY(i) : pos.getZ(i);
+    if (name === "Head" && h > top - height * 0.055) region = "hair";
+    const c = pal[region];
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+}
+
+const ringGeo = new THREE.RingGeometry(0.32, 0.38, 40);
 
 /** One person's copy of the model, posed from their keypoints every frame. */
 export function mannequinBody(t: Template, personId: string | null): PersonRig {
@@ -118,35 +185,69 @@ export function mannequinBody(t: Template, personId: string | null): PersonRig {
   const headBone = model.getObjectByName("Head");
   const thighL = model.getObjectByName("thigh_l")!;
   const thighR = model.getObjectByName("thigh_r")!;
-  const materials: { mat: THREE.MeshStandardMaterial; role: "main" | "joints" }[] = [];
+  const parts: { mesh: THREE.SkinnedMesh; mat: THREE.MeshStandardMaterial; role: "main" | "joints" }[] = [];
   model.traverse((o) => {
     const mesh = o as THREE.SkinnedMesh;
     if (!mesh.isMesh) return;
     mesh.frustumCulled = false; // bounds don't follow posed bones
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     const own = (mesh.material as THREE.MeshStandardMaterial).clone();
+    own.roughness = 0.75;
+    own.metalness = 0;
     mesh.material = own;
-    materials.push({ mat: own, role: /joint/i.test(own.name) ? "joints" : "main" });
+    parts.push({ mesh, mat: own, role: /joint/i.test(own.name) ? "joints" : "main" });
   });
   const group = new THREE.Group();
   group.add(model);
   const tag = personId ? makeTag(personId.toUpperCase()) : null;
   if (tag) group.add(tag.sprite);
+  const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: "#7cc4ff", transparent: true, opacity: 0.9, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.visible = false;
+  group.add(ring);
 
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const dir = new THREE.Vector3();
   const rot = new THREE.Matrix4();
+  let painted = "";
   let color = "";
 
   return {
     object: group,
-    update(person: WorldPerson, { alert, theme }: RigState) {
-      const next = alert ? theme.alert : theme.bone;
+    update(person: WorldPerson, { alert, theme, appearance, selected, dimmed, label }: RigState) {
+      // Colours: the person's own outfit when known, else the theme's.
+      const lookKey = appearance ? JSON.stringify(appearance) : "";
+      if (lookKey !== painted) {
+        painted = lookKey;
+        for (const p of parts) {
+          if (appearance) {
+            if (p.mesh.geometry === (t.scene.getObjectByName(p.mesh.name) as THREE.Mesh | undefined)?.geometry) {
+              p.mesh.geometry = p.mesh.geometry.clone(); // own copy before painting
+            }
+            paintByBones(p.mesh, appearance);
+          }
+          p.mat.vertexColors = !!appearance;
+          p.mat.needsUpdate = true;
+        }
+        color = "";
+      }
+      const next = `${alert}|${appearance ? "look" : theme.bone}|${dimmed}`;
       if (next !== color) {
         color = next;
-        for (const { mat, role } of materials) mat.color.set(role === "joints" && !alert ? theme.joint : next);
-        tag?.draw(alert ? theme.alert : theme.muted);
+        for (const { mat, role } of parts) {
+          if (appearance) mat.color.set("#ffffff");
+          else mat.color.set(role === "joints" && !alert ? theme.joint : alert ? theme.alert : theme.bone);
+          mat.emissive.set(alert ? theme.alert : "#000000");
+          mat.emissiveIntensity = alert ? 0.55 : 0;
+          mat.transparent = !!dimmed;
+          mat.opacity = dimmed ? 0.35 : 1;
+          mat.depthWrite = !dimmed;
+        }
       }
+      tag?.draw(alert ? theme.alert : theme.text, label ?? personId?.toUpperCase());
+      if (tag) tag.sprite.visible = label !== null;
       const j = person.joints;
       const mid = hipMid(j);
       if (!j.left_hip || !j.right_hip || !j.neck || !mid) {
@@ -159,8 +260,11 @@ export function mannequinBody(t: Template, personId: string | null): PersonRig {
       // (Not sized from limb lengths: the simulated gait stretches them by ~10% per step.)
       const basis = bodyBasis(v3(j.left_hip), v3(j.right_hip), v3(j.neck));
       if (basis) model.quaternion.setFromRotationMatrix(rot.multiplyMatrices(basis, t.restBasisInv));
-      model.scale.setScalar(person.height / t.height);
+      const s = person.height / t.height;
+      const build = appearance?.build ?? 1;
+      model.scale.set(s * build, s, s * build);
       for (const [name, bone] of bones) bone.quaternion.copy(t.rest.get(name)!.quaternion);
+      if (headBone && t.headRest) headBone.quaternion.copy(t.headRest.quaternion);
       model.position.set(0, 0, 0);
       model.updateMatrixWorld(true);
       const hips = thighL.getWorldPosition(a).add(thighR.getWorldPosition(b)).multiplyScalar(0.5);
@@ -176,11 +280,25 @@ export function mannequinBody(t: Template, personId: string | null): PersonRig {
         const r = t.rest.get(bone)!;
         aimBone(bones.get(bone)!, r.quaternion, r.dir, dir.normalize());
       }
+      // Face: turn the head to look where the nose points.
+      if (headBone && t.headRest && j.nose && j.left_ear && j.right_ear) {
+        model.updateMatrixWorld(true);
+        const ears = v3(j.left_ear).add(v3(j.right_ear)).multiplyScalar(0.5);
+        dir.copy(v3(j.nose)).sub(ears);
+        dir.y *= 0.5; // ears and nose sit at about the same height; keep the turn mostly level
+        if (dir.lengthSq() > 1e-8) aimBone(headBone, t.headRest.quaternion, t.headRest.face, dir.normalize());
+      }
       model.updateMatrixWorld(true);
-      if (tag && headBone) tag.sprite.position.copy(headBone.getWorldPosition(a)).add(b.set(0, 0.35, 0));
+      if (tag && headBone) tag.sprite.position.copy(headBone.getWorldPosition(a)).add(b.set(0, 0.3, 0));
+      ring.visible = !!selected;
+      if (selected) ring.position.set(mid[0], 0.012, mid[2]);
     },
     dispose() {
-      for (const { mat } of materials) mat.dispose(); // geometry is shared with the template
+      for (const { mesh, mat } of parts) {
+        mat.dispose();
+        if (painted) mesh.geometry.dispose(); // painted copies are ours; the template's are shared
+      }
+      (ring.material as THREE.Material).dispose();
       tag?.dispose();
     },
   };

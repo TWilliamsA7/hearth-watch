@@ -21,6 +21,23 @@ export interface RigState {
   /** The dashboard has an open alert for this person. */
   alert: boolean;
   theme: Theme;
+  /** How they look (live engine); figures without one use the theme's colours. */
+  appearance?: Appearance;
+  /** Picked in the UI: drawn with a ring at their feet. */
+  selected?: boolean;
+  /** Faded (e.g. the camera can't see them, when that overlay is on). */
+  dimmed?: boolean;
+  /** Tag text; default the person id (P1). null hides the tag. */
+  label?: string | null;
+}
+
+export interface Appearance {
+  skin: string;
+  top: string;
+  bottom: string;
+  hair: string;
+  /** Width relative to average. */
+  build: number;
 }
 
 export type RigFactory = (personId: string | null) => PersonRig;
@@ -53,14 +70,15 @@ export const stickFigureRig: RigFactory = (personId) => {
 
   return {
     object: group,
-    update(person, { alert, theme }) {
+    update(person, { alert, theme, label }) {
       const next = alert ? theme.alert : theme.bone;
       if (next !== color) {
         color = next;
         boneMat.color.set(next);
         jointMat.color.set(alert ? theme.alert : theme.joint);
-        tag?.draw(alert ? theme.alert : theme.muted);
       }
+      tag?.draw(alert ? theme.alert : theme.text, label ?? personId?.toUpperCase());
+      if (tag) tag.sprite.visible = label !== null;
       BONES.forEach(([from, to], i) => {
         const p = person.joints[from];
         const q = person.joints[to];
@@ -89,7 +107,7 @@ export const stickFigureRig: RigFactory = (personId) => {
         head.position.set(0, 0, 0);
         for (const p of headPts) head.position.add(a.set(...p));
         head.position.divideScalar(headPts.length);
-        tag?.sprite.position.copy(head.position).add(a.set(0, 0.3, 0));
+        tag?.sprite.position.copy(head.position).add(a.set(0, 0.22, 0));
       }
     },
     dispose() {
@@ -103,27 +121,40 @@ export const stickFigureRig: RigFactory = (personId) => {
   };
 };
 
-/** Anonymous track label (P1) as a sprite that always faces the viewer. */
+/** Anonymous track label (P1, or "P1 · seated") as a sprite that always faces the viewer. */
 export function makeTag(text: string) {
   const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 64;
+  canvas.width = 512;
+  canvas.height = 96;
   const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // Constant size on screen (a fraction of the view's height), readable at any zoom.
+  const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true, toneMapped: false, sizeAttenuation: false });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(0.4, 0.2, 1);
+  sprite.scale.set(0.16, 0.03, 1);
   sprite.renderOrder = 10; // stays readable through furniture
+  sprite.center.set(0.5, 0);
+  let drawn = "";
   return {
     sprite,
-    draw(color: string) {
+    draw(color: string, label: string = text) {
+      const key = color + "|" + label;
+      if (key === drawn) return;
+      drawn = key;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = color;
       ctx.font = "600 44px system-ui, sans-serif";
+      const w = Math.min(canvas.width - 8, ctx.measureText(label).width + 36);
+      const x = (canvas.width - w) / 2;
+      ctx.fillStyle = "rgba(14, 17, 22, 0.72)";
+      ctx.beginPath();
+      ctx.roundRect(x, 18, w, 64, 32);
+      ctx.fill();
+      ctx.fillStyle = color;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+      ctx.fillText(label, canvas.width / 2, 51);
       texture.needsUpdate = true;
     },
     dispose() {

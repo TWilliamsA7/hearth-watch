@@ -42,9 +42,20 @@ function simRuns(): Plugin {
   };
 }
 
+// The backend the dev pages talk to (Sim Studio's /sim/live routes, the room feed).
+const BACKEND = process.env.HEARTH_BACKEND ?? "http://127.0.0.1:8000";
+const proxy = Object.fromEntries(
+  ["/sim", "/ws", "/eval", "/events", "/alerts", "/sources"].map((path) => [path, { target: BACKEND, ws: true, changeOrigin: true }]),
+);
+
 export default defineConfig({
   root: resolve(import.meta.dirname, "dev"),
   plugins: [react(), simRuns()],
-  server: { port: 5174 },
+  server: { port: Number(process.env.PORT ?? 5174), proxy },
+  build: {
+    rollupOptions: {
+      input: { index: resolve(import.meta.dirname, "dev/index.html"), studio: resolve(import.meta.dirname, "dev/studio.html") },
+    },
+  },
   test: { root: import.meta.dirname, include: ["src/**/*.test.ts"] },
 });

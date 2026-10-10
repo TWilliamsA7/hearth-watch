@@ -1,0 +1,7 @@
+# Live engine: an ordinary afternoon. Six residents, no incidents: a false-alert baseline.
+title: Live day room, six residents, ordinary activity
+seed: 3
+duration: 300
+spec:
+  actors: 6
+  room: {width: 7.0, depth: 6.0, furniture_density: 0.6}

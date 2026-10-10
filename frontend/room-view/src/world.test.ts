@@ -10,6 +10,7 @@ function person(id: string | null, x: number, heading = 0): WorldPerson {
 const room: WorldTrack["room"] = {
   width_front: 3.6, width_back: 5.2, depth: 4, height: 2.6,
   camera_position: [0, 1.2, 3], camera_target: [0, 1.2, -2], camera_fov: 50, objects: [],
+  bounds: null, doors: [], windows: [], camera_aspect: null, lighting: null,
 };
 
 function track(frames: WorldTrack["frames"]): WorldTrack {
