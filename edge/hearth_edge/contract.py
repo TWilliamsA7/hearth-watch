@@ -26,6 +26,17 @@ def utc_iso(ts):
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def parse_utc_iso(text):
+    """ISO 8601 UTC ('2026-10-10T05:12:03.481Z') -> Unix time; fractional seconds optional."""
+    s = text.replace("+00:00", "").rstrip("Z")
+    fmt = "%Y-%m-%dT%H:%M:%S.%f" if "." in s else "%Y-%m-%dT%H:%M:%S"
+    dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+    return (dt - _EPOCH).total_seconds()
+
+
 def _unit(v):
     return 0.0 if v < 0.0 else 1.0 if v > 1.0 else v
 

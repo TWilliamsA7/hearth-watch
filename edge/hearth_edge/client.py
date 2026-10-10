@@ -94,7 +94,7 @@ class EdgeClient(object):
                  observations_path="/ingest/observations", heartbeat_path="/ingest/heartbeat",
                  batch_interval_s=0.15, heartbeat_interval_s=1.0, timeout_s=2.0,
                  queue_max=100, max_batch=50, max_backoff_s=2.0, log=_default_log,
-                 clock=time.time):
+                 clock=time.time, idle_reason="no camera frames"):
         self.base = backend_url.rstrip("/")
         self.source = source
         self.room_id = room_id
@@ -110,6 +110,7 @@ class EdgeClient(object):
         self.max_backoff_s = max_backoff_s
         self.log = log
         self.clock = clock
+        self.idle_reason = idle_reason  # why heartbeats paused, for the log line
 
         self._queue = deque()
         self._lock = threading.Lock()
@@ -229,11 +230,12 @@ class EdgeClient(object):
             snap = self.stats.snapshot() if self.stats is not None else {}
             if snap is None:
                 if not self._heartbeat_paused:
-                    self.log("no camera frames: heartbeat paused so the backend shows this source offline")
+                    self.log("%s: heartbeat paused so the backend shows this source offline"
+                             % self.idle_reason)
                     self._heartbeat_paused = True
                 continue
             if self._heartbeat_paused:
-                self.log("camera frames resumed: heartbeat restarted")
+                self.log("data resumed: heartbeat restarted")
                 self._heartbeat_paused = False
             hb = contract.build_heartbeat(self.clock(), self.source, self.room_id,
                                           fps=snap.get("fps"),

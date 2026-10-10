@@ -7,8 +7,11 @@ Run on the Jetson (from the edge/ folder):
     python3 run_edge.py --stream rtp://192.168.55.100:1234   # also stream the skeleton video
     python3 run_edge.py --help               # every option
 
+    python3 run_edge.py --dry-run --record sit --seconds 10   # save a clip to recordings/
+
 Stop with Ctrl+C. Settings default to hearth_edge/config.py; options override them.
-Face detection is not wired in yet, so face_present is null ("did not run") on every frame.
+Face detection (presence only, never identity) runs every --face-interval seconds on sent
+frames; other frames carry face_present = null ("did not run"). --no-face turns it off.
 """
 
 import argparse
@@ -41,8 +44,40 @@ def parse_args(argv=None):
     ap.add_argument("--dry-run", action="store_true",
                     help="print each observation as JSON instead of sending anything")
     ap.add_argument("--status-every", type=float, default=5.0, help="seconds between status lines")
-    ap.add_argument("--seconds", type=float, default=0.0, help="stop after this long (0 = run until stopped)")
+    ap.add_argument("--seconds", type=float, default=0.0,
+                    help="stop after this long (0 = run until stopped); with --record, the "
+                         "length of the recording after the countdown")
+    ap.add_argument("--record", metavar="LABEL", default=None,
+                    help="save observations to recordings/LABEL-<time>.jsonl (keypoints only)")
+    ap.add_argument("--record-dir", default=None, help="where recordings go (default <repo>/recordings)")
+    ap.add_argument("--countdown", type=float, default=3.0,
+                    help="seconds of countdown before recording starts (default 3)")
+    ap.add_argument("--no-face", action="store_true",
+                    help="turn face detection off (face_present is then null on every frame)")
+    ap.add_argument("--face-interval", type=float, default=config.FACE_INTERVAL_S,
+                    help="seconds between face checks (default %(default)s)")
+    ap.add_argument("--face-threshold", type=float, default=config.FACE_THRESHOLD,
+                    help="facenet confidence needed to count as a face (default %(default)s)")
     return ap.parse_args(argv)
+
+
+class RecordTimer(object):
+    """A countdown, then a recording window of `seconds` (0 = until stopped). Frame times."""
+
+    def __init__(self, start, countdown_s, seconds):
+        self.rec_start = start + max(0.0, countdown_s)
+        self.rec_end = self.rec_start + seconds if seconds else None
+
+    def recording(self, t):
+        return t >= self.rec_start and (self.rec_end is None or t < self.rec_end)
+
+    def done(self, t):
+        return self.rec_end is not None and t >= self.rec_end
+
+    def countdown_left(self, t):
+        """Whole seconds until recording starts (0 once it has started)."""
+        left = self.rec_start - t
+        return int(left) + (1 if left > int(left) else 0) if left > 0 else 0
 
 
 class RateLimiter(object):
@@ -69,17 +104,21 @@ class RateLimiter(object):
         return True
 
 
-def observation_for_frame(ids, frame, pose, feats, source, room_id,
-                          confidence=config.KEYPOINT_CONFIDENCE_PLACEHOLDER):
-    """Build the Observation for one frame. pose/feats are None when nobody was detected."""
+def observation_for_frame(ids, frame, pose, feats, source, room_id, face_present=None,
+                          face_confidence=None, confidence=config.KEYPOINT_CONFIDENCE_PLACEHOLDER):
+    """Build the Observation for one frame. pose/feats are None when nobody was detected.
+
+    face_present is None when no face check ran on this frame (not the same as False).
+    """
     if pose is None:
         return contract.build_observation(ids.next(), frame["t"], source, room_id,
-                                          person_detected=False, face_present=None)
+                                          person_detected=False, face_present=face_present,
+                                          face_confidence=face_confidence)
     keypoints = contract.normalize_keypoints(pose["keypoints"], frame["width"], frame["height"],
                                              confidence)
     return contract.build_observation(ids.next(), frame["t"], source, room_id,
-                                      person_detected=True, keypoints=keypoints,
-                                      features=feats, face_present=None)
+                                      person_detected=True, keypoints=keypoints, features=feats,
+                                      face_present=face_present, face_confidence=face_confidence)
 
 
 def log(msg):
@@ -120,6 +159,21 @@ def main(argv=None):
 
     cam = PoseCamera(camera=args.camera, width=args.width, height=args.height,
                      model=config.POSE_MODEL, threshold=args.threshold, stream=args.stream)
+
+    face = schedule = None
+    if not args.no_face:
+        from hearth_edge.face import FaceDetector, FaceSchedule
+        try:
+            face = FaceDetector(config.FACE_MODEL, args.face_threshold, draw=bool(args.stream))
+            schedule = FaceSchedule(args.face_interval)
+            log("face detection on: %s, one check every %.1f s, threshold %.2f"
+                % (config.FACE_MODEL, args.face_interval, args.face_threshold))
+        except Exception as e:  # keep monitoring posture even if the face model can't load
+            log("FACE DETECTION UNAVAILABLE (%s): face_present stays null" % e)
+            face = None
+    else:
+        log("face detection off (--no-face): face_present stays null")
+    face_checks = faces_seen = 0
     stats = FrameStats()
     client = None
     if not args.dry_run:
@@ -139,10 +193,25 @@ def main(argv=None):
     frames = with_person = emitted = 0
     camera_quiet = False
 
+    recorder = timer = None
+    announced = None
+    if args.record:
+        from hearth_edge.recorder import Recorder
+        recorder = Recorder(args.record, args.record_dir)
+        timer = RecordTimer(start, args.countdown, args.seconds)
+
     try:
         while not stop["flag"]:
             now = time.time()
-            if args.seconds and now - start >= args.seconds:
+            if timer is not None:
+                if timer.done(now):
+                    break
+                left = timer.countdown_left(now)
+                if left != announced:
+                    announced = left
+                    log("RECORDING '%s' -> %s" % (args.record, recorder.path) if left == 0
+                        else "recording '%s' starts in %d" % (args.record, left))
+            elif args.seconds and now - start >= args.seconds:
                 break
             frame = cam.read()
             if frame is None:
@@ -155,8 +224,6 @@ def main(argv=None):
                 camera_quiet = False
             last_frame = frame["t"]
             frames += 1
-            stats.record(frame["inference_ms"], frame["t"])
-            cam.render(frame)
 
             # Features every frame keeps the hip-velocity estimate smooth; only some are sent.
             pose = features.select_pose(frame["poses"])
@@ -168,9 +235,24 @@ def main(argv=None):
                 feats = features.compute_features(pose, frame["width"], frame["height"],
                                                   velocity, frame["t"])
 
-            if limiter.ready(frame["t"]):
-                obs = observation_for_frame(ids, frame, pose, feats, args.source, args.room)
+            emit = limiter.ready(frame["t"])
+            # Face checks only on frames that are sent, so no result is computed and dropped.
+            face_present = face_confidence = None
+            inference_ms = frame["inference_ms"]
+            if emit and face is not None and schedule.due(frame["t"]):
+                face_present, face_confidence, face_ms = face.check(frame)
+                inference_ms += face_ms
+                face_checks += 1
+                faces_seen += 1 if face_present else 0
+            stats.record(inference_ms, frame["t"])
+            cam.render(frame)  # after the face check so its boxes show in the preview
+
+            if emit:
+                obs = observation_for_frame(ids, frame, pose, feats, args.source, args.room,
+                                            face_present, face_confidence)
                 emitted += 1
+                if recorder is not None and timer.recording(frame["t"]):
+                    recorder.write(obs)
                 if args.dry_run:
                     json_out.write(json.dumps(obs) + "\n")
                     json_out.flush()
@@ -178,19 +260,23 @@ def main(argv=None):
                     client.submit(obs)
 
             if frame["t"] - last_status >= args.status_every:
-                elapsed = frame["t"] - last_status
                 snap = stats.snapshot() or {}
                 line = "fps %.1f | person in %d%% of frames | observations %d" % (
                     snap.get("fps") or 0.0, 100 * with_person // max(frames, 1), emitted)
+                line += (" | face seen in %d of %d checks" % (faces_seen, face_checks)
+                         if face is not None else " | face off")
                 if client is not None:
                     state = {None: "not tried", True: "online", False: "OFFLINE"}[client.online]
                     line += " | sent %(sent)d dropped %(dropped)d rejected %(rejected)d" % client.counts
                     line += " | queued %d | backend %s" % (client.queued(), state)
                 log(line)
                 last_status = frame["t"]
-                frames = with_person = 0
+                frames = with_person = face_checks = faces_seen = 0
     finally:
         log("stopping")
+        if recorder is not None:
+            recorder.close()
+            log("recording done: %d observations -> %s" % (recorder.count, recorder.path))
         try:
             if client is not None:
                 client.stop()  # sends what's queued while the backend is reachable
