@@ -8,10 +8,13 @@ Input: C:\\hearth-data\\keypoints.npz from 05_extract_keypoints.py. Built in par
   part 2 - the network (nn.Module) and the training loop, with live progress: a line per batch,
            a summary per epoch, a chart window that redraws every epoch; saves the best model to
            C:\\hearth-data\\posture_mlp.pt and the curves to training_curves.png
-  part 3 - (next) evaluation on our own Jetson recordings, export for the Jetson
+  part 3 - the real test: the saved model on OUR Jetson recordings (recordings/*.jsonl, real
+           poseNet output from our camera), per clip and overall. Runs after training, or alone
+           with --test-only.
 """
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -232,6 +235,74 @@ def confusion_table(confusion):
     return "\n".join(lines)
 
 
+# --- part 3: the real test, on our own Jetson recordings -------------------------------------
+
+KEYPOINT_NAMES = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder",
+                  "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist",
+                  "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"]
+JETSON_ASPECT = 640 / 480      # the Jetson camera's frame (edge config); recordings store 0-1 only
+# Clip name -> what the person was doing. lie_down clips start with the person still getting
+# down, so their first LIE_SKIP_S seconds are left out rather than wrongly called "floor".
+CLIP_LABEL = {"stand": 0, "walk": 0, "sit": 1, "lie_down": 2}
+LIE_SKIP_S = 5.0
+
+
+def load_recording(path):
+    """One recordings/*.jsonl clip -> (xy 17x2 per frame, found 17 per frame, seconds from start).
+    poseNet lists only the keypoints it found (plus "neck", which COCO-17 doesn't have)."""
+    xys, founds, times, t0 = [], [], [], None
+    for line in open(path):
+        obs = json.loads(line)
+        if not obs.get("person_detected") or not obs.get("keypoints"):
+            continue
+        h, rest = obs["timestamp"][11:-1].split(":", 1)
+        t = int(h) * 3600 + int(rest.split(":")[0]) * 60 + float(rest.split(":")[1])
+        t0 = t if t0 is None else t0
+        xy, found = np.zeros((17, 2), np.float32), np.zeros(17, bool)
+        for kp in obs["keypoints"]:
+            if kp["name"] in KEYPOINT_NAMES:
+                i = KEYPOINT_NAMES.index(kp["name"])
+                xy[i], found[i] = (kp["x"], kp["y"]), True
+        if found.sum() >= MIN_FOUND:
+            xys.append(xy), founds.append(found), times.append(t - t0)
+    return np.array(xys), np.array(founds), np.array(times)
+
+
+def test_on_recordings(model, folder, device):
+    """Per clip: how many frames the model got right, and a timeline (one letter per frame,
+    U upright / S sitting / F floor, . = getting down, not scored). Then the overall table."""
+    clips = sorted(Path(folder).glob("*.jsonl"))
+    if not clips:
+        print("no recordings in %s (they come with git pull)" % folder)
+        return
+    model.eval()
+    confusion = np.zeros((3, 3), dtype=np.int64)
+    print("\nOUR JETSON RECORDINGS (poseNet, our camera) - the model has never seen these:")
+    for clip in clips:
+        kind = clip.name.split("-")[0]
+        if kind not in CLIP_LABEL:
+            continue
+        xy, found, t = load_recording(clip)
+        if len(t) == 0:
+            continue
+        x = torch.from_numpy(np.stack([features(a, f, JETSON_ASPECT) for a, f in zip(xy, found)]))
+        with torch.no_grad():
+            predicted = model(x.to(device)).argmax(dim=1).cpu().numpy()
+        truth = CLIP_LABEL[kind]
+        scored = t >= LIE_SKIP_S if kind == "lie_down" else np.ones(len(t), bool)
+        np.add.at(confusion, (np.full(scored.sum(), truth), predicted[scored]), 1)
+        right = (predicted[scored] == truth).mean() if scored.any() else 0.0
+        timeline = "".join("USF"[p] if s else "." for p, s in zip(predicted, scored))
+        print("  %-32s %-8s %4d frames  %3.0f%% right  %s"
+              % (clip.name, CLASSES[truth], scored.sum(), 100 * right, timeline[::3]))
+    per_class = confusion.diagonal() / np.maximum(confusion.sum(axis=1), 1)
+    print("overall: %.0f%% of %d frames right, balanced %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
+          % (100 * confusion.diagonal().sum() / max(confusion.sum(), 1), confusion.sum(),
+             100 * per_class.mean(), *(100 * per_class)))
+    print(confusion_table(confusion))
+    print("(timelines show every 3rd frame, ~0.3 s per letter)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Train the upright/sitting/floor classifier.")
     ap.add_argument("--data", default=r"C:\hearth-data\keypoints.npz", type=Path)
@@ -241,6 +312,9 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3, help="learning rate (step size)")
     ap.add_argument("--drop", type=float, default=0.2, help="chance of hiding each keypoint (training)")
     ap.add_argument("--show-data", action="store_true", help="part 1 only: print a batch, then stop")
+    ap.add_argument("--test-only", action="store_true", help="part 3 only: test the saved model")
+    ap.add_argument("--recordings", type=Path, default=Path("recordings"),
+                    help="our Jetson clips (default: the repo's recordings folder)")
     ap.add_argument("--no-chart", action="store_true", help="no live chart window")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
@@ -258,6 +332,11 @@ def main():
 
     device = torch.device(args.device)
     model = PostureNet().to(device)            # weights move to the GPU
+    out = args.out or args.data.parent / "posture_mlp.pt"
+    if args.test_only:
+        model.load_state_dict(torch.load(out, map_location=device)["state_dict"])
+        test_on_recordings(model, args.recordings, device)
+        return
     weights = class_weights(train.labels)
     loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
     # AdamW: a gradient-descent variant that adapts the step size per weight; weight_decay
@@ -267,7 +346,6 @@ def main():
           % (device, sum(p.numel() for p in model.parameters()), len(train), len(val),
              dict(zip(CLASSES, [round(float(w), 2) for w in weights]))))
 
-    out = args.out or args.data.parent / "posture_mlp.pt"
     chart = LiveChart(not args.no_chart)
     history = {k: [] for k in ("train_loss", "train_acc", "val_loss", "val_acc")}
     best = (-1.0, 0)
@@ -303,6 +381,7 @@ def main():
     print("\nbest epoch %d: validation %.0f%% (balanced %.0f%%), saved to %s"
           % (best[1], 100 * va_acc, 100 * best[0], out))
     print("on the unseen people, frame counts:\n" + confusion_table(confusion))
+    test_on_recordings(model, args.recordings, device)
     if chart.plt is not None:
         print("curves saved to %s. Close the chart window to finish." % curves)
         chart.plt.ioff()

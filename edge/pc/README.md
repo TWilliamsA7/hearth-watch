@@ -201,6 +201,35 @@ names in OmniFall's labels, so the next script has to translate them:
 | GMDCSA24 | `Subject_1/ADL/01` | `gmdcsa24\ekramalam-GMDCSA24-...-5abac76\Subject 1\ADL\01.mp4` (space, not underscore; extra top folder) |
 | Le2i | `Coffee_room_02/video_14` | `le2i\FallDataset\Coffee_room_02\Coffee_room_02\Videos\...` (two extra folder levels; file names to confirm, often `video (14).avi`) |
 
+### More fall data: OCCU, CAUCAFall, OF-Synthetic (on D:)
+
+Floor (fallen / lying) footage was the thinnest class (~575 s). These add ~3,200 s more, all with
+OmniFall labels:
+
+| Dataset | Adds (upright / sitting / floor) | What it brings | Download size | License |
+|---|---|---|---|---|
+| [OCCU](https://doi.org/10.5281/zenodo.15494102) | 289 / 91 / 496 s, 5 people, 2 views | falls whose end is hidden behind a bed | 16 MB (10 videos out of a 10.8 GB zip) | CC BY 4.0 |
+| [CAUCAFall](https://data.mendeley.com/datasets/7w7fccy7ky/4) | 225 / 65 / 263 s, 10 people | a real home, varied lighting | 135 MB (100 videos; the full 10 GB is still images) | CC BY 4.0 |
+| [OF-Synthetic](https://huggingface.co/datasets/simplexsigil2/omnifall), care-room filter | 2,918 / 1,691 / 2,436 s, 2,203 clips (747 elderly) | AI-generated people: indoor, adults and elderly, camera at eye height / high / top | streams 9.7 GB once, keeps ~1.2 GB | CC BY-NC 4.0 |
+
+Everything lives in `D:\hearth-data` from now on. Move the existing folder first (once), then
+download (re-runnable: finished files are skipped; checksums are verified):
+
+```powershell
+Remove-Item C:\hearth-data\gmdcsa24.zip        # optional: the extracted copy is all we need
+Move-Item C:\hearth-data D:\hearth-data
+cd C:\Users\Gaston\hearth-watch
+.\.venv-pc\Scripts\python.exe edge\pc\download_datasets.py
+```
+
+`download_datasets.py` fetches only the videos: OCCU's 10 colour videos are read straight out of
+the remote zip (its table of contents is at the end of the file, so small range requests find
+them), CAUCAFall's 100 `.avi` files come through Mendeley's API, and the OF-Synthetic archive is
+streamed once, writing only the clips that pass the filter (`--syn-all` keeps all 12,000;
+`--only occu` etc. for one dataset). If the 9.7 GB stream breaks, run it again: clips already
+saved are skipped, but the stream restarts from the beginning. OF-Synthetic is AV1 video; the
+`opencv-python` in `.venv-pc` decodes it (checked).
+
 ### Step 6a: `05_extract_keypoints.py`
 
 ```powershell
@@ -245,7 +274,8 @@ about an hour for all videos).
 
 ```powershell
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py --show-data   # part 1: what the network is fed
-.\.venv-pc\Scripts\python.exe edge\pc\06_train.py               # part 2: train (30 epochs, live chart)
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py               # part 2+3: train (30 epochs, live chart), then test
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --test-only   # part 3 only: test the saved model again
 ```
 
 - Part 1 (data): each frame -> 51 numbers (17 keypoints x dx, dy, found; aspect ratio undone,
@@ -258,9 +288,17 @@ about an hour for all videos).
   a summary per epoch and a live chart; keeps the epoch with the best **balanced** accuracy in
   `C:\hearth-data\posture_mlp.pt`, curves in `training_curves.png`, then prints a confusion table.
 
-### Step 6c onward
+- Part 3 (the real test): the saved model on our own Jetson recordings (`recordings/*.jsonl`,
+  committed in the repo, so `git pull` brings them): clip name = truth (stand / walk -> upright,
+  sit -> sitting, lie_down -> floor, minus its first 5 s of getting down). Prints % right per
+  clip, a timeline of predictions per clip (U / S / F, `.` = not scored) and an overall
+  confusion table. The validation score only shows it learned the public datasets (same rooms
+  and cameras, clean YOLO keypoints); this one shows whether it works with our camera and poseNet.
 
-- Test on our own Jetson recordings (real poseNet output) with a confusion table.
+First run (2026-10-10): validation 99-100% from epoch 4 on (best epoch 26; confusion upright
+2028/4/2, sitting 0/1829/10, floor 0/8/1517).
+
+### Step 6c onward
 - Export to ONNX; a network this small runs on the Jetson with plain numpy in under 1 ms.
 
 Both datasets are research data: credit them, don't build a product on them (Le2i is
