@@ -151,28 +151,4 @@ def lift(keypoints: list[tuple[str, float, float]], camera: Camera, room: Room, 
     if dx or dz:
         joints = {k: (p[0] + dx, p[1], p[2] + dz) for k, p in joints.items()}
     root = (hip[0] + dx, hip[1] + dz)
-    return complete(LiftedBody(joints, root, _heading(joints), height), posture)
-
-
-# Body template per posture, for the joints the camera didn't see.
-TEMPLATES = {"standing": "standing", "sitting": "sitting", "lying": "side_lying", "floor": "side_lying"}
-
-
-def complete(body: LiftedBody, posture: str) -> LiftedBody:
-    """Fill in joints the camera didn't see (a close camera often misses the head or legs) from
-    a body in this posture, standing where the seen joints are: the avatar is always a whole
-    person. Seen joints are kept exactly as lifted."""
-    from hearth.sim.pose import KEY_POSES
-    from hearth.sim.world import body as pose_body
-
-    tpl = pose_body(KEY_POSES[TEMPLATES.get(posture, "standing")], body.heading, body.root[0], body.root[1], 0.0,
-                    body.height)  # fmt: skip
-    seen = [n for n in body.joints if n in tpl]
-    if not seen or len(seen) == len(tpl):
-        return body
-    # Line the template up with what was seen, across the floor only: its height is the body's own.
-    dx = sum(body.joints[n][0] - tpl[n][0] for n in seen) / len(seen)
-    dz = sum(body.joints[n][2] - tpl[n][2] for n in seen) / len(seen)
-    joints = {n: (p[0] + dx, p[1], p[2] + dz) for n, p in tpl.items()}
-    joints.update(body.joints)
-    return LiftedBody(joints, body.root, body.heading, body.height)
+    return LiftedBody(joints, root, _heading(joints), height)

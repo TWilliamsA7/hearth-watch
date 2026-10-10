@@ -1,6 +1,7 @@
 """The live camera link, end to end through the real app: camera observations in at /ingest,
 the real monitor decides the posture, the person appears in the live room, residents respond."""
 
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -36,6 +37,14 @@ def camera_frames(world, pose, x, z, start, seconds, hz=10):
             for i in range(int(seconds * hz))]
 
 
+def tick(sim, seconds=0.8):
+    """The live controller calls update() every 50 ms; posture changes take ~0.4 s to settle."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        sim.link.update()
+        time.sleep(0.05)
+
+
 def test_a_live_person_plays_out_in_the_live_room():
     app = create_app(service=MonitorService(MonitorConfig.load()))
     sim = app.state.simulation
@@ -45,7 +54,7 @@ def test_a_live_person_plays_out_in_the_live_room():
         world = sim.live.world
 
         c.post("/ingest/observations", json={"observations": camera_frames(world, "standing", 0.4, -3.0, 0, 2)})
-        sim.link.update()
+        tick(sim)
         status = c.get("/sim/live/link").json()
         assert status["state"] == "live" and status["posture"] == "standing"
         person = next(p for p in world.frame().people if p.kind == "live")
@@ -55,7 +64,7 @@ def test_a_live_person_plays_out_in_the_live_room():
 
         # On the floor long enough for the real monitor's 3 s hold: a possible fall, and help comes.
         c.post("/ingest/observations", json={"observations": camera_frames(world, "side_lying", 0.4, -3.0, 2, 4.5)})
-        sim.link.update()
+        tick(sim)
         status = c.get("/sim/live/link").json()
         assert status["posture"] == "floor" and status["alert_open"]
         assert any(a["kind"] == "possible_fall" and a["source"] == SOURCE for a in c.get("/alerts").json())

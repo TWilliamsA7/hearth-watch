@@ -15,7 +15,6 @@ monitor, and ground truth never reaches it.
 
 from __future__ import annotations
 
-import math
 from datetime import datetime
 from typing import Literal
 
@@ -25,12 +24,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hearth.monitor.detector import track_key
 from hearth.sim.live.controller import LiveController
-from hearth.sim.live.lift import LiftedBody, lift
+from hearth.sim.live.avatar import LiveAvatar
+from hearth.sim.live.lift import LiftedBody
 
 # No fresh frame for this long: the person is shown as gone. The Jetson pauses for a few
 # seconds now and then (camera stalls); holding the last pose that long avoids flicker.
 STALE_S = 4.0
-SMOOTH = 0.35  # EMA weight of each new frame on position and heading
 
 # The monitor's internal posture state -> (avatar posture, what to call it).
 POSTURES: dict[str, tuple[str, str]] = {
@@ -68,8 +67,8 @@ class LiveLink:
         self.enabled, self.source, self.height = False, "jetson-01", 1.7
         self.alert_open = False
         self._posture, self._label = "standing", "standing"
-        self._root: tuple[float, float] | None = None
-        self._heading: float | None = None
+        self.avatar = LiveAvatar(self.height)  # the person's body in the room, smoothed
+        self._last_obs_id: str | None = None
         self._last_seen: datetime | None = None
         self._present = False
         self._person_at: float | None = None  # monitor clock when someone was last made out
@@ -84,8 +83,10 @@ class LiveLink:
         w = self.controller.world
         if w is not None and (not req.enabled or req.source != self.source):
             w.remove_external(self.source)
+        if req.source != self.source or req.height != self.height:
+            self.avatar = LiveAvatar(req.height)
         if req.source != self.source:
-            self._root = self._heading = self._last_seen = None
+            self._last_seen = None
             self.alert_open = False
         self.enabled, self.source, self.height = req.enabled, req.source, req.height
         if self.enabled:
@@ -120,18 +121,6 @@ class LiveLink:
         state = self.monitor.detector.states.get(track_key(obs))
         return POSTURES.get(state.posture if state else "", (self._posture, self._label))
 
-    def _smooth(self, body: LiftedBody) -> LiftedBody:
-        if self._root is None or self._heading is None:
-            self._root, self._heading = body.root, body.heading
-            return body
-        rx = self._root[0] + SMOOTH * (body.root[0] - self._root[0])
-        rz = self._root[1] + SMOOTH * (body.root[1] - self._root[1])
-        turn = math.remainder(body.heading - self._heading, 2 * math.pi)
-        self._root, self._heading = (rx, rz), self._heading + SMOOTH * turn
-        dx, dz = rx - body.root[0], rz - body.root[1]
-        joints = {k: (p[0] + dx, p[1], p[2] + dz) for k, p in body.joints.items()}
-        return LiftedBody(joints, (rx, rz), self._heading, body.height)
-
     def update(self) -> None:
         w = self.controller.world
         if not self.enabled or w is None:
@@ -147,20 +136,26 @@ class LiveLink:
             if self._present and gone:
                 w.set_external(self.source, None)
                 self._present = False
-                self._root = self._heading = None
+                self.avatar = LiveAvatar(self.height)
+            elif self._present:
+                self._place(w, now, None)  # keep any posture change animating
             return
         self._person_at = now
-        posture, label = self._monitor_posture(obs)
-        body = lift([(k.name, k.x, k.y) for k in obs.keypoints], w.camera, w.room, height=self.height,
-                    posture=posture)  # fmt: skip
-        if body is None:
-            return  # keep where they were: one unusable frame isn't someone leaving
-        if posture != self._posture and "floor" in (posture, self._posture):
-            self._root = None  # lying down or getting up moves the body: don't drag it through the change
-        self._posture, self._label = posture, label
-        e = w.set_external(self.source, self._smooth(body), posture=posture, label=label)
+        posture, self._label = self._monitor_posture(obs)
+        new = obs.obs_id != self._last_obs_id
+        self._last_obs_id = obs.obs_id
+        self._place(w, now, [(k.name, k.x, k.y) for k in obs.keypoints] if new else None, posture)
+
+    def _place(self, w, now: float, keypoints, posture: str | None = None) -> None:
+        a = self.avatar
+        a.update(keypoints, posture or a.posture, w.camera, w.room, now)
+        if not a.ready:
+            return
+        self._posture = a.posture
+        e = w.set_external(self.source, LiftedBody(a.joints(), a.root, a.heading, a.height), posture=a.posture,
+                           label=self._label)  # fmt: skip
         self._present = True
-        if self.alert_open and posture == "floor":
+        if self.alert_open and a.posture == "floor":
             w.incidents.respond(e)
 
     def _on_event(self, event: Event) -> None:
