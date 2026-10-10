@@ -25,6 +25,7 @@ frontend/dist/
 *.avi
 *.mkv
 recordings/*
+scenarios/generated/
 !recordings/.gitkeep
 
 # Editors / OS

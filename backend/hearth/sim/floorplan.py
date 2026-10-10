@@ -34,6 +34,7 @@ FRONT_DEPTH = 0.02  # nobody stands right at the frame's bottom edge
 BACK_DEPTH = 0.95  # nor flat against the back wall
 WALKABLE: frozenset[ObjectKind] = frozenset({"mat"})
 DOOR_DEPTH = 0.08
+SHORTCUT_MARGIN_M = 0.02  # smoothed routes keep this clear of furniture, so rounding can't clip a corner
 
 
 def to_world(scene: Scene, x: float, depth: float) -> Floor:
@@ -105,17 +106,18 @@ class FloorPlan:
 
     # --- geometry ---
 
-    def blockers(self, p: Floor) -> set[int]:
+    def blockers(self, p: Floor, margin: float = 0.0) -> set[int]:
         """Indices of the objects whose (grown) footprint contains p."""
-        x, z = p
-        return {i for i, f in enumerate(self.footprints) if f and f[0] <= x <= f[2] and f[1] <= z <= f[3]}
+        x, z, m = p[0], p[1], margin
+        return {i for i, f in enumerate(self.footprints)
+                if f and f[0] - m <= x <= f[2] + m and f[1] - m <= z <= f[3] + m}  # fmt: skip
 
     def in_room(self, p: Floor) -> bool:
         x, z = p
         return self.x_min - 1e-9 <= x <= self.x_max + 1e-9 and self.z_min - 1e-9 <= z <= self.z_max + 1e-9
 
-    def free(self, p: Floor, ignore: Collection[int] = ()) -> bool:
-        return self.in_room(p) and not (self.blockers(p) - set(ignore))
+    def free(self, p: Floor, ignore: Collection[int] = (), margin: float = 0.0) -> bool:
+        return self.in_room(p) and not (self.blockers(p, margin) - set(ignore))
 
     def visible(self, p: Floor, margin: float = 0.05) -> bool:
         """Would the camera see someone standing here (frame x inside the picture)?"""
@@ -143,6 +145,20 @@ class FloorPlan:
         route = self.find_path(self.approach(seat), goal, **kw)
         return None if route is None else [seat.at(self.scene)] + route
 
+    def hiding_spots(self) -> list[tuple[Floor, float]]:
+        """(where to stand, frame y below which the body is hidden) behind each occluder."""
+        spots = []
+        for o in self.scene.objects:
+            if o.kind != "occluder":
+                continue
+            depth = object_depth(self.scene, o)
+            for d in (depth, depth + 0.05, depth + 0.1):
+                p = to_world(self.scene, o.x + o.w / 2, d)
+                if self.free(p):
+                    spots.append((p, o.y))
+                    break
+        return spots
+
     def random_point(self, rng: random.Random, *, visible: bool = True, tries: int = 200) -> Floor:
         for _ in range(tries):
             p = (rng.uniform(self.x_min, self.x_max), rng.uniform(self.z_min, self.z_max))
@@ -160,10 +176,10 @@ class FloorPlan:
     def _centre(self, c: Cell) -> Floor:
         return self.x_min + c[0] * self.cell, self.z_min + c[1] * self.cell
 
-    def line_free(self, a: Floor, b: Floor, ignore: Collection[int] = ()) -> bool:
-        steps = max(1, int(distance(a, b) / (self.cell / 2)))
+    def line_free(self, a: Floor, b: Floor, ignore: Collection[int] = (), margin: float = 0.0) -> bool:
+        steps = max(1, int(distance(a, b) / (self.cell / 4)))
         return all(
-            self.free((a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps), ignore)
+            self.free((a[0] + (b[0] - a[0]) * k / steps, a[1] + (b[1] - a[1]) * k / steps), ignore, margin)
             for k in range(steps + 1)
         )
 
@@ -229,7 +245,7 @@ class FloorPlan:
         i = 0
         while i < len(points) - 1:
             j = len(points) - 1
-            while j > i + 1 and not self.line_free(points[i], points[j], ignore):
+            while j > i + 1 and not self.line_free(points[i], points[j], ignore, SHORTCUT_MARGIN_M):
                 j -= 1
             out.append(points[j])
             i = j

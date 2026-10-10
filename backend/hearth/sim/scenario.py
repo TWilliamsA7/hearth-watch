@@ -37,6 +37,8 @@ ALERT_LABELS: frozenset[str] = frozenset({"fall"})
 DEFAULT_SCENARIOS_DIR = Path(
     os.environ.get("HEARTH_SCENARIOS_DIR", Path(__file__).resolve().parents[3] / "scenarios")
 )
+GENERATED_SUBDIR = "generated"
+"""Generated scenarios (python -m hearth.sim generate) go here, outside the library load_all() reads."""
 
 
 class _Model(BaseModel):
@@ -291,4 +293,16 @@ def find_scenario(name_or_path: str, directory: str | Path = DEFAULT_SCENARIOS_D
     path = Path(name_or_path)
     if path.suffix in {".yaml", ".yml"} and path.exists():
         return load_scenario(path)
-    return load_scenario(Path(directory) / f"{name_or_path}.yaml")
+    path = Path(directory) / f"{name_or_path}.yaml"
+    generated = Path(directory) / GENERATED_SUBDIR / f"{name_or_path}.yaml"
+    return load_scenario(generated if not path.exists() and generated.exists() else path)
+
+
+def save_scenario(scenario: Scenario, path: str | Path) -> Path:
+    """Write a scenario as YAML that load_scenario() reads back unchanged."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = scenario.model_dump(mode="json", exclude_defaults=True)
+    data = {"scenario_id": scenario.scenario_id, "title": scenario.title, **data}  # ids first, for people reading
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=120), encoding="utf-8")
+    return path
