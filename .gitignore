@@ -35,3 +35,8 @@ Thumbs.db
 
 # Local planning notes
 HEARTH_AGENT_HANDOFF.md
+
+# Downloaded model weights and local inference runtime settings
+models/
+.hearth-runtime/
+runs/

@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "nurse_id": {
+      "title": "Nurse Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "nurse_id"
+  ],
+  "title": "NurseAction",
+  "type": "object"
+}

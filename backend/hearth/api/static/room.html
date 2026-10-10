@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hearth · Room check-in</title><link rel="stylesheet" href="/assets/style.css"></head>
+<body><header><a class="brand" href="/room">Hearth<span class="brand-note">Room panel</span></a><nav><span id="connection" class="pill">Connecting…</span><a href="/nurses" target="_blank" rel="noopener">Care desk ↗</a></nav></header>
+<main class="room-main"><div id="notice" role="status" aria-live="polite"></div><div class="room-hero"><h1>Request assistance</h1><p>Press the button to send a request to subscribed care staff.</p><button id="help" class="help-circle" disabled>Request help</button>
+<div id="request-status" class="request-status" role="status" aria-live="polite"><h2>No request pending</h2><p>Acknowledgement will appear here when a nurse accepts.</p></div></div>
+<div class="room-grid"><section class="panel"><h2>Your room</h2><label for="room">Choose the monitored room</label><select id="room"></select><p id="room-connection" class="small">No camera observations yet.</p></section>
+<section class="panel"><h2>Or raise an arm</h2><p id="gesture-instruction">Hold one hand above your head for 2 seconds in view of the camera.</p><p class="small">Wait for “Help requested” on this screen. If it does not appear, use the button. A nurse accepting means the request was acknowledged.</p></section></div>
+<section class="panel room-history"><h2>Latest help request</h2><div id="request-detail" class="small">No request in this room yet.</div></section><footer>Keep this page open to see when your request is accepted.</footer></main>
+<script type="module" src="/assets/room.js"></script></body></html>
