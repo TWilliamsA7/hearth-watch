@@ -24,7 +24,6 @@ frontend/dist/
 *.mp4
 *.avi
 *.mkv
-recordings/*
 scenarios/generated/
 !recordings/.gitkeep
 
