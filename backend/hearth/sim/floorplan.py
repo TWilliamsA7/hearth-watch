@@ -11,6 +11,12 @@ people come in and leave (DOORS), as the hand-written scenarios do with x < 0 or
 
 Furniture blocks walking, grown by a body radius, except mats (walked and lain on).
 Occluders block too: they stand in front of what they hide (OCCLUDER_GAP_M).
+
+Routes prefer open floor: a cell close to furniture or a wall costs more to cross, so
+people walk down the middle of a gap rather than brushing past a corner, and the corners
+of a route are rounded off. Places (places()) are the spots people actually go to: in
+front of or beside furniture, at the window on the back wall, in the open middle of the
+room, each with the way someone there would face.
 """
 
 from __future__ import annotations
@@ -36,6 +42,11 @@ WALKABLE: frozenset[ObjectKind] = frozenset({"mat"})
 DOOR_DEPTH = 0.08
 ROOM_TOLERANCE_M = 0.005  # routes hugging a wall drift this far past it through frame-coordinate rounding
 SHORTCUT_MARGIN_M = 0.02  # smoothed routes keep this clear of furniture, so rounding can't clip a corner
+ROOMY_MARGIN_M = 0.15  # ...and this much, where there is room for it
+CLEARANCE_M = 0.45  # cells closer than this to furniture or a wall cost more to walk through
+CLEARANCE_COST = 2.0  # how much more, right up against it
+CORNER_ROUND_M = 0.35  # corners of a route are rounded off over up to this distance either side
+PLACE_GAP_M = 0.3  # people stand this far from the furniture they've come to
 
 
 def to_world(scene: Scene, x: float, depth: float) -> Floor:
@@ -50,6 +61,16 @@ def to_frame(scene: Scene, p: Floor) -> tuple[float, float]:
 
 def distance(a: Floor, b: Floor) -> float:
     return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
+@dataclass(frozen=True)
+class Place:
+    """Somewhere a person goes on purpose, and the way they face when they get there."""
+
+    name: str  # e.g. "window", "front-couch", "middle"
+    at: Floor
+    heading: float  # radians, as Segment.heading
+    near: int | None = None  # index into scene.objects of what it is beside
 
 
 @dataclass(frozen=True)
@@ -104,6 +125,8 @@ class FloorPlan:
             "left": (self.x_min, world_z(DOOR_DEPTH)),
             "right": (self.x_max, world_z(DOOR_DEPTH)),
         }
+        self._clearance = self._clearances()
+        self._places: list[Place] | None = None
 
     # --- geometry ---
 
@@ -212,7 +235,7 @@ class FloorPlan:
                     if di and dj and not (self._open((c[0] + di, c[1]), ignore) and self._open((c[0], c[1] + dj), ignore)):
                         continue  # don't cut a corner of furniture
                     step = self.cell * (math.sqrt(2.0) if di and dj else 1.0)
-                    nd = d + step
+                    nd = d + step * self._cost(n)
                     if nd < best.get(n, math.inf):
                         best[n], came[n] = nd, c
                         heapq.heappush(frontier, (nd + self._octile(n, g), nd, n))
@@ -228,7 +251,7 @@ class FloorPlan:
         # The grid can't see everything between a point and the cell it snapped to.
         if not all(self.line_free(a, b, ignore) for a, b in zip(route, route[1:])):
             return None
-        return route
+        return self._round(route, ignore)
 
     def _open(self, c: Cell, ignore: Collection[int]) -> bool:
         return 0 <= c[0] < self.nx and 0 <= c[1] < self.nz and self.free(self._centre(c), ignore)
@@ -238,15 +261,130 @@ class FloorPlan:
         return self.cell * (max(dx, dz) + (math.sqrt(2.0) - 1.0) * min(dx, dz))
 
     def _smooth(self, points: list[Floor], ignore: Collection[int]) -> list[Floor]:
-        """String-pulling: keep only the corners a straight line can't cut."""
+        """String-pulling: keep only the corners a straight line can't cut. A shortcut must
+        give furniture a wide berth, unless the grid's own path squeezes past it anyway."""
         out = [points[0]]
         i = 0
         while i < len(points) - 1:
             j = len(points) - 1
-            while j > i + 1 and not self.line_free(points[i], points[j], ignore, SHORTCUT_MARGIN_M):
+            while j > i + 1 and not self._shortcut(points, i, j, ignore):
                 j -= 1
             out.append(points[j])
             i = j
+        return out
+
+    def _shortcut(self, points: list[Floor], i: int, j: int, ignore: Collection[int]) -> bool:
+        if self.line_free(points[i], points[j], ignore, ROOMY_MARGIN_M):
+            return True
+        squeezed = not all(self.free(p, ignore, ROOMY_MARGIN_M) for p in points[i : j + 1])
+        return squeezed and self.line_free(points[i], points[j], ignore, SHORTCUT_MARGIN_M)
+
+    def _round(self, route: list[Floor], ignore: Collection[int]) -> list[Floor]:
+        """Round each corner off: a few points on a curve from before it to after it."""
+        if len(route) < 3:
+            return route
+        out = [route[0]]
+        for a, b, c in zip(route, route[1:], route[2:]):
+            ab, bc = distance(a, b), distance(b, c)
+            r = min(CORNER_ROUND_M, ab / 2, bc / 2)
+            if r < 0.05:
+                out.append(b)
+                continue
+            p0 = (b[0] + (a[0] - b[0]) * r / ab, b[1] + (a[1] - b[1]) * r / ab)
+            p2 = (b[0] + (c[0] - b[0]) * r / bc, b[1] + (c[1] - b[1]) * r / bc)
+            n = max(1, min(4, int(r / 0.08)))  # legs of a few centimetres at least
+            curve = [p0] + [_bezier(p0, b, p2, k / n) for k in range(1, n)] + [p2]
+            if all(self.line_free(p, q, ignore) for p, q in zip([out[-1]] + curve, curve + [c])):
+                out.extend(curve)
+            else:
+                out.append(b)
+        out.append(route[-1])
+        return out
+
+    # --- open floor ---
+
+    def _clearances(self) -> list[list[float]]:
+        """For every cell, metres to the nearest blocked cell or wall (capped at CLEARANCE_M)."""
+        dist = [[math.inf] * self.nz for _ in range(self.nx)]
+        queue: list[tuple[float, int, int]] = []
+        for i in range(self.nx):
+            for j in range(self.nz):
+                if self.free(self._centre((i, j))):
+                    d = min(i + 1, j + 1, self.nx - i, self.nz - j) * self.cell
+                else:
+                    d = 0.0
+                dist[i][j] = d
+                queue.append((d, i, j))
+        heapq.heapify(queue)
+        while queue:
+            d, i, j = heapq.heappop(queue)
+            if d > dist[i][j] or d >= CLEARANCE_M:
+                continue
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    ni, nj = i + di, j + dj
+                    if (di or dj) and 0 <= ni < self.nx and 0 <= nj < self.nz:
+                        nd = d + self.cell * (math.sqrt(2.0) if di and dj else 1.0)
+                        if nd < dist[ni][nj]:
+                            dist[ni][nj] = nd
+                            heapq.heappush(queue, (nd, ni, nj))
+        return dist
+
+    def clearance(self, p: Floor) -> float:
+        """Metres of open floor around p (capped at CLEARANCE_M)."""
+        i, j = self._cell(p)
+        return min(self._clearance[i][j], CLEARANCE_M)
+
+    def _cost(self, c: Cell) -> float:
+        tight = 1.0 - min(self._clearance[c[0]][c[1]], CLEARANCE_M) / CLEARANCE_M
+        return 1.0 + CLEARANCE_COST * tight * tight
+
+    # --- places ---
+
+    def places(self) -> list[Place]:
+        """Where people go: beside furniture facing it, the window, the open middle of the room."""
+        if self._places is None:
+            self._places = self._find_places()
+        return self._places
+
+    def _find_places(self) -> list[Place]:
+        out: list[Place] = []
+        room = room_geometry(self.scene)
+        for index, (o, f) in enumerate(zip(room.objects, self.footprints)):
+            (cx, _, cz) = o.center
+            if f is None:  # a mat: stand on it
+                if self.visible((cx, cz), margin=0.1):
+                    out.append(Place(f"on-{o.kind}", (round(cx, 3), round(cz, 3)), math.pi, index))
+                continue
+            gap = PLACE_GAP_M  # from the grown footprint: a body radius plus this from the furniture
+            sides = [
+                ("front", (cx, f[3] + gap), math.pi),
+                ("left-of", (f[0] - gap, cz), math.pi / 2),
+                ("right-of", (f[2] + gap, cz), -math.pi / 2),
+            ]
+            for name, p, heading in sides:
+                if self.free(p) and self.visible(p, margin=0.08):
+                    out.append(Place(f"{name}-{o.kind}", (round(p[0], 3), round(p[1], 3)), heading, index))
+        # The window: along the back wall, looking out.
+        z = self.z_min + 0.05
+        for frac in (0.3, 0.5, 0.7):
+            p = (self.x_min + (self.x_max - self.x_min) * frac, z)
+            if self.free(p, margin=0.1) and self.visible(p, margin=0.1):
+                out.append(Place("window", (round(p[0], 3), round(p[1], 3)), math.pi))
+        # The open middle: the roomiest visible spots, a little apart, facing the camera side.
+        roomy = sorted(
+            ((i, j) for i in range(self.nx) for j in range(self.nz)
+             if self._clearance[i][j] >= CLEARANCE_M and self.visible(self._centre((i, j)), margin=0.15)),
+            key=lambda c: (abs(self._centre(c)[0]) + abs(self._centre(c)[1] - (self.z_min + self.z_max) / 2), c),
+        )  # fmt: skip
+        middles: list[Floor] = []
+        for c in roomy:
+            p = self._centre(c)
+            if all(distance(p, q) > 1.2 for q in middles):
+                middles.append(p)
+            if len(middles) == 3:
+                break
+        out.extend(Place("middle", (round(p[0], 3), round(p[1], 3)), 0.0) for p in middles)
         return out
 
 
@@ -255,7 +393,7 @@ def route_segments(scene: Scene, route: list[Floor], speed: float, *, first_tran
     segments = []
     for a, b in zip(route, route[1:]):
         length = distance(a, b)
-        if length < 0.05:
+        if length < 0.01:
             continue
         x, depth = to_frame(scene, b)
         duration = round(max(length / speed, 0.25), 3)
@@ -263,3 +401,8 @@ def route_segments(scene: Scene, route: list[Floor], speed: float, *, first_tran
         segments.append(Segment(label="walking", duration=duration, transition=transition,
                                 x=round(x, 4), depth=round(min(max(depth, 0.0), 1.0), 4)))  # fmt: skip
     return segments
+
+
+def _bezier(a: Floor, b: Floor, c: Floor, t: float) -> Floor:
+    u = 1.0 - t
+    return (u * u * a[0] + 2 * u * t * b[0] + t * t * c[0], u * u * a[1] + 2 * u * t * b[1] + t * t * c[1])

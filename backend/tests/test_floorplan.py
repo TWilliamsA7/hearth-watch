@@ -1,8 +1,11 @@
+import math
 import random
 
 import pytest
 from hearth.sim.floorplan import FloorPlan, distance, route_segments, to_frame, to_world
+from hearth.sim.generate import ROOMS
 from hearth.sim.scenario import Scene, SceneObject, load_all
+from hearth.sim.world import room_geometry
 
 DAY_ROOM = load_all()["day-room-02"].scene
 
@@ -59,3 +62,45 @@ def test_route_segments_walk_each_leg_at_the_given_speed():
     total = sum(distance(a, b) for a, b in zip(route, route[1:]))
     assert sum(s.duration for s in segments) == pytest.approx(total / 0.8, abs=0.01)
     assert (segments[-1].x, segments[-1].depth) == pytest.approx(to_frame(DAY_ROOM, route[-1]), abs=1e-3)
+
+
+def test_places_are_on_open_floor_in_view_and_face_something():
+    for scene in (DAY_ROOM, *ROOMS.values()):
+        plan = FloorPlan(scene)
+        places = plan.places()
+        names = {p.name for p in places}
+        assert "middle" in names and "window" in names
+        for p in places:
+            assert plan.visible(p.at, margin=0.05), p
+            assert p.name.startswith("on-") or plan.free(p.at), p
+            if p.near is not None and not p.name.startswith("on-"):
+                # Facing the furniture it is beside.
+                o = room_geometry(scene).objects[p.near]
+                to = math.atan2(o.center[0] - p.at[0], o.center[2] - p.at[1])
+                assert abs(math.remainder(to - p.heading, 2 * math.pi)) < math.radians(60), p
+        if any(o.kind != "mat" for o in scene.objects):
+            assert any(p.near is not None for p in places)
+
+
+def test_routes_keep_off_furniture_where_there_is_room():
+    plan = FloorPlan(DAY_ROOM)
+    rng = random.Random(5)
+    clear = []
+    for _ in range(30):
+        a, b = plan.random_point(rng), plan.random_point(rng)
+        route = plan.find_path(a, b)
+        assert route is not None
+        _assert_walkable(plan, route)
+        clear += [plan.clearance(p) for p in route[1:-1]]
+    assert sum(clear) / max(len(clear), 1) > 0.3  # turning points sit out in the open, not on a corner
+
+
+def test_corners_are_rounded():
+    plan = FloorPlan(DAY_ROOM)
+    route = plan.find_path(to_world(DAY_ROOM, 0.05, 0.9), to_world(DAY_ROOM, 0.95, 0.05))
+    assert route is not None
+    turns = []
+    for p, q, r in zip(route, route[1:], route[2:]):
+        a, b = math.atan2(q[0] - p[0], q[1] - p[1]), math.atan2(r[0] - q[0], r[1] - q[1])
+        turns.append(abs(math.remainder(b - a, 2 * math.pi)))
+    assert max(turns, default=0.0) < math.radians(50)
