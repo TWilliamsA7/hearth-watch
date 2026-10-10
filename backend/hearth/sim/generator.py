@@ -25,7 +25,7 @@ from datetime import UTC, datetime, timedelta
 
 from hearth_schema.models import Heartbeat, Observation
 
-from hearth.sim.features import compute_features
+from hearth.sim.features import FeatureTracker
 from hearth.sim.motion import Key, timeline
 from hearth.sim.pose import (
     JOINTS,
@@ -523,31 +523,28 @@ class ObservationGenerator:
         """Every Observation and Heartbeat in timestamp order."""
         rng = random.Random(self.seed)
         next_heartbeat = 0.0
-        prev_hip: dict[str | None, tuple[float, float]] = {}  # person -> (t, hip_y) of their last hips
+        trackers: dict[str | None, FeatureTracker] = {}  # person -> their feature state, as the edge keeps it
 
         for n, t in self.frame_times():
             people = self.people_at(t)
             if any(p.label == "camera_outage" for p in people):
                 # Silence: no observations, no heartbeats. Resume the heartbeat cadence afterwards.
                 next_heartbeat = t
-                prev_hip.clear()
+                trackers.clear()
                 continue
             if t >= next_heartbeat - 1e-9:
                 yield self._heartbeat(t)
                 next_heartbeat += 1.0
             if rng.random() < self.noise.frame_drop:
                 continue
-            yield from self._frame(rng, n, t, people, prev_hip)
+            yield from self._frame(rng, n, t, people, trackers)
 
     def _frame(
         self, rng: random.Random, n: int, t: float, people: list[PersonState],
-        prev_hip: dict[str | None, tuple[float, float]],
+        trackers: dict[str | None, FeatureTracker],
     ) -> Iterator[Observation]:  # fmt: skip
         if not self.scenario.multi_person:
-            obs = self._observation(rng, n, t, people[0], [], prev_hip.get(None)) or self._nobody(n, t)
-            if obs.features is not None and obs.features.hip_y is not None:
-                prev_hip[None] = (t, obs.features.hip_y)
-            yield obs
+            yield self._observation(rng, n, t, people[0], [], self._tracker(trackers, None)) or self._nobody(n, t)
             return
 
         present = [p for p in people if p.label != "absent"]
@@ -556,15 +553,18 @@ class ObservationGenerator:
             if person.label == "absent":
                 continue
             in_front = [_body_box(q.pose) for q in present if q.depth < person.depth - 0.05]
-            obs = self._observation(rng, n, t, person, in_front, prev_hip.get(person.track.person_id))
+            obs = self._observation(rng, n, t, person, in_front, self._tracker(trackers, person.track.person_id))
             if obs is None:
                 continue
-            if obs.features is not None and obs.features.hip_y is not None:
-                prev_hip[person.track.person_id] = (t, obs.features.hip_y)
             emitted = True
             yield obs
         if not emitted:
             yield self._nobody(n, t)
+
+    def _tracker(self, trackers: dict[str | None, FeatureTracker], person_id: str | None) -> FeatureTracker:
+        if person_id not in trackers:
+            trackers[person_id] = FeatureTracker(self.scenario.scene.frame_aspect)
+        return trackers[person_id]
 
     def _timestamp(self, t: float) -> datetime:
         return self.start + timedelta(seconds=round(t, 6))
@@ -597,17 +597,18 @@ class ObservationGenerator:
 
     def _observation(
         self, rng: random.Random, n: int, t: float, person: PersonState, in_front: list[Box],
-        prev_hip: tuple[float, float] | None,
+        tracker: FeatureTracker,
     ) -> Observation | None:  # fmt: skip
         """One person's observation, or None if the camera can't make them out."""
         if person.label == "absent":
+            tracker.lost()
             return None
         keypoints = self._keypoints(rng, person, in_front)
         if len(keypoints) < MIN_VISIBLE_KEYPOINTS:
+            tracker.lost()
             return None
 
-        prev_y, dt = (prev_hip[1], t - prev_hip[0]) if prev_hip else (None, None)
-        features = compute_features(keypoints, self.scenario.scene.frame_aspect, prev_y, dt)
+        features = tracker.update(keypoints, t)
         face_present, face_conf = self._face(rng, keypoints, person)
         obs = self._base(n, t, person.track.person_id)
         obs.update(
