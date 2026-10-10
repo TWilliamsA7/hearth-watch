@@ -94,7 +94,7 @@ class FallDetector:
             return events
         upright = (f is not None and f.torso_angle_deg is not None and f.torso_angle_deg <= c.upright_angle_max_deg
                    and f.head_y is not None and f.hip_y is not None
-                   and f.head_y < f.hip_y < c.floor_hip_y_min)
+                   and f.head_y < f.hip_y < c.upright_hip_y_max)
         floor = (f is not None and f.torso_angle_deg is not None
                  and c.floor_angle_min_deg <= f.torso_angle_deg <= c.floor_angle_max_deg
                  and f.head_y is not None and f.head_y >= c.floor_head_y_min
@@ -135,6 +135,7 @@ class FallDetector:
                     metadata.update(posture="fallen", reason="sustained_model_fallen",
                                     model_id=prediction.model_id, model_revision=prediction.model_revision,
                                     model_confidence=prediction.confidence)
+                    metadata["input_processing"] = prediction.input_processing
                 hips = [p for p in obs.keypoints or []
                         if p.name in {"left_hip", "right_hip"}
                         and p.confidence is not None and p.confidence >= c.zone_keypoint_confidence_min]

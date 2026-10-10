@@ -37,6 +37,96 @@
       "title": "BoundingBox",
       "type": "object"
     },
+    "HandGesturePrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_revision": {
+          "title": "Model Revision",
+          "type": "string"
+        },
+        "label": {
+          "enum": [
+            "like",
+            "palm",
+            "fist",
+            "peace",
+            "ok",
+            "one",
+            "three",
+            "four",
+            "call",
+            "point",
+            "grip",
+            "middle_finger",
+            "unknown"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detection_count": {
+          "minimum": 0,
+          "title": "Detection Count",
+          "type": "integer"
+        },
+        "uncertainty_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "no_detection",
+                "multiple_hands",
+                "unsupported_label"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Reason"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "label",
+        "confidence",
+        "bbox",
+        "detection_count",
+        "uncertainty_reason"
+      ],
+      "title": "HandGesturePrediction",
+      "type": "object"
+    },
     "Keypoint": {
       "additionalProperties": false,
       "description": "Coordinates are normalized to the frame: (0, 0) top-left, (1, 1) bottom-right.",
@@ -205,6 +295,17 @@
           ],
           "default": null
         },
+        "hand_gesture_prediction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HandGesturePrediction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "face_present": {
           "anyOf": [
             {
@@ -246,6 +347,7 @@
         "keypoints",
         "features",
         "posture_prediction",
+        "hand_gesture_prediction",
         "face_present",
         "face_confidence"
       ],
@@ -350,6 +452,15 @@
           "title": "Model Revision",
           "type": "string"
         },
+        "input_processing": {
+          "default": "original",
+          "enum": [
+            "original",
+            "clahe"
+          ],
+          "title": "Input Processing",
+          "type": "string"
+        },
         "label": {
           "enum": [
             "standing",
@@ -411,6 +522,7 @@
       "required": [
         "model_id",
         "model_revision",
+        "input_processing",
         "label",
         "confidence",
         "bbox",

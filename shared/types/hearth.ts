@@ -63,6 +63,16 @@ export type GroundTruth = {
   "expects_alert": boolean;
 };
 
+export type HandGesturePrediction = {
+  "model_id": string;
+  "model_revision": string;
+  "label": "like" | "palm" | "fist" | "peace" | "ok" | "one" | "three" | "four" | "call" | "point" | "grip" | "middle_finger" | "unknown";
+  "confidence": number | null;
+  "bbox": BoundingBox | null;
+  "detection_count": number;
+  "uncertainty_reason": "no_detection" | "multiple_hands" | "unsupported_label" | null;
+};
+
 export type Heartbeat = {
   "schema_version": "1";
   "timestamp": string;
@@ -132,6 +142,7 @@ export type Observation = {
   "keypoints": Array<Keypoint> | null;
   "features": PostureFeatures | null;
   "posture_prediction": PosturePrediction | null;
+  "hand_gesture_prediction": HandGesturePrediction | null;
   "face_present": boolean | null;
   "face_confidence": number | null;
 };
@@ -156,6 +167,7 @@ export type PostureFeatures = {
 export type PosturePrediction = {
   "model_id": string;
   "model_revision": string;
+  "input_processing": "original" | "clahe";
   "label": "standing" | "sitting" | "fallen" | "unknown";
   "confidence": number | null;
   "bbox": BoundingBox | null;

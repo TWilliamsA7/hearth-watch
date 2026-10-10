@@ -18,7 +18,8 @@ def model_mode(service):
 
 def test_default_config_requires_model_predictions():
     from hearth.monitor.config import MonitorConfig
-    assert MonitorConfig().posture_mode == MonitorConfig.load().posture_mode == "model"
+    assert MonitorConfig().posture_mode == "model"
+    assert MonitorConfig.load().posture_mode == "pose_fallback"  # live edge + model profile
 
 
 def test_pose_only_cannot_classify_alert_or_recover_in_model_mode(service):

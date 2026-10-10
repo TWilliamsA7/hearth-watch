@@ -30,6 +30,10 @@ class MonitorConfig(BaseModel):
     gesture_cooldown_seconds: float = Field(default=10, ge=0)
     gesture_keypoint_confidence_min: float = Field(default=.5, gt=0, le=1)
     gesture_raise_margin: float = Field(default=.08, gt=0, le=1)
+    hand_gesture_model_id: str = "SuperSura/hand-gesture-yolo26n"
+    hand_help_label: Literal["palm", "call", "fist"] = "fist"
+    hand_gesture_confidence_min: float = Field(default=.65, gt=0, le=1)
+    hand_gesture_max_center_shift: float = Field(default=.25, gt=0, le=1)
     floor_hold_seconds: float = Field(default=3, gt=0)
     posture_mode: Literal["model", "pose_fallback"] = "model"
     fall_model_id: str = "melihuzunoglu/human-fall-detection"
@@ -41,6 +45,7 @@ class MonitorConfig(BaseModel):
     edge_future_tolerance_seconds: float = Field(default=5, ge=0)
     health_poll_seconds: float = Field(default=.25, gt=0)
     upright_angle_max_deg: float = Field(default=30, ge=0, le=180)
+    upright_hip_y_max: float = Field(default=.65, gt=0, le=1)
     floor_angle_min_deg: float = Field(default=60, ge=0, le=180)
     floor_angle_max_deg: float = Field(default=120, ge=0, le=180)
     floor_head_y_min: float = Field(default=.65, ge=0, le=1)

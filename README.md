@@ -303,4 +303,8 @@ Changes to `shared/` affect everyone; coordinate them through the monitoring-cor
 
 ### Posture determination
 
-The default `posture_mode` is `model`: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. `pose_fallback` is an explicit legacy test option. A sustained lying classification still requires the configured hold before a possible-fall alert.
+Model-only mode (`posture_mode: "model") is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. `pose_fallback` is an explicit legacy test option. A sustained lying classification still requires the configured hold before a possible-fall alert.
+
+### Live edge/model integration
+
+The live config now uses `pose_fallback`: supplied Hugging Face posture predictions remain authoritative, while rotated-poseNet observations without predictions use calibrated pose thresholds. Floor head/hips are 0.40/0.45 for the reported mid-frame mat camera; upright uses its independent `upright_hip_y_max` of 0.65 so standing at hip_y 0.60 can recover incidents. Separate sources are not implicitly fused. See `docs/gaston-edge-integration.md` and `edge/tools/check_rules.py` for clip validation.

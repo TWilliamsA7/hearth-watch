@@ -1,6 +1,6 @@
 # Gaston edge integration
 
-Reviewed `origin/gaston/edge` at `9d9ccba` on 2026-10-10. Monitoring changes live on `monitoring`; Gaston's branch was not merged or edited.
+Integrated edge files from `origin/gaston/edge` at `ca7cf19` on 2026-10-10 into the monitoring checkout. Laptop model runners are retained. Changes remain uncommitted; the remote branch is unchanged.
 
 ## What Gaston implemented
 
@@ -8,16 +8,19 @@ Reviewed `origin/gaston/edge` at `9d9ccba` on 2026-10-10. Monitoring changes liv
 - Pixel-space torso angle; normalized head/hip height; torso-only box aspect; smoothed vertical hip velocity with reset on missing hips/gaps.
 - Standard-library HTTP client: observation batches every 0.15 seconds, up to 10 observations/second; heartbeats about once/second with FPS, latency and memory.
 - Bounded queue (100 observations), retry/backoff, duplicate delivery possible after network failure. Camera inactivity pauses heartbeats after roughly two seconds.
-- Optional facenet checks every 0.5 seconds; intervening observations use `face_present: null`. This is detection, not recognition.
+- Updated OpenCV DNN face detection and rotated poseNet passes; optional short keypoint holds improve whole-body observation when lying across the frame. Missing face checks remain null.
+- Replay now supplies run IDs to observations and heartbeats; backend-view overlays show monitor decisions.
 - JSONL observation recording and replay tools; explicit optional video streaming, disabled by default.
 
 ## Monitoring support
 
-Existing endpoints accept these payloads unchanged: `POST /ingest/observations` (an `observations` array) and `POST /ingest/heartbeat`. Missing `run_id`, `scenario_id`, and `posture_prediction` remain valid. The default posture mode now requires Hugging Face predictions for standing/sitting/lying and possible-fall decisions. Gaston's pose-only observations remain accepted for visibility and gestures but have unknown posture. The model runner needs camera-frame access; no image classifier runs on received keypoints. Use explicit `posture_mode: "pose_fallback"` only for legacy pose testing.
+Existing endpoints accept these payloads unchanged: `POST /ingest/observations` (an `observations` array) and `POST /ingest/heartbeat`. Missing `run_id`, `scenario_id`, and `posture_prediction` remain valid. The live config now uses `pose_fallback`: Hugging Face predictions are authoritative when present; observations without them use calibrated pose rules. Weak/unknown supplied model predictions never silently fall back to pose features. The model runner still requires camera-frame access, and separate sources are not automatically fused. Set `posture_mode: "model"` to require model-only evidence.
 
-In the optional legacy pose-fallback mode, source status exposes pose-derived upright/floor-level posture without a model confidence score. The default model mode displays Standing, Sitting, or Lying from model predictions (`fallen` on the wire). A floor-level display does not itself mean an alert: the configured hold still applies. Missing/incomplete observations and stale sources display unknown. Face null does not generate a face-absent event. Observation staleness is tracked independently of heartbeats.
+For pose-only observations, source status exposes pose-derived upright/floor-level posture without a model confidence score. Model observations display Standing, Sitting, or Lying from model predictions (`fallen` on the wire). A floor-level display does not itself mean an alert: the configured hold still applies. Missing/incomplete observations and stale sources display unknown. Face null does not generate a face-absent event. Observation staleness is tracked independently of heartbeats.
 
-Keypoint confidence may now be omitted/null. PoseNet does not expose a measured per-keypoint score. The existing edge placeholder `1.0` remains accepted for compatibility, but is not a measured probability. **Edge follow-up:** set `KEYPOINT_CONFIDENCE_PLACEHOLDER = None` and replace `test_contract_still_requires_keypoint_confidence` with a test asserting omitted confidence validates. Until that update, gesture and zone confidence gates cannot distinguish the placeholder from a real score. With unknown confidence, monitoring conservatively disables confidence-gated gestures and zone downgrades; posture-feature falls still work and the help button remains available.
+The updated edge sends unknown keypoint confidence as null/omitted rather than a fabricated score. Confidence-gated raised-arm gestures and zone downgrades remain conservative; the separate hand model produces scored fist-help predictions.
+
+Camera calibration in the live config: floor head >= 0.40, floor hips >= 0.45, torso 60–120 degrees and box aspect >= 1.0, held for 3 seconds. Upright has its independent `upright_hip_y_max: 0.65`, torso <= 30 degrees and head above hips. These are specific to the reported mid-frame mat camera setup. The checker now uses the same upright bound. Test the actual clips before applying this calibration to another camera.
 
 ## Connect the two machines
 
@@ -35,7 +38,9 @@ python3 edge/run_edge.py --backend http://192.168.55.100:8000 --source jetson-01
 
 Use the laptop's actual reachable IP if it differs; allow port 8000 on the private network. Stop the edge stub backend if it occupies the same port. Open `/nurses` on the laptop and select room-01 and Possible falls. Check `/sources` for live telemetry. Pose thresholds still need tuning against staged recordings with the actual camera framing.
 
-Gaston replay rewrites timestamps to playback wall time and uses source `replay-01`. Run at `--speed 1` for hold-time comparisons: faster playback shortens the observed floor interval. It currently supplies no run ID, so repeated runs share a source history. For evaluation isolation, use a new `--source` per run (or add matching run IDs to observations and heartbeats upstream).
+Gaston replay rewrites timestamps to playback wall time, uses source `replay-01`, and now supplies run IDs. Run at `--speed 1` for hold-time comparisons: faster playback shortens the observed floor interval.
+
+Run clip checks with `.\.venv\Scripts\python.exe edge/tools/check_rules.py recordings/your_clip.jsonl --config backend/hearth/monitor/config.json`. Local actual clips were not available during integration; regression tests use synthetic observations matching the reported feature ranges, not a claim of rerunning the team's recordings.
 
 Queued live observations can arrive late after reconnection. Monitoring drops edge observations older than `edge_observation_max_age_seconds` (default 3 seconds), or more than `edge_future_tolerance_seconds` (default 5 seconds) ahead of backend UTC. Dropped frames cannot refresh source health, advance a hold or recover an incident. Historical buffered incidents outside this window are not evaluated; preserve JSONL recordings for replay. Simulation/replay timestamps are exempt. Synchronize device clocks before the demo.
 

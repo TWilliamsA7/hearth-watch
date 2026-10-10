@@ -123,6 +123,7 @@ class BoundingBox(_Model):
 class PosturePrediction(_Model):
     model_id: str
     model_revision: str
+    input_processing: Literal["original", "clahe"] = "original"
     label: Literal["standing", "sitting", "fallen", "unknown"]
     confidence: Unit | None = None
     bbox: BoundingBox | None = None
@@ -135,6 +136,24 @@ class PosturePrediction(_Model):
             raise ValueError("A posture label requires one detection, a confidence and a bounding box")
         if self.label != "unknown" and self.uncertainty_reason is not None:
             raise ValueError("An uncertain detection must use the unknown label")
+        return self
+
+
+class HandGesturePrediction(_Model):
+    model_id: str
+    model_revision: str
+    label: Literal["like", "palm", "fist", "peace", "ok", "one", "three", "four",
+                   "call", "point", "grip", "middle_finger", "unknown"]
+    confidence: Unit | None = None
+    bbox: BoundingBox | None = None
+    detection_count: int = Field(ge=0)
+    uncertainty_reason: Literal["no_detection", "multiple_hands", "unsupported_label"] | None = None
+
+    @model_validator(mode="after")
+    def require_single_hand(self):
+        if self.label != "unknown" and (self.detection_count != 1 or self.confidence is None
+                                      or self.bbox is None or self.uncertainty_reason is not None):
+            raise ValueError("A gesture label requires one hand, score and box without uncertainty")
         return self
 
 
@@ -151,6 +170,7 @@ class Observation(_Model):
     keypoints: list[Keypoint] | None = None
     features: PostureFeatures | None = None
     posture_prediction: PosturePrediction | None = None
+    hand_gesture_prediction: HandGesturePrediction | None = None
     face_present: bool | None = Field(
         default=None, description="None = face detection did not run on this frame."
     )
