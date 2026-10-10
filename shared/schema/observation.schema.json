@@ -119,10 +119,7 @@
         "model_id",
         "model_revision",
         "label",
-        "confidence",
-        "bbox",
-        "detection_count",
-        "uncertainty_reason"
+        "detection_count"
       ],
       "title": "HandGesturePrediction",
       "type": "object"
@@ -186,8 +183,7 @@
       "required": [
         "name",
         "x",
-        "y",
-        "confidence"
+        "y"
       ],
       "title": "Keypoint",
       "type": "object"
@@ -269,13 +265,6 @@
           "title": "Vertical Velocity"
         }
       },
-      "required": [
-        "torso_angle_deg",
-        "head_y",
-        "hip_y",
-        "bbox_aspect",
-        "vertical_velocity"
-      ],
       "title": "PostureFeatures",
       "type": "object"
     },
@@ -360,12 +349,8 @@
       "required": [
         "model_id",
         "model_revision",
-        "input_processing",
         "label",
-        "confidence",
-        "bbox",
-        "detection_count",
-        "uncertainty_reason"
+        "detection_count"
       ],
       "title": "PosturePrediction",
       "type": "object"
@@ -526,22 +511,12 @@
     }
   },
   "required": [
-    "schema_version",
     "obs_id",
     "timestamp",
     "source",
     "source_type",
     "room_id",
-    "scenario_id",
-    "run_id",
-    "person_id",
-    "person_detected",
-    "keypoints",
-    "features",
-    "posture_prediction",
-    "hand_gesture_prediction",
-    "face_present",
-    "face_confidence"
+    "person_detected"
   ],
   "title": "Observation",
   "type": "object"

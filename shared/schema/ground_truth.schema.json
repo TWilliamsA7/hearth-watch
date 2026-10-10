@@ -64,11 +64,9 @@
     }
   },
   "required": [
-    "schema_version",
     "scenario_id",
     "seed",
     "segment_id",
-    "person_id",
     "t_start",
     "t_end",
     "truth_label",

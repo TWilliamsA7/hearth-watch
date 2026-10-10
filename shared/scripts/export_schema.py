@@ -54,8 +54,16 @@ def write(name: str, schema: dict) -> None:
     print(f"wrote {path.relative_to(OUT.parents[1])}")
 
 
+# What producers send. Exported in validation mode, so a field with a default (run_id,
+# person_id, keypoint confidence, ...) is optional, as the backend actually accepts.
+# Everything else, and the bundle the frontend types come from, describes what the
+# server sends, where every field is present: serialization mode.
+INPUTS = {"observation", "observation_batch", "heartbeat", "ground_truth",
+          "help_request", "nurse_action", "nurse_preferences"}
+
+
 def build_schemas() -> dict[str, dict]:
-    schemas = {name: model.model_json_schema(mode="serialization")
+    schemas = {name: model.model_json_schema(mode="validation" if name in INPUTS else "serialization")
                for name, model in STANDALONE.items()}
     schemas["server_message"] = TypeAdapter(ServerMessage).json_schema(mode="serialization")
 

@@ -112,3 +112,31 @@ def test_run_id_is_optional_and_only_sent_when_given():
                            run_id="replay-01-20261010-043512-1")
     assert hs.Heartbeat.model_validate(hb).run_id == "replay-01-20261010-043512-1"
     assert "run_id" not in c.build_heartbeat(T0, "jetson-01", "room-01")
+
+
+def _schema(name):
+    import json
+    root = os.path.join(os.path.dirname(__file__), "..", "..", "shared", "schema")
+    with open(os.path.join(root, name + ".schema.json")) as fh:
+        return json.load(fh)
+
+
+def _fits(message, schema, defs):
+    """Required keys present and no unknown keys: what a strict JSON Schema validator checks."""
+    assert set(schema.get("required", [])) <= set(message), sorted(set(schema["required"]) - set(message))
+    assert set(message) <= set(schema["properties"]), sorted(set(message) - set(schema["properties"]))
+
+
+def test_edge_messages_fit_the_exported_json_schema():
+    # The schema files, not just Pydantic, must accept what the Jetson sends, so a
+    # non-Python consumer validating against shared/schema agrees with the backend.
+    obs_schema = _schema("observation")
+    defs = obs_schema["$defs"]
+    for obs in (make_obs(), make_obs(person_detected=False, keypoints=None, features=None,
+                                     face_present=None, face_confidence=None)):
+        _fits(obs, obs_schema, defs)
+        for kp in obs["keypoints"] or []:
+            _fits(kp, defs["Keypoint"], defs)
+        if obs["features"]:
+            _fits(obs["features"], defs["PostureFeatures"], defs)
+    _fits(c.build_heartbeat(T0, "jetson-01", "room-01", fps=10.0), _schema("heartbeat"), {})
