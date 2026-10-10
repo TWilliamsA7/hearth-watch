@@ -17,6 +17,7 @@ export type {
   WorldObject,
   WorldPerson,
   WorldRoom,
+  WorldRoute,
   WorldTrack,
 } from "./generated/sim";
 

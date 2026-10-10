@@ -25,6 +25,7 @@ frontend/dist/
 *.avi
 *.mkv
 recordings/*
+scenarios/generated/
 !recordings/.gitkeep
 
 # Editors / OS
@@ -36,3 +37,4 @@ Thumbs.db
 # Local planning notes
 HEARTH_AGENT_HANDOFF.md
 interfaces.md
+planning.md

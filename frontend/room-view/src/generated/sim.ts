@@ -5,18 +5,24 @@ export interface HearthSimApi {
   Counts?: Counts;
   EvaluationReport?: EvaluationReport;
   EvaluationSummary?: EvaluationSummary;
+  FallBreakdown?: FallBreakdown;
+  FalseAlertBreakdown?: FalseAlertBreakdown;
+  Rate?: Rate;
   RunInfo?: RunInfo;
   ScenarioInfo?: ScenarioInfo;
   Scene?: Scene;
   SceneObject?: SceneObject;
   SegmentResult?: SegmentResult;
   SimStatus?: SimStatus;
+  StudyReport?: StudyReport;
+  StudyRun?: StudyRun;
   TimelineEvent?: TimelineEvent;
   TruthNow?: TruthNow;
   WorldFrame?: WorldFrame;
   WorldObject?: WorldObject;
   WorldPerson?: WorldPerson;
   WorldRoom?: WorldRoom;
+  WorldRoute?: WorldRoute;
   WorldTrack?: WorldTrack;
 }
 /**
@@ -177,6 +183,48 @@ export interface EvaluationSummary {
   false_positive_runs: string[];
 }
 /**
+ * How the monitor did on falls that share one factor value (e.g. fault = trip).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "FallBreakdown".
+ */
+export interface FallBreakdown {
+  factor: string;
+  value: string;
+  detected: Rate;
+  delay_median: number | null;
+  delay_p90: number | null;
+}
+/**
+ * hits out of n, with a 95% Wilson interval so small samples read as uncertain.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "Rate".
+ */
+export interface Rate {
+  n: number;
+  hits: number;
+  rate: number | null;
+  low: number | null;
+  high: number | null;
+}
+/**
+ * False possible_fall alerts per simulated hour, for runs or activities sharing one factor value.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "FalseAlertBreakdown".
+ */
+export interface FalseAlertBreakdown {
+  factor: string;
+  value: string;
+  false_alerts: number;
+  /**
+   * Simulated room-hours (runs) or person-hours (activities).
+   */
+  hours: number;
+  per_hour: number | null;
+}
+/**
  * Run metadata (<run>.run.json). The dashboard uses it to draw the room and place
  * events on the scenario clock (t = timestamp - start).
  *
@@ -258,6 +306,12 @@ export interface ScenarioInfo {
    */
   residents: string[];
   scene: Scene;
+  /**
+   * Scenario.tags, e.g. generator settings.
+   */
+  tags: {
+    [k: string]: string | number | boolean;
+  };
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -300,6 +354,51 @@ export interface TruthNow {
     | "camera_outage"
     | "absent";
   expects_alert: boolean;
+}
+/**
+ * Results of many generated scenarios, broken down by what was in them. Simulated only.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "StudyReport".
+ */
+export interface StudyReport {
+  report_version: "1";
+  monitor: string;
+  runs: number;
+  simulated_hours: number;
+  counts: Counts;
+  detected: Rate;
+  delay_median: number | null;
+  delay_p90: number | null;
+  false_alerts_per_hour: number | null;
+  falls_by: FallBreakdown[];
+  false_alerts_by: FalseAlertBreakdown[];
+  /**
+   * Runs with missed falls or the most false alerts, worst first.
+   */
+  worst: StudyRun[];
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "StudyRun".
+ */
+export interface StudyRun {
+  run_id: string;
+  scenario_id: string;
+  seed: number;
+  title: string;
+  duration: number;
+  tags: {
+    [k: string]: string | number | boolean;
+  };
+  expected_alerts: number;
+  missed: number;
+  false_alerts: number;
+  delays: number[];
+  /**
+   * Command that writes this run's files for the room-view dev page.
+   */
+  reproduce: string;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -393,6 +492,21 @@ export interface WorldRoom {
   objects: WorldObject[];
 }
 /**
+ * One continuous walk: the straight legs a resident takes from t_start to t_end.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldRoute".
+ */
+export interface WorldRoute {
+  person_id: string | null;
+  t_start: number;
+  t_end: number;
+  /**
+   * Floor points (x, z) in metres, start first.
+   */
+  points: [number, number][];
+}
+/**
  * A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only.
  *
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -408,4 +522,8 @@ export interface WorldTrack {
    * One per frame slot, in time order.
    */
   frames: WorldFrame[];
+  /**
+   * Every walk, for drawing routes on the floor.
+   */
+  routes: WorldRoute[];
 }

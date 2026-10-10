@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from hearth.sim.controller import ScenarioInfo, SimController, SimStatus
+from hearth.sim.generate import GenSpec, generate
 from hearth.sim.world import WorldTrack
 
 
@@ -22,6 +23,12 @@ class LoadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     scenario_id: str
     seed: int | None = None
+
+
+class GenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    spec: GenSpec = GenSpec()
+    seed: int = 0
 
 
 class SpeedRequest(BaseModel):
@@ -47,6 +54,11 @@ def create_sim_router(controller: SimController) -> APIRouter:
         if track is None:
             raise HTTPException(404, "no scenario loaded")
         return track
+
+    @router.post("/generate", response_model=ScenarioInfo)
+    async def generate_scenario(body: GenerateRequest) -> ScenarioInfo:
+        """Generate a scenario (hearth.sim.generate) and make it loadable; then POST /load it."""
+        return controller.register(generate(body.spec, body.seed))
 
     @router.post("/load", response_model=SimStatus)
     async def load(body: LoadRequest) -> SimStatus:

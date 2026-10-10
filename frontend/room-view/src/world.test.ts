@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { WorldPerson, WorldTrack } from "./types";
-import { sampleWorld } from "./world";
+import { routesAt, sampleWorld } from "./world";
 
 function person(id: string | null, x: number, heading = 0): WorldPerson {
   return { person_id: id, heading, height: 1.7, joints: { nose: [x, 1.5, 0], neck: [x, 1.4, 0] } };
@@ -13,7 +13,7 @@ const room: WorldTrack["room"] = {
 };
 
 function track(frames: WorldTrack["frames"]): WorldTrack {
-  return { scenario_id: "test", seed: 0, fps: 2, duration: 1, room, frames };
+  return { scenario_id: "test", seed: 0, fps: 2, duration: 1, room, frames, routes: [] };
 }
 
 describe("sampleWorld", () => {
@@ -50,5 +50,22 @@ describe("sampleWorld", () => {
 
   it("is empty without a track", () => {
     expect(sampleWorld(null, 1).people).toEqual([]);
+  });
+});
+
+describe("routesAt", () => {
+  const walk = { person_id: "p1", t_start: 4, t_end: 6, points: [[0, 0], [1, -1]] as [number, number][] };
+  const tr = { ...track([]), routes: [walk] };
+
+  it("shows a route from just before the walk until just after it", () => {
+    expect(routesAt(tr, 2)).toEqual([]);
+    expect(routesAt(tr, 3)).toEqual([walk]);
+    expect(routesAt(tr, 6.5)).toEqual([walk]);
+    expect(routesAt(tr, 7.5)).toEqual([]);
+  });
+
+  it("copes with no track and with tracks recorded before routes existed", () => {
+    expect(routesAt(null, 5)).toEqual([]);
+    expect(routesAt({ ...track([]), routes: undefined } as unknown as WorldTrack, 5)).toEqual([]);
   });
 });

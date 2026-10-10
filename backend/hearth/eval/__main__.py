@@ -3,6 +3,10 @@
   python -m hearth.eval batch [--seeds 5] [--scenarios ID ...] [--monitor module:factory]
       Run scenarios headless through a fresh monitor per run and score them.
 
+  python -m hearth.eval study [--count 200] [--people 1-4] [--rooms day-room bedroom] [--fall-rate 0.6] [--sweep] [--jobs 8]
+      Generate random scenarios (hearth.sim.generate), score them, and break the results
+      down by fall kind, depth, people, activity and more. Writes recordings/eval/study/.
+
   python -m hearth.eval score --run recordings/sim/possible-fall-01-s42.run.json --events events.jsonl
       Score an event log captured elsewhere (e.g. from the live WebSocket during a simulated
       run). Lines may be bare Events or ServerMessages; non-event messages are skipped.
@@ -20,6 +24,8 @@ from hearth_schema.models import Event, GroundTruth
 
 from hearth.eval.batch import DEFAULT_MONITOR, DEFAULT_OUT_DIR, load_monitor_factory, run_batch, summary_markdown
 from hearth.eval.scoring import EvalConfig, evaluate, summarize
+from hearth.eval.study import DEFAULT_STUDY_DIR, build_report, plan_study, run_study, study_markdown, write_study
+from hearth.sim.generate import ROOMS, GenSpec
 from hearth.sim.scenario import find_scenario, load_all
 
 
@@ -56,6 +62,27 @@ def _batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _range(text: str) -> tuple[int, int]:
+    lo, _, hi = text.partition("-")
+    return int(lo), int(hi or lo)
+
+
+def _study(args: argparse.Namespace) -> int:
+    base = GenSpec(duration=args.duration, fall_rate=args.fall_rate, recover_rate=args.recover_rate,
+                   responder_rate=args.responder_rate, outage_rate=args.outage_rate,
+                   collision_rate=args.collision_rate)  # fmt: skip
+    plan = plan_study(base, count=args.count, people=_range(args.people), rooms=args.rooms, seed=args.seed,
+                      sweep=args.sweep)  # fmt: skip
+    print(f"Running {len(plan)} generated scenarios on {args.jobs} worker(s)...")
+    outcomes = run_study(plan, args.monitor, EvalConfig(alert_tolerance=args.tolerance), jobs=args.jobs)
+    out = Path(args.out)
+    report = build_report(outcomes, args.monitor, worst=args.worst, reproduce_dir=out / "scenarios")
+    write_study(report, outcomes, out)
+    print(study_markdown(report))
+    print(f"Study written to {out}")
+    return 0
+
+
 def _score(args: argparse.Namespace) -> int:
     run_path = Path(args.run)
     meta = json.loads(run_path.read_text(encoding="utf-8"))
@@ -87,8 +114,26 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--source", default="sim")
     score.add_argument("--tolerance", type=float, default=EvalConfig.alert_tolerance)
 
+    study = sub.add_parser("study", help="generate many random scenarios, score them, break results down")
+    study.add_argument("--count", type=int, default=100, help="runs (default 100)")
+    study.add_argument("--people", default="1-4", help="people per scenario, e.g. 2 or 1-4 (default 1-4)")
+    study.add_argument("--rooms", nargs="+", choices=sorted(ROOMS), default=sorted(ROOMS))
+    study.add_argument("--duration", type=float, default=GenSpec().duration)
+    study.add_argument("--fall-rate", type=float, default=0.6)
+    study.add_argument("--recover-rate", type=float, default=GenSpec().recover_rate)
+    study.add_argument("--responder-rate", type=float, default=GenSpec().responder_rate)
+    study.add_argument("--outage-rate", type=float, default=GenSpec().outage_rate)
+    study.add_argument("--collision-rate", type=float, default=GenSpec().collision_rate)
+    study.add_argument("--seed", type=int, default=0, help="first scenario seed")
+    study.add_argument("--sweep", action="store_true", help="equal runs per people x room x fall kind")
+    study.add_argument("--jobs", type=int, default=1, help="worker processes")
+    study.add_argument("--worst", type=int, default=10, help="worst runs to list and save for replay")
+    study.add_argument("--monitor", default=DEFAULT_MONITOR, help=f"monitor factory (default {DEFAULT_MONITOR})")
+    study.add_argument("--tolerance", type=float, default=EvalConfig.alert_tolerance)
+    study.add_argument("--out", default=DEFAULT_STUDY_DIR)
+
     args = parser.parse_args(argv)
-    return _batch(args) if args.command == "batch" else _score(args)
+    return {"batch": _batch, "study": _study, "score": _score}[args.command](args)
 
 
 if __name__ == "__main__":

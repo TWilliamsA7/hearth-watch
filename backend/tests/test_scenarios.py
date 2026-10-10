@@ -112,3 +112,14 @@ def test_residents_vary_independently_per_seed():
 def test_cast_must_be_unambiguous(bad):
     with pytest.raises(ValidationError):
         Scenario.model_validate({"scenario_id": "x", "title": "x", **bad})
+
+
+def test_tags_survive_realize_and_default_empty():
+    sc = Scenario.model_validate({
+        "scenario_id": "tagged", "title": "t", "tags": {"people": 1, "generator": "v1"},
+        "segments": [{"label": "fall", "duration": 3.0, "tags": {"fault": "trip"}}],
+    })  # fmt: skip
+    realized = sc.realize(5)
+    assert realized.tags == {"people": 1, "generator": "v1"}
+    assert realized.segments[0].tags == {"fault": "trip"}
+    assert all(not s.tags for s in load_all().values())

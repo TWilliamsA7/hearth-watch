@@ -1,8 +1,9 @@
 """World track: where every simulated body really is, in 3D, for the dashboard's 3D view.
 
 The camera stream carries 2D keypoints only. The world track carries the same bodies,
-noise-free, as metres in a room, built from the same key poses (hearth.sim.pose) and the
-same motion (generator.ResidentTrack), so the two views always agree. Like ground truth,
+noise-free, as metres in a room. In fact the bodies are built here first: a pose
+(hearth.sim.pose) is placed in the room (body()), and the camera's keypoints are where
+that body lands in the picture (to_image()), so the two views always agree. Like ground truth,
 it is simulator-only: it never travels in the Observation stream and the monitor never
 sees it. Every resident is in it, including people the camera cannot see and during a
 camera outage; the world goes on while the camera is dark.
@@ -21,7 +22,7 @@ import math
 from hearth_schema.models import KeypointName
 from pydantic import BaseModel, ConfigDict, Field
 
-from hearth.sim.pose import LATERAL, BodyPose
+from hearth.sim.pose import BodyPose
 from hearth.sim.scenario import Facing, ObjectKind, Scene, SceneObject
 
 PERSON_HEIGHT_M = 1.7  # a resident with height 1.0
@@ -33,12 +34,14 @@ OBJECT_DEPTH_M: dict[str, float] = {"bed": 1.0, "chair": 0.5, "couch": 0.9, "mat
 MAT_HEIGHT_M = 0.02
 OCCLUDER_GAP_M = 0.5  # an occluder stands this far in front of the depth it hides
 
-HEADING: dict[str, float] = {"camera": 0.0, "right": math.pi / 2, "left": -math.pi / 2}
-"""Radians about +y. 0 faces the camera (+z)."""
+HEADING: dict[str, float] = {"camera": 0.0, "right": math.pi / 2, "left": -math.pi / 2, "away": math.pi}
+"""Radians about +y. 0 faces the camera (+z), pi/2 faces image right (+x)."""
 
 Vec3 = tuple[float, float, float]
 WorldPose = dict[str, Vec3]
 """joint name -> (x, y, z) in metres."""
+ImagePose = dict[str, tuple[float, float]]
+"""joint name -> (x, y) in normalized frame coordinates (may fall outside the frame)."""
 
 
 class _Model(BaseModel):
@@ -74,6 +77,15 @@ class WorldRoom(_Model):
     objects: list[WorldObject]
 
 
+class WorldRoute(_Model):
+    """One continuous walk: the straight legs a resident takes from t_start to t_end."""
+
+    person_id: str | None
+    t_start: float
+    t_end: float
+    points: list[tuple[float, float]] = Field(description="Floor points (x, z) in metres, start first.")
+
+
 class WorldTrack(_Model):
     """A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only."""
 
@@ -83,6 +95,7 @@ class WorldTrack(_Model):
     duration: float
     room: WorldRoom
     frames: list[WorldFrame] = Field(description="One per frame slot, in time order.")
+    routes: list[WorldRoute] = Field(default_factory=list, description="Every walk, for drawing routes on the floor.")
 
 
 def metres_per_y(scene: Scene, depth: float) -> float:
@@ -102,34 +115,51 @@ def world_z(depth: float) -> float:
     return -depth * ROOM_DEPTH_M
 
 
+def frame_depth(z: float) -> float:
+    return -z / ROOM_DEPTH_M
+
+
+def frame_x(scene: Scene, x: float, depth: float) -> float:
+    """Inverse of world_x."""
+    return x / metres_per_x(scene, depth) + 0.5
+
+
+def lift(scene: Scene, surface_y: float | None, depth: float) -> float:
+    """Metres above the floor of a surface at frame y surface_y (None = the floor)."""
+    return 0.0 if surface_y is None else max((scene.floor_at(depth) - surface_y) * metres_per_y(scene, depth), 0.0)
+
+
+def body(pose: BodyPose, heading: float, x: float, z: float, base: float, size: float) -> WorldPose:
+    """A pose standing (or lying) at (x, z) on the floor, `base` metres up, `size` metres tall."""
+    fx, fz = math.sin(heading), math.cos(heading)  # forward
+    lx, lz = math.cos(heading), -math.sin(heading)  # the person's left
+    return {joint: (x + size * (f * fx + l * lx), base + v * size, z + size * (f * fz + l * lz))
+            for joint, (f, v, l) in pose.items()}  # fmt: skip
+
+
 def place(
-    pose: BodyPose, facing: Facing, root_x: float, base_y: float, depth: float, scene: Scene, height: float
+    pose: BodyPose, facing: Facing | float, root_x: float, base_y: float, depth: float, scene: Scene, height: float
 ) -> WorldPose:
-    """The 3D counterpart of pose.project: same arguments, plus depth, and metres out.
-
-    height and base_y are in frame units, as project() takes them, and are converted at
-    the person's depth, so the world body is exactly the one the camera view shows.
+    """body(), from frame coordinates: root at frame x and depth, on the surface at frame y
+    base_y, `height` frame units tall at that depth.
     """
+    heading = HEADING[facing] if isinstance(facing, str) else facing
     my = metres_per_y(scene, depth)
-    size = height * my  # standing height in metres
-    base = (scene.floor_at(depth) - base_y) * my  # 0 on the floor, the surface height on a bed
-    h = HEADING[facing]
-    fx, fz = math.sin(h), math.cos(h)  # forward
-    lx, lz = math.cos(h), -math.sin(h)  # the person's left
-    rx, rz = world_x(scene, root_x, depth), world_z(depth)
-    out: WorldPose = {}
-    for joint, (f, v) in pose.items():
-        lat = LATERAL[joint]
-        out[joint] = (rx + size * (f * fx + lat * lx), base + v * size, rz + size * (f * fz + lat * lz))
+    base = (scene.floor_at(depth) - base_y) * my
+    return body(pose, heading, world_x(scene, root_x, depth), world_z(depth), base, height * my)
+
+
+def to_image(pose: WorldPose, scene: Scene) -> ImagePose:
+    """Where the camera sees each joint: the inverse of the perspective world_x undoes.
+
+    Each joint is projected at its own depth, so a body lying towards the camera is
+    foreshortened, and one facing away shows its back.
+    """
+    out: ImagePose = {}
+    for joint, (x, y, z) in pose.items():
+        depth = frame_depth(z)
+        out[joint] = (frame_x(scene, x, depth), scene.floor_at(depth) - y / metres_per_y(scene, depth))
     return out
-
-
-def blend_world(a: WorldPose, b: WorldPose, alpha: float) -> WorldPose:
-    if alpha <= 0.0:
-        return dict(a)
-    if alpha >= 1.0:
-        return dict(b)
-    return {j: tuple(p + (q - p) * alpha for p, q in zip(pa, b[j])) for j, pa in a.items()}  # type: ignore[misc]
 
 
 def _round(v: Vec3) -> Vec3:

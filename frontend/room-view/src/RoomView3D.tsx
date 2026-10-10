@@ -3,9 +3,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { DEFAULT_THEME, type Theme } from "./draw";
-import { buildRoom, disposeTree, stickFigureRig, type PersonRig, type RigFactory } from "./scene3d";
+import { buildRoom, buildRoute, disposeTree, stickFigureRig, type PersonRig, type RigFactory } from "./scene3d";
 import type { WorldTrack } from "./types";
-import { sampleWorld } from "./world";
+import { routesAt, sampleWorld } from "./world";
 
 export interface RoomView3DProps {
   /** The run's world track: <run>.world.json for a recording, GET /sim/world for a live run. */
@@ -19,6 +19,8 @@ export interface RoomView3DProps {
   alertActive?: boolean;
   /** person_ids with an open alert; their figures turn red. */
   alertPersonIds?: readonly string[];
+  /** Draw each walk's planned route on the floor while it's being walked. */
+  showRoutes?: boolean;
   /** How each person is drawn. Default: stick figures. Swap in a rigged-model factory here. */
   rigFactory?: RigFactory;
   theme?: Theme;
@@ -36,14 +38,15 @@ export function RoomView3D({
   time,
   alertActive = false,
   alertPersonIds,
+  showRoutes = false,
   rigFactory = stickFigureRig,
   theme = DEFAULT_THEME,
   className,
   style,
 }: RoomView3DProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const props = useRef({ world, time, alertPersonIds, rigFactory, theme });
-  props.current = { world, time, alertPersonIds, rigFactory, theme };
+  const props = useRef({ world, time, alertPersonIds, showRoutes, rigFactory, theme });
+  props.current = { world, time, alertPersonIds, showRoutes, rigFactory, theme };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -97,6 +100,12 @@ export function RoomView3D({
         clearRigs();
         if (p.world) {
           room = buildRoom(p.world.room, p.theme);
+          for (const r of p.world.routes ?? []) {
+            const line = buildRoute(r, p.theme);
+            line.visible = false;
+            line.userData.route = r;
+            room.add(line);
+          }
           scene.add(room);
           if (newRun) frameRoom(camera, controls, p.world.room);
         }
@@ -109,7 +118,13 @@ export function RoomView3D({
         rigsFrom = p.rigFactory;
       }
 
-      const frame = sampleWorld(p.world, p.time());
+      const now = p.time();
+      const walking = new Set(p.showRoutes ? routesAt(p.world, now) : []);
+      for (const child of room?.children ?? []) {
+        if (child.userData.route) child.visible = walking.has(child.userData.route);
+      }
+
+      const frame = sampleWorld(p.world, now);
       const seen = new Set<string | null>();
       for (const person of frame.people) {
         seen.add(person.person_id);

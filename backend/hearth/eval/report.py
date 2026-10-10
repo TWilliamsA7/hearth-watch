@@ -91,3 +91,64 @@ class EvaluationSummary(_Model):
     false_positives_by_label: dict[str, int]
     missed_runs: list[str]
     false_positive_runs: list[str]
+
+
+class Rate(_Model):
+    """hits out of n, with a 95% Wilson interval so small samples read as uncertain."""
+
+    n: int
+    hits: int
+    rate: float | None
+    low: float | None
+    high: float | None
+
+
+class FallBreakdown(_Model):
+    """How the monitor did on falls that share one factor value (e.g. fault = trip)."""
+
+    factor: str
+    value: str
+    detected: Rate
+    delay_median: float | None
+    delay_p90: float | None
+
+
+class FalseAlertBreakdown(_Model):
+    """False possible_fall alerts per simulated hour, for runs or activities sharing one factor value."""
+
+    factor: str
+    value: str
+    false_alerts: int
+    hours: float = Field(description="Simulated room-hours (runs) or person-hours (activities).")
+    per_hour: float | None
+
+
+class StudyRun(_Model):
+    run_id: str
+    scenario_id: str
+    seed: int
+    title: str
+    duration: float
+    tags: dict[str, str | int | float | bool]
+    expected_alerts: int
+    missed: int
+    false_alerts: int
+    delays: list[float]
+    reproduce: str = Field(description="Command that writes this run's files for the room-view dev page.")
+
+
+class StudyReport(_Model):
+    """Results of many generated scenarios, broken down by what was in them. Simulated only."""
+
+    report_version: Literal["1"] = REPORT_VERSION
+    monitor: str
+    runs: int
+    simulated_hours: float
+    counts: Counts
+    detected: Rate
+    delay_median: float | None
+    delay_p90: float | None
+    false_alerts_per_hour: float | None
+    falls_by: list[FallBreakdown]
+    false_alerts_by: list[FalseAlertBreakdown]
+    worst: list[StudyRun] = Field(description="Runs with missed falls or the most false alerts, worst first.")

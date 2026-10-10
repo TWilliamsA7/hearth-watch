@@ -1,4 +1,4 @@
-import type { WorldFrame, WorldPerson, WorldTrack } from "./types";
+import type { WorldFrame, WorldPerson, WorldRoute, WorldTrack } from "./types";
 
 export type Vec3 = [number, number, number];
 
@@ -53,4 +53,13 @@ function lerp3(p: Vec3, q: Vec3, alpha: number): Vec3 {
 function lerpAngle(a: number, b: number, alpha: number): number {
   const turn = ((((b - a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
   return a + turn * alpha;
+}
+
+/** Seconds a route shows before the walk starts and after it ends. */
+export const ROUTE_LEAD = 1.5;
+export const ROUTE_TRAIL = 1.0;
+
+/** The routes being walked around time t (just before they start, until just after they end). */
+export function routesAt(track: WorldTrack | null, t: number): WorldRoute[] {
+  return (track?.routes ?? []).filter((r) => r.t_start - ROUTE_LEAD <= t && t <= r.t_end + ROUTE_TRAIL);
 }

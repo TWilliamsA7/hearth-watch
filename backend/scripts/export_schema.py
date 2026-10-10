@@ -10,7 +10,7 @@ run metadata, scenario control status, the 3D world track and evaluation reports
 import json
 from pathlib import Path
 
-from hearth.eval.report import EvaluationReport, EvaluationSummary
+from hearth.eval.report import EvaluationReport, EvaluationSummary, StudyReport
 from hearth.sim.controller import ScenarioInfo, SimStatus, TruthNow
 from hearth.sim.runner import RunInfo
 from hearth.sim.scenario import Scene
@@ -18,7 +18,7 @@ from hearth.sim.world import WorldTrack
 from pydantic.json_schema import models_json_schema
 
 OUT = Path(__file__).resolve().parents[1] / "schema" / "sim.schema.json"
-MODELS = [Scene, RunInfo, ScenarioInfo, SimStatus, TruthNow, WorldTrack, EvaluationReport, EvaluationSummary]
+MODELS = [Scene, RunInfo, ScenarioInfo, SimStatus, TruthNow, WorldTrack, EvaluationReport, EvaluationSummary, StudyReport]
 
 
 def main() -> None:

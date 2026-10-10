@@ -86,3 +86,25 @@ def test_summary_comes_from_the_latest_batch(client):
     client.batch_dir.mkdir(parents=True)
     (client.batch_dir / "summary.json").write_text(summarize([]).model_dump_json())
     assert client.get("/eval/summary").json()["runs"] == 0
+
+
+def test_generate_then_load_and_play_a_generated_scenario(client):
+    body = {"spec": {"people": 2, "room": "bedroom", "fall_rate": 1.0, "duration": 25}, "seed": 4}
+    info = client.post("/sim/generate", json=body).json()
+    assert info["scenario_id"].startswith("gen-bedroom-p2-") and info["tags"]["falls"] == 1
+    assert info["residents"] == ["p1", "p2"]
+    assert info["scenario_id"] in {s["scenario_id"] for s in client.get("/sim/scenarios").json()}
+    assert client.post("/sim/generate", json=body).json() == info  # same spec and seed, same scenario
+
+    loaded = client.post("/sim/load", json={"scenario_id": info["scenario_id"]}).json()
+    assert loaded["seed"] == 4
+    assert client.get("/sim/world").json()["scenario_id"] == info["scenario_id"]
+    client.post("/sim/play")
+    ended = wait_for(client, "ended")
+    report = client.get(f"/eval/runs/{ended['run_id']}").json()
+    assert report["counts"]["expected_alerts"] == 1
+
+
+def test_generate_rejects_a_bad_spec(client):
+    assert client.post("/sim/generate", json={"spec": {"people": 0}}).status_code == 422
+    assert client.post("/sim/generate", json={"spec": {"room": "kitchen"}}).status_code == 422

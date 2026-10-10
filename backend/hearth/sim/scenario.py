@@ -26,9 +26,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 
-Facing = Literal["camera", "left", "right"]
-PoseName = Literal["standing", "sitting", "bending", "lying", "fallen"]
+Facing = Literal["camera", "left", "right", "away"]
+PoseName = Literal[
+    "standing", "sitting", "bending", "lying", "fallen", "supine", "prone", "side_lying", "kneel", "half_kneel",
+    "hands_knees", "crouch", "floor_sit", "half_stand", "stumble", "lunge", "buckle", "lean_back",
+]
+Motion = Literal["collapse", "trip", "faint", "sit_miss", "stand_up", "collision", "stumble", "get_up"]
+"""A choreographed movement through several poses (hearth.sim.motion)."""
 ObjectKind = Literal["bed", "chair", "couch", "mat", "occluder"]
+TagValue = str | int | float | bool
 
 # Labels whose segments alert by default. A segment can override this explicitly.
 ALERT_LABELS: frozenset[str] = frozenset({"fall"})
@@ -36,6 +42,8 @@ ALERT_LABELS: frozenset[str] = frozenset({"fall"})
 DEFAULT_SCENARIOS_DIR = Path(
     os.environ.get("HEARTH_SCENARIOS_DIR", Path(__file__).resolve().parents[3] / "scenarios")
 )
+GENERATED_SUBDIR = "generated"
+"""Generated scenarios (python -m hearth.sim generate) go here, outside the library load_all() reads."""
 
 
 class _Model(BaseModel):
@@ -103,6 +111,16 @@ class Segment(_Model):
     facing: Facing | None = Field(
         default=None, description="Defaults to the walking direction, else the previous facing."
     )
+    heading: float | None = Field(
+        default=None,
+        description="Radians, overriding facing: 0 faces the camera, pi/2 image right, pi away (as WorldPerson.heading).",
+    )
+    motion: Motion | None = Field(
+        default=None,
+        description="Move through a choreographed sequence of poses instead of blending straight to the label's pose. "
+        "A 'fall' with none collapses sideways.",
+    )
+    variant: int | None = Field(default=None, description="Seeds the motion's variations (limbs, timing).")
     surface_y: Unit | None = Field(
         default=None, description="Frame y of the surface the person rests on (bed top). Defaults to the floor."
     )
@@ -110,6 +128,9 @@ class Segment(_Model):
         default=0.55, description="For 'occluded': keypoints below this frame y are hidden."
     )
     expects_alert: bool | None = Field(default=None, description="Defaults to label == 'fall'.")
+    tags: dict[str, TagValue] = Field(
+        default_factory=dict, description="Free-form factors (e.g. fall kind) for breaking down evaluation results."
+    )
 
     @model_validator(mode="after")
     def _transition_fits(self) -> Segment:
@@ -134,6 +155,7 @@ class Resident(_Model):
     start_x: float = 0.5
     start_depth: Unit = 0.0
     start_facing: Facing = "camera"
+    start_heading: float | None = Field(default=None, description="Radians, overriding start_facing.")
     segments: list[Segment] = Field(min_length=1)
 
     @property
@@ -178,6 +200,9 @@ class Scenario(_Model):
     start_facing: Facing = "camera"
     scene: Scene = Field(default_factory=Scene)
     variation: Variation = Field(default_factory=Variation)
+    tags: dict[str, TagValue] = Field(
+        default_factory=dict, description="Free-form factors (e.g. generator settings) for breaking down results."
+    )
     segments: list[Segment] | None = Field(default=None, min_length=1)
     residents: list[Resident] | None = Field(default=None, min_length=1)
 
@@ -284,4 +309,16 @@ def find_scenario(name_or_path: str, directory: str | Path = DEFAULT_SCENARIOS_D
     path = Path(name_or_path)
     if path.suffix in {".yaml", ".yml"} and path.exists():
         return load_scenario(path)
-    return load_scenario(Path(directory) / f"{name_or_path}.yaml")
+    path = Path(directory) / f"{name_or_path}.yaml"
+    generated = Path(directory) / GENERATED_SUBDIR / f"{name_or_path}.yaml"
+    return load_scenario(generated if not path.exists() and generated.exists() else path)
+
+
+def save_scenario(scenario: Scenario, path: str | Path) -> Path:
+    """Write a scenario as YAML that load_scenario() reads back unchanged."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = scenario.model_dump(mode="json", exclude_defaults=True)
+    data = {"scenario_id": scenario.scenario_id, "title": scenario.title, **data}  # ids first, for people reading
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=120), encoding="utf-8")
+    return path
