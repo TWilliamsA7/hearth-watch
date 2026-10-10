@@ -8,7 +8,17 @@ export type {
   ServerMessage,
   SourceStatus,
 } from "./generated/contract";
-export type { EvaluationReport, RunInfo, Scene, SceneObject } from "./generated/sim";
+export type {
+  EvaluationReport,
+  RunInfo,
+  Scene,
+  SceneObject,
+  WorldFrame,
+  WorldObject,
+  WorldPerson,
+  WorldRoom,
+  WorldTrack,
+} from "./generated/sim";
 
 import type { Observation } from "./generated/contract";
 
