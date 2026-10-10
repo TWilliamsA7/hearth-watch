@@ -6,17 +6,41 @@ working dashboard. This project currently runs locally for the hackathon demo.
 
 ## What the dashboard design does
 
-The foundation is warm off-white and beige, with muted teal/sage for monitoring
-and lavender for quiet accents. Text is dark slate, not pure black. Cards use
-warm off-white, not pure white. Main reading text is 16px, secondary text is at
-least 14px, and buttons/fields have a minimum height of 44px. Use the browser's
-zoom controls for larger text; responsive layouts adapt to the narrower viewport.
+The dashboard keeps the supplied reference layout with a solid warm beige page,
+baby blue cards, navy borders, dark gray text, muted purple secondary text,
+lavender accents, red alerts, soft green status indicators, light beige rooms,
+and a dark purple floor. The Caregiver/Patient switch and Simulate fall button
+use lavender backgrounds.
 
-The left navigation links to real sections on the same page: room overview,
-incident alerts, scenarios, and evaluation. The overview stays focused on what is
-observed and what requires review. The connection form is inside Connection
-settings. The room is the largest panel, alerts sit beside it, and scenario controls
-and measured results come below. Mobile screens stack the same sections.
+General interface text uses the locally bundled Commissioner font. The teal
+HearthWatch wordmark uses Windows Lucida Calligraphy, with a drawn heart flourish
+connected to the final h. Georgia remains on the large measurements, patient
+greeting, SOS label, and appointment times. The flame logo has been removed.
+
+Palette values in `src/styles.css`: bg #F7F1E8, card #EDF5FA, line #253C63,
+text #34383E, mute #776A8A, amber #B6A2D9, ember #C94343, ok #92BEA0,
+room #F4ECDD, floor #514064, brand #247C7F.
+
+Connection settings and simulator/evaluation controls are compact header menus.
+Alerts can be reviewed and acknowledged from the event-log panel. The dashboard
+fills the desktop viewport; small phones can scroll without losing controls.
+
+The illustrated room appears only in preview. Connected views show observed
+keypoints/model bounds in camera coordinates, not video or a measured floor map.
+Preview posture samples do not run a fall detector. Alerts remain backend-owned.
+Hip position is normalized image height, not centimeters. Incident age is elapsed
+time since the server's alert timestamp for live camera incidents only, not proof
+of time on the floor. Simulation/replay incident ages stay blank because those
+timestamps can differ from wall time. No clinical threshold marker is invented.
+
+Patient help posts to the real monitoring help-request API. Receipt is distinct
+from caregiver response. The reference's Margaret and appointment details appear
+only in preview and are labeled as examples. Connected views have no invented
+appointments or check-in confirmations. Scheduling remains unconnected.
+
+The preview timer and static feature plots are labeled as examples. Connected
+feature plots show samples actually reported by the backend. There are no
+centimeter measurements or claims that caregivers have been notified.
 
 Source type remains visible. Unknown observations do not appear safe. Preview
 examples and measured results remain clearly different. No decorative charts or
@@ -53,16 +77,16 @@ adjusted without rebuilding the monitoring integrations.
 
 | Role | Color | CSS variable |
 | --- | --- | --- |
-| Page background | `#F2EEE6` | `--page` |
-| Cards | `#FBFAF6` | `--surface` |
-| Primary text | `#35474B` | `--ink` |
-| Secondary text | `#5B696B` | `--muted` |
-| Main actions | `#476D70` | `--green` |
-| Soft sage | `#E6EDE7` | `--green-soft` |
-| Lavender accents | `#71627E` | `--lavender` |
-| Soft lavender | `#EEEBF2` | `--lavender-soft` |
-| Incident accents | `#8B542D` | `--amber` |
-| Incident background | `#F9EEDF` | `--amber-soft` |
+| Page background | `#1A1310` | `--bg` |
+| Cards | `#251A15` | `--card` |
+| Borders | `#3B2B22` | `--line` |
+| Text | `#F5E6D6` | `--text` |
+| Secondary text | `#A58F7E` | `--mute` |
+| Amber | `#F5A54A` | `--amber` |
+| Ember | `#F0643F` | `--ember` |
+| Green | `#7FC88A` | `--ok` |
+| Room | `#2B1E17` | `--room` |
+| Floor | `#3A2A20` | `--floor` |
 
 Use color alongside text and icons, never as the only indication of an alert or
 connection state. Focus outlines support keyboard navigation. Motion is disabled
@@ -78,3 +102,15 @@ Use descriptive alternative text when the photograph conveys useful information;
 use empty alternative text if it is purely decorative. No stock photo or AI-made
 person has been added to this dashboard. The assets folder is ready for your own
 Adobe export; the room view and alerts remain the primary content.
+
+Readability update: pale baby blue cards (#EDF5FA), larger 14–16px interface
+labels, a 34px bold Lucida wordmark with a heavier heart flourish, a 16px
+caption, and larger measurement values. The caption remains visible on narrow
+screens.
+
+Cards now use glacial blue (#E3F0F3); the brand caption is removed.
+The original 60 degree red marker is shown only in UI preview, using a 0–90
+degree bar. It is a reference example, not the backend detector threshold.
+Hip height from floor is labeled unavailable because only image coordinates
+are supplied. Preview Time down shows its example status; disconnected data
+remains unknown. Metric captions stay visible at narrow widths.

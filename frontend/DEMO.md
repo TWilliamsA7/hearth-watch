@@ -19,3 +19,12 @@ Before presenting, rehearse three times from a cold start, check offline behavio
 and prepare a recorded backup. Label replay as replay. Do not ask judges to fall
 or claim measured results, live face detection, or clinical validation that the
 implementation does not support.
+
+## Verified local demo entry point
+
+Use `scripts/demo_backend.py` as described in README.md. It mounts the real /sim
+and /eval routes for the single-person demo. The default backend entry point still
+needs team adoption of this integration. The possible-fall-01 browser rehearsal
+completed with a backend alert and actual evaluation report. A local Resident help
+request and caregiver acknowledgement were also verified. Hardware and recorded
+replay still require rehearsal with the team.

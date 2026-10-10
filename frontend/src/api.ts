@@ -15,6 +15,12 @@ export async function request<T>(base: string, path: string, options?: RequestIn
 export async function acknowledgeAlert(base: string, id: string): Promise<Alert> {
   return validateApi('monitoring#/$defs/Alert', await request(base, `/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' }));
 }
+export async function requestHelp(base: string, requestId: string): Promise<Alert> {
+  return validateApi('monitoring#/$defs/Alert', await request(base, '/help-requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ request_id: requestId, room_id: 'room-01' }),
+  }));
+}
 export async function scenarios(base: string): Promise<ScenarioInfo[]> {
   const values = await request<unknown>(base, '/sim/scenarios');
   if (!Array.isArray(values)) throw new Error('Invalid scenario list.');

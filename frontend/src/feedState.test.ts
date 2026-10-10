@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseMessage, validateApi } from './protocol.ts';
 import { emptyFeed, reduceFeed, visibleObservations } from './feedState.ts';
-import { acknowledgeAlert, simCommand, websocketUrl } from './api.ts';
+import { acknowledgeAlert, requestHelp, simCommand, websocketUrl } from './api.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../contracts/edge.fixture.json', import.meta.url), 'utf8'));
 const schema = JSON.parse(readFileSync(new URL('../contracts/monitoring.schema.json', import.meta.url), 'utf8'));
@@ -113,4 +113,26 @@ test('actual simulator router responses and after-action reports pass dashboard 
   validateApi('simApi#/$defs/SimStatus', data.status);
   validateApi('simApi#/$defs/EvaluationReport', data.report);
   assert.ok(parseMessage({ type: 'observation', data: data.observation }));
+});
+test('manual resident help requests remain visible alongside each observation source type', () => {
+  const message = parseMessage({ type: 'alert', data: { ...alert, kind: 'help_requested', source_type: 'manual', source: 'room-panel' } });
+  assert.ok(message);
+  for (const mode of ['edge', 'simulation', 'replay'] as const) {
+    const state = reduceFeed(emptyFeed(), message, 1000, mode);
+    assert.equal(state.alerts['incident-1'].kind, 'help_requested');
+  }
+});
+test('resident help uses the real endpoint, room and retry-safe request id', async () => {
+  const original = globalThis.fetch;
+  const calls: { url: string; body: unknown }[] = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: JSON.parse(String(options?.body)) });
+    return new Response(JSON.stringify({ ...alert, kind: 'help_requested', source_type: 'manual', source: 'room-panel' }));
+  };
+  try {
+    const result = await requestHelp('http://localhost:8000', 'same-id-on-retry');
+    assert.equal(result.kind, 'help_requested');
+    assert.equal(calls[0].url, 'http://localhost:8000/help-requests');
+    assert.deepEqual(calls[0].body, { request_id: 'same-id-on-retry', room_id: 'room-01' });
+  } finally { globalThis.fetch = original; }
 });

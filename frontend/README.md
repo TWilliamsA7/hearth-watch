@@ -32,6 +32,7 @@ dependencies are installed. Generated files and the npm lockfile are checked in.
 | `src/main.tsx` | Starts React and loads CSS. |
 | `src/App.tsx` | Dashboard layout, source selection, preview states, alert acknowledgement. |
 | `src/RoomView.tsx` | Draws observed skeletons or model bounding boxes in camera coordinates. |
+| `src/ResidentPanel.tsx` | Resident help requests with confirmed server receipt and explicit preview states. |
 | `src/useRoomFeed.ts` | Opens the monitoring WebSocket, reconnects, and cleans up connections. |
 | `src/feedState.ts` | Keeps observations, health, alerts, and events separate; handles freshness and filtering. |
 | `src/protocol.ts` | Validates incoming messages against the teammates' JSON Schemas. |
@@ -53,6 +54,9 @@ dependencies are installed. Generated files and the npm lockfile are checked in.
   events, and authoritative alert updates. No raw video is requested.
 - `POST /alerts/{alert_id}/ack`: acknowledgement. The alert changes only when the
   backend broadcasts the updated status; no optimistic acknowledgement or resolution.
+- `POST /help-requests`: resident help request with `request_id` and `room_id`.
+  Manual alerts are displayed alongside the selected observation source type.
+  The UI confirms receipt only; it does not promise a caregiver has been dispatched.
 - `GET /sim/scenarios`, `GET /sim/status`: available scenarios and controller state.
 - `POST /sim/load`: JSON `{ "scenario_id": "possible-fall-01" }`.
 - `POST /sim/play`, `/sim/pause`, `/sim/reset`: controller actions.
@@ -90,3 +94,44 @@ and `pyyaml` in a Python environment, then run
 `python scripts/verify-branches.py` from `frontend`. The script reads branch files
 into temporary directories and regenerates synthetic API fixtures. It does not
 test physical camera inference or merge branches.
+
+## Demo backend in this checkout
+
+The normal backend app still lacks simulator routes. The separate demo entry point
+connects the team's existing services without editing their owned folders.
+
+For this laptop, open a terminal in the repository root and run:
+
+```powershell
+$env:PYTHONPATH="$PWD\frontend\.compat-python"
+& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" frontend/scripts/demo_backend.py
+```
+
+This uses the existing local Python dependencies (plus the installed server
+packages). For a teammate with a configured Python environment instead:
+
+```powershell
+python -m pip install -e shared/python -e backend
+python frontend/scripts/demo_backend.py
+```
+
+In a second terminal, run the frontend:
+
+```powershell
+cd frontend
+$env:PATH="C:\Program Files\nodejs;" + $env:PATH
+npm.cmd run dev -- --strictPort
+```
+
+Node 22 is installed here but was missing from this session's PATH; the line above
+makes it available in that terminal. Dependencies already exist, so another install
+is unnecessary unless packages change. Open http://127.0.0.1:5173, use **Connection
+settings → Connect to monitoring**, then select **Simulation**. Choose **Fall while
+walking, stays on the floor**, **Load**, and **Play**. The report appears at the end.
+Use **Patient → SOS**, then **Caregiver** to review and acknowledge it.
+These actions create local demo records, not messages to an outside care service.
+
+Keep both terminals open. Ctrl+C stops each server. Data and completed reports
+are held in memory; restarting the backend clears them. Port conflicts usually
+mean an earlier server is still running. See COMPATIBILITY.md for verified behavior
+and the remaining team-owned integration work.
