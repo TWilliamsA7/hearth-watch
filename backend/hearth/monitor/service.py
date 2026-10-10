@@ -44,6 +44,7 @@ class MonitorService:
         self.nurses: dict[str, NurseProfile] = {}
         self.manual_requests: OrderedDict[str, str] = OrderedDict()
         self.offline_alerts: dict[SourceKey, str] = {}
+        self.ingest_totals = dict(accepted=0, duplicates=0, out_of_order=0, stale=0, future=0)
 
     def matches_nurse(self, nurse: NurseProfile, alert: Alert) -> bool:
         return (alert.accepted_by == nurse.nurse_id or
@@ -145,7 +146,7 @@ class MonitorService:
             entry.status.posture = prediction.label if reliable else "unknown"
             entry.status.posture_confidence = prediction.confidence if reliable else None
             entry.status.posture_model = prediction.model_id if prediction else None
-            if prediction is None:
+            if prediction is None and self.config.posture_mode == "pose_fallback":
                 state = self.detector.states.get(key)
                 entry.status.posture = {"upright": "standing", "floor_level": "fallen",
                                         "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
@@ -193,13 +194,24 @@ class MonitorService:
         for obs in batch:
             self.validate_room(obs.room_id)
         self.check_health()
-        counts = {"accepted": 0, "duplicates": 0, "out_of_order": 0}
+        counts = dict.fromkeys(self.ingest_totals, 0)
+        received_at = self.utcnow()
         for obs in batch:
             key = source_key(obs)
             identity = (*key, obs.obs_id)
             if identity in self.seen:
                 counts["duplicates"] += 1
                 continue
+            # Buffered live frames must not refresh camera health, recover an incident,
+            # or advance a temporal hold. Replay/simulation use their own clocks.
+            if obs.source_type == "edge":
+                age = (received_at - obs.timestamp).total_seconds()
+                if age > self.config.edge_observation_max_age_seconds:
+                    counts["stale"] += 1
+                    continue
+                if age < -self.config.edge_future_tolerance_seconds:
+                    counts["future"] += 1
+                    continue
             previous = self.observations.get(key)
             if previous is not None and obs.timestamp <= previous.timestamp:
                 counts["out_of_order"] += 1
@@ -224,6 +236,8 @@ class MonitorService:
                         self.publish(AlertMessage(data=alert))
                 self.record(event)
             counts["accepted"] += 1
+        for name, count in counts.items():
+            self.ingest_totals[name] += count
         return counts
 
     def heartbeat(self, heartbeat: Heartbeat) -> None:

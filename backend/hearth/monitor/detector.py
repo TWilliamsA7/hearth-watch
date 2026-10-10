@@ -87,7 +87,8 @@ class FallDetector:
         if state.evidence_mode != mode:
             state.floor_since = state.standing_since = None
             state.evidence_mode = mode
-        if not obs.person_detected or (f is None and prediction is None):
+        if (not obs.person_detected or (f is None and prediction is None)
+                or (c.posture_mode == "model" and prediction is None)):
             state.posture, state.floor_since = "unknown", None
             state.standing_since = None
             return events

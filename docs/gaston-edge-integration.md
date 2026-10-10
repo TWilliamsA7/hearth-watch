@@ -13,9 +13,9 @@ Reviewed `origin/gaston/edge` at `9d9ccba` on 2026-10-10. Monitoring changes liv
 
 ## Monitoring support
 
-Existing endpoints accept these payloads unchanged: `POST /ingest/observations` (an `observations` array) and `POST /ingest/heartbeat`. Missing `run_id`, `scenario_id`, and `posture_prediction` remain valid. Pose features use the original temporal rules; the Hugging Face model is a separate optional producer, not required on the Nano.
+Existing endpoints accept these payloads unchanged: `POST /ingest/observations` (an `observations` array) and `POST /ingest/heartbeat`. Missing `run_id`, `scenario_id`, and `posture_prediction` remain valid. The default posture mode now requires Hugging Face predictions for standing/sitting/lying and possible-fall decisions. Gaston's pose-only observations remain accepted for visibility and gestures but have unknown posture. The model runner needs camera-frame access; no image classifier runs on received keypoints. Use explicit `posture_mode: "pose_fallback"` only for legacy pose testing.
 
-Source status now exposes pose-derived upright/floor-level posture to the nurse/room UI without claiming a model confidence score. A floor-level display does not itself mean an alert: the configured hold still applies. Missing/incomplete observations and stale sources display unknown. Face null does not generate a face-absent event. Observation staleness is tracked independently of heartbeats.
+In the optional legacy pose-fallback mode, source status exposes pose-derived upright/floor-level posture without a model confidence score. The default model mode displays Standing, Sitting, or Lying from model predictions (`fallen` on the wire). A floor-level display does not itself mean an alert: the configured hold still applies. Missing/incomplete observations and stale sources display unknown. Face null does not generate a face-absent event. Observation staleness is tracked independently of heartbeats.
 
 Keypoint confidence may now be omitted/null. PoseNet does not expose a measured per-keypoint score. The existing edge placeholder `1.0` remains accepted for compatibility, but is not a measured probability. **Edge follow-up:** set `KEYPOINT_CONFIDENCE_PLACEHOLDER = None` and replace `test_contract_still_requires_keypoint_confidence` with a test asserting omitted confidence validates. Until that update, gesture and zone confidence gates cannot distinguish the placeholder from a real score. With unknown confidence, monitoring conservatively disables confidence-gated gestures and zone downgrades; posture-feature falls still work and the help button remains available.
 
@@ -37,7 +37,9 @@ Use the laptop's actual reachable IP if it differs; allow port 8000 on the priva
 
 Gaston replay rewrites timestamps to playback wall time and uses source `replay-01`. Run at `--speed 1` for hold-time comparisons: faster playback shortens the observed floor interval. It currently supplies no run ID, so repeated runs share a source history. For evaluation isolation, use a new `--source` per run (or add matching run IDs to observations and heartbeats upstream).
 
-Queued live observations can arrive late after reconnection. Current monitor timing uses observation timestamps for holds and receipt time for source health; a buffered incident may therefore appear after reconnection. Synchronize device clocks and do not interpret delivery time as incident time.
+Queued live observations can arrive late after reconnection. Monitoring drops edge observations older than `edge_observation_max_age_seconds` (default 3 seconds), or more than `edge_future_tolerance_seconds` (default 5 seconds) ahead of backend UTC. Dropped frames cannot refresh source health, advance a hold or recover an incident. Historical buffered incidents outside this window are not evaluated; preserve JSONL recordings for replay. Simulation/replay timestamps are exempt. Synchronize device clocks before the demo.
+
+`POST /ingest/observations` returns `accepted`, `duplicates`, `out_of_order`, `stale`, and `future` counts. `GET /ingest/status` reports cumulative counts since backend startup plus configured timestamp limits. The edge client currently counts any successful HTTP batch as sent, so use these backend counters to distinguish transmitted frames from accepted frames. Heartbeats still represent transport liveness; they cannot clear observation staleness.
 
 ## Validation
 

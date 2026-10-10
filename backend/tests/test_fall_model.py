@@ -11,6 +11,35 @@ from conftest import BASE, FLOOR, observation
 SETTINGS = ModelSettings.load()
 
 
+@pytest.fixture(autouse=True)
+def model_mode(service):
+    service.config.posture_mode = "model"
+
+
+def test_default_config_requires_model_predictions():
+    from hearth.monitor.config import MonitorConfig
+    assert MonitorConfig().posture_mode == MonitorConfig.load().posture_mode == "model"
+
+
+def test_pose_only_cannot_classify_alert_or_recover_in_model_mode(service):
+    from conftest import UPRIGHT
+    service.ingest([observation(t/2) for t in range(8)])
+    assert not falls(service)
+    assert service.snapshot().sources[0].posture == "unknown"
+    service.ingest([frame(4+t/2) for t in range(7)])
+    assert len(falls(service)) == 1
+    service.ingest([observation(7.5, UPRIGHT), observation(8, UPRIGHT)])
+    assert next(iter(service.alerts.values())).recovered_at is None
+    assert service.snapshot().sources[0].posture == "unknown"
+
+
+@pytest.mark.parametrize("label", ["standing", "sitting", "fallen"])
+def test_each_model_posture_is_exposed_without_pose_features(service, label):
+    service.ingest([frame(0, label)])
+    status = service.snapshot().sources[0]
+    assert status.posture == label and status.posture_model == SETTINGS.repo_id
+
+
 def prediction(label="fallen", confidence=.9, **changes):
     data = dict(model_id=SETTINGS.repo_id, model_revision=SETTINGS.revision, label=label,
                 confidence=confidence, detection_count=1, bbox=dict(x1=.1,y1=.2,x2=.8,y2=.9))

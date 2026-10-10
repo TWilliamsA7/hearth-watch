@@ -135,7 +135,12 @@ def main(argv=None):
             else:
                 try:
                     response = post(args.backend, "/ingest/observations", {"observations": [observation.model_dump(mode="json")]})
-                    if response.get("accepted") != 1:
+                    if response.get("stale", 0) or response.get("future", 0):
+                        if time.monotonic()-last_warning >= 5:
+                            print(f"Backend dropped frame outside live timestamp limits: {response}. "
+                                  "Check device clock and inference latency.", file=sys.stderr)
+                            last_warning = time.monotonic()
+                    elif response.get("accepted") != 1:
                         raise RuntimeError(f"Observation was not accepted: {response}")
                 except HTTPError as exc:
                     raise RuntimeError(f"Backend rejected observation ({exc.code}): {exc.read().decode()}") from exc

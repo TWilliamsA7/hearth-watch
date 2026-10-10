@@ -74,7 +74,7 @@ def test_face_absence_does_not_make_person_absent(service):
 def test_duplicate_and_out_of_order_inputs_cannot_recover(service):
     service.ingest([observation(t / 2) for t in range(7)])
     result = service.ingest([observation(3), observation(2.9, UPRIGHT, obs_id="late")])
-    assert result == dict(accepted=0, duplicates=1, out_of_order=1)
+    assert result == dict(accepted=0, duplicates=1, out_of_order=1, stale=0, future=0)
     assert len(service.alerts) == 1
     assert next(iter(service.alerts.values())).recovered_at is None
 
@@ -135,7 +135,7 @@ def test_alert_transitions_are_idempotent_and_resolution_needs_ack(service):
 
 
 def test_zone_downgrades_without_hiding_event(clock):
-    config = MonitorConfig(zones=[Zone(name="bed", polygon=[(.2, .7), (.8, .7), (.8, 1), (.2, 1)])])
+    config = MonitorConfig(posture_mode="pose_fallback", zones=[Zone(name="bed", polygon=[(.2, .7), (.8, .7), (.8, 1), (.2, 1)])])
     service = MonitorService(config, clock=clock, utcnow=clock.utcnow)
     keypoints = [dict(name="left_hip", x=.5, y=.85, confidence=.9)]
     service.ingest([observation(t / 2, keypoints=keypoints) for t in range(7)])
@@ -145,14 +145,14 @@ def test_zone_downgrades_without_hiding_event(clock):
 
 
 def test_zone_without_hip_location_cannot_suppress(clock):
-    service = MonitorService(MonitorConfig(zones=[Zone(name="bed", polygon=[(0, 0), (1, 0), (1, 1)])]),
+    service = MonitorService(MonitorConfig(posture_mode="pose_fallback", zones=[Zone(name="bed", polygon=[(0, 0), (1, 0), (1, 1)])]),
                              clock=clock, utcnow=clock.utcnow)
     service.ingest([observation(t / 2) for t in range(7)])
     assert next(iter(service.alerts.values())).severity == "warning"
 
 
 def test_low_confidence_hip_cannot_downgrade(clock):
-    service = MonitorService(MonitorConfig(zones=[Zone(name="bed", polygon=[(0, 0), (1, 0), (1, 1), (0, 1)])]),
+    service = MonitorService(MonitorConfig(posture_mode="pose_fallback", zones=[Zone(name="bed", polygon=[(0, 0), (1, 0), (1, 1), (0, 1)])]),
                              clock=clock, utcnow=clock.utcnow)
     keypoints = [dict(name="left_hip", x=.5, y=.85, confidence=.1)]
     service.ingest([observation(t / 2, keypoints=keypoints) for t in range(7)])
@@ -169,14 +169,14 @@ def test_offline_never_resolves_existing_alert(service, clock):
 
 
 def test_detector_itself_ignores_old_samples():
-    detector = FallDetector(MonitorConfig())
+    detector = FallDetector(MonitorConfig(posture_mode="pose_fallback"))
     detector.process(observation(1))
     assert detector.process(observation(.5, UPRIGHT)) == []
     assert detector.states[source_key(observation(0))].posture == "floor_level"
 
 
 def test_bounded_event_log_and_slow_subscriber(clock):
-    service = MonitorService(MonitorConfig(event_capacity=2, websocket_queue_capacity=1),
+    service = MonitorService(MonitorConfig(posture_mode="pose_fallback", event_capacity=2, websocket_queue_capacity=1),
                              clock=clock, utcnow=clock.utcnow)
     queue = service.subscribe()
     service.ingest([observation(t / 2) for t in range(7)])

@@ -1,5 +1,6 @@
 """Demo parameters, to be calibrated against staged traces; not clinical thresholds."""
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -30,11 +31,14 @@ class MonitorConfig(BaseModel):
     gesture_keypoint_confidence_min: float = Field(default=.5, gt=0, le=1)
     gesture_raise_margin: float = Field(default=.08, gt=0, le=1)
     floor_hold_seconds: float = Field(default=3, gt=0)
+    posture_mode: Literal["model", "pose_fallback"] = "model"
     fall_model_id: str = "melihuzunoglu/human-fall-detection"
     model_confidence_min: float = Field(default=.65, gt=0, le=1)
     model_standing_hold_seconds: float = Field(default=1, gt=0)
     max_observation_gap_seconds: float = Field(default=1, gt=0)
     source_timeout_seconds: float = Field(default=3, gt=0)
+    edge_observation_max_age_seconds: float = Field(default=3, gt=0)
+    edge_future_tolerance_seconds: float = Field(default=5, ge=0)
     health_poll_seconds: float = Field(default=.25, gt=0)
     upright_angle_max_deg: float = Field(default=30, ge=0, le=180)
     floor_angle_min_deg: float = Field(default=60, ge=0, le=180)

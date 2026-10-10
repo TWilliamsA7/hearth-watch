@@ -71,6 +71,13 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.get("/ingest/status")
+    async def ingest_status():
+        return {"counts": monitor.ingest_totals.copy(),
+                "edge_observation_max_age_seconds": monitor.config.edge_observation_max_age_seconds,
+                "edge_future_tolerance_seconds": monitor.config.edge_future_tolerance_seconds,
+                "clock": "backend_utc", "scope": "since_backend_start"}
+
     @app.post("/ingest/heartbeat", response_model=SourceStatus)
     async def heartbeat(body: Heartbeat):
         try:
