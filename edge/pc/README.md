@@ -204,6 +204,7 @@ names in OmniFall's labels, so the next script has to translate them:
 ### Step 6a: `05_extract_keypoints.py`
 
 ```powershell
+cd C:\Users\Gaston\hearth-watch     # the repo folder (the download steps left you in C:\hearth-data)
 .\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py --check      # match labels to videos only (seconds)
 .\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py --limit 5    # quick trial on 5 videos
 .\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py              # everything

@@ -190,6 +190,7 @@ def extract(model, video, segments, stride, batch, device, out):
     flush()
     cap.release()
     out["videos"].append(segments[0]["name"])
+    out["video_size"].append((width, height))   # 0-1 keypoints need it to undo the aspect ratio
     return sent, people
 
 
@@ -246,7 +247,8 @@ def main():
         label=np.array(out["label"], dtype=np.int64), raw_label=np.array(out["raw"], dtype=np.int64),
         dataset=np.array(out["dataset"], dtype=np.int64), subject=np.array(out["subject"], dtype=np.int64),
         video=np.array(out["video"], dtype=np.int64), t=np.array(out["t"], dtype=np.float32),
-        videos=np.array(out["videos"]), classes=np.array(CLASSES), datasets=np.array(DATASETS),
+        videos=np.array(out["videos"]), video_size=np.array(out["video_size"], dtype=np.float32),
+        classes=np.array(CLASSES), datasets=np.array(DATASETS),
         keypoint_names=np.array(KEYPOINT_NAMES), pose_model=np.array(args.pose_model))
     labels = Counter(CLASSES[i] for i in out["label"])
     print("\nwrote %s: %d frames with a person (of %d sent) in %.0f s"
