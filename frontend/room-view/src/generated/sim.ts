@@ -6,10 +6,13 @@ export interface HearthSimApi {
   EvaluationReport?: EvaluationReport;
   EvaluationSummary?: EvaluationSummary;
   RunInfo?: RunInfo;
+  ScenarioInfo?: ScenarioInfo;
   Scene?: Scene;
   SceneObject?: SceneObject;
   SegmentResult?: SegmentResult;
+  SimStatus?: SimStatus;
   TimelineEvent?: TimelineEvent;
+  TruthNow?: TruthNow;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -228,4 +231,68 @@ export interface SceneObject {
   y: number;
   w: number;
   h: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "ScenarioInfo".
+ */
+export interface ScenarioInfo {
+  scenario_id: string;
+  title: string;
+  description: string;
+  /**
+   * Nominal seconds; each seed's run may differ by about 10%.
+   */
+  duration: number;
+  /**
+   * Default seed.
+   */
+  seed: number;
+  /**
+   * Resident ids; empty for a single-person scenario.
+   */
+  residents: string[];
+  scene: Scene;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "SimStatus".
+ */
+export interface SimStatus {
+  state: "idle" | "loaded" | "playing" | "paused" | "ended";
+  scenario_id: string | null;
+  seed: number | null;
+  /**
+   * Key for GET /eval/runs/{run_id} once the run ends.
+   */
+  run_id: string | null;
+  /**
+   * Scenario seconds.
+   */
+  t: number;
+  duration: number | null;
+  speed: number;
+  scene: Scene | null;
+  truth: TruthNow[];
+}
+/**
+ * Ground truth at this instant, for people watching. Never sent to the monitor.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "TruthNow".
+ */
+export interface TruthNow {
+  person_id: string | null;
+  segment_id: string;
+  truth_label:
+    | "walking"
+    | "standing"
+    | "sitting"
+    | "bending"
+    | "lying_intentional"
+    | "fall"
+    | "occluded"
+    | "camera_outage"
+    | "absent";
+  expects_alert: boolean;
 }

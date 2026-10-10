@@ -374,6 +374,55 @@
       "title": "RunInfo",
       "type": "object"
     },
+    "ScenarioInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Nominal seconds; each seed's run may differ by about 10%.",
+          "title": "Duration",
+          "type": "number"
+        },
+        "seed": {
+          "description": "Default seed.",
+          "title": "Seed",
+          "type": "integer"
+        },
+        "residents": {
+          "description": "Resident ids; empty for a single-person scenario.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Residents",
+          "type": "array"
+        },
+        "scene": {
+          "$ref": "#/$defs/Scene"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "title",
+        "description",
+        "duration",
+        "seed",
+        "residents",
+        "scene"
+      ],
+      "title": "ScenarioInfo",
+      "type": "object"
+    },
     "Scene": {
       "additionalProperties": false,
       "properties": {
@@ -610,6 +659,113 @@
       "title": "SegmentResult",
       "type": "object"
     },
+    "SimStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "idle",
+            "loaded",
+            "playing",
+            "paused",
+            "ended"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Key for GET /eval/runs/{run_id} once the run ends.",
+          "title": "Run Id"
+        },
+        "t": {
+          "default": 0.0,
+          "description": "Scenario seconds.",
+          "title": "T",
+          "type": "number"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "speed": {
+          "default": 1.0,
+          "title": "Speed",
+          "type": "number"
+        },
+        "scene": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scene"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "truth": {
+          "items": {
+            "$ref": "#/$defs/TruthNow"
+          },
+          "title": "Truth",
+          "type": "array"
+        }
+      },
+      "required": [
+        "state",
+        "scenario_id",
+        "seed",
+        "run_id",
+        "t",
+        "duration",
+        "speed",
+        "scene",
+        "truth"
+      ],
+      "title": "SimStatus",
+      "type": "object"
+    },
     "TimelineEvent": {
       "additionalProperties": false,
       "description": "Every monitor event of the run, placed on the scenario clock for the after-action view.",
@@ -658,6 +814,54 @@
         "person_id"
       ],
       "title": "TimelineEvent",
+      "type": "object"
+    },
+    "TruthNow": {
+      "additionalProperties": false,
+      "description": "Ground truth at this instant, for people watching. Never sent to the monitor.",
+      "properties": {
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Person Id"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "truth_label": {
+          "enum": [
+            "walking",
+            "standing",
+            "sitting",
+            "bending",
+            "lying_intentional",
+            "fall",
+            "occluded",
+            "camera_outage",
+            "absent"
+          ],
+          "title": "Truth Label",
+          "type": "string"
+        },
+        "expects_alert": {
+          "title": "Expects Alert",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "person_id",
+        "segment_id",
+        "truth_label",
+        "expects_alert"
+      ],
+      "title": "TruthNow",
       "type": "object"
     }
   },

@@ -2,7 +2,7 @@
 
 The shared contract (shared/schema/) covers records that cross every boundary. These are
 the extra shapes the dashboard reads from the simulator and evaluator: scene geometry,
-run metadata and evaluation reports. Frontend TypeScript types are generated from both.
+run metadata, scenario control status and evaluation reports. Frontend TypeScript types are generated from both.
 
     python backend/scripts/export_schema.py
 """
@@ -11,12 +11,13 @@ import json
 from pathlib import Path
 
 from hearth.eval.report import EvaluationReport, EvaluationSummary
+from hearth.sim.controller import ScenarioInfo, SimStatus, TruthNow
 from hearth.sim.runner import RunInfo
 from hearth.sim.scenario import Scene
 from pydantic.json_schema import models_json_schema
 
 OUT = Path(__file__).resolve().parents[1] / "schema" / "sim.schema.json"
-MODELS = [Scene, RunInfo, EvaluationReport, EvaluationSummary]
+MODELS = [Scene, RunInfo, ScenarioInfo, SimStatus, TruthNow, EvaluationReport, EvaluationSummary]
 
 
 def main() -> None:
