@@ -29,6 +29,7 @@ Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 Facing = Literal["camera", "left", "right"]
 PoseName = Literal["standing", "sitting", "bending", "lying", "fallen"]
 ObjectKind = Literal["bed", "chair", "couch", "mat", "occluder"]
+TagValue = str | int | float | bool
 
 # Labels whose segments alert by default. A segment can override this explicitly.
 ALERT_LABELS: frozenset[str] = frozenset({"fall"})
@@ -110,6 +111,9 @@ class Segment(_Model):
         default=0.55, description="For 'occluded': keypoints below this frame y are hidden."
     )
     expects_alert: bool | None = Field(default=None, description="Defaults to label == 'fall'.")
+    tags: dict[str, TagValue] = Field(
+        default_factory=dict, description="Free-form factors (e.g. fall kind) for breaking down evaluation results."
+    )
 
     @model_validator(mode="after")
     def _transition_fits(self) -> Segment:
@@ -178,6 +182,9 @@ class Scenario(_Model):
     start_facing: Facing = "camera"
     scene: Scene = Field(default_factory=Scene)
     variation: Variation = Field(default_factory=Variation)
+    tags: dict[str, TagValue] = Field(
+        default_factory=dict, description="Free-form factors (e.g. generator settings) for breaking down results."
+    )
     segments: list[Segment] | None = Field(default=None, min_length=1)
     residents: list[Resident] | None = Field(default=None, min_length=1)
 

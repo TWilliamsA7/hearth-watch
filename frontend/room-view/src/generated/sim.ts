@@ -258,6 +258,12 @@ export interface ScenarioInfo {
    */
   residents: string[];
   scene: Scene;
+  /**
+   * Scenario.tags, e.g. generator settings.
+   */
+  tags: {
+    [k: string]: string | number | boolean;
+  };
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema

@@ -41,7 +41,7 @@ from hearth.eval.report import EvaluationReport
 from hearth.eval.scoring import EvalConfig, evaluate, segment_at
 from hearth.sim.generator import SIM_EPOCH, SOURCE
 from hearth.sim.runner import RunInfo, SimRun, run_headless
-from hearth.sim.scenario import Scenario, Scene, load_all
+from hearth.sim.scenario import Scenario, Scene, TagValue, load_all
 from hearth.sim.world import WorldTrack
 
 Record = Observation | Heartbeat
@@ -81,12 +81,14 @@ class ScenarioInfo(_Model):
     seed: int = Field(description="Default seed.")
     residents: list[str] = Field(description="Resident ids; empty for a single-person scenario.")
     scene: Scene
+    tags: dict[str, TagValue] = Field(default_factory=dict, description="Scenario.tags, e.g. generator settings.")
 
     @classmethod
     def of(cls, sc: Scenario) -> ScenarioInfo:
         return cls(scenario_id=sc.scenario_id, title=sc.title, description=sc.description.strip(),
                    duration=round(sc.duration, 3), seed=sc.seed,
-                   residents=[r.resident_id for r in sc.cast() if r.resident_id], scene=sc.scene)  # fmt: skip
+                   residents=[r.resident_id for r in sc.cast() if r.resident_id], scene=sc.scene,
+                   tags=sc.tags)  # fmt: skip
 
 
 class TruthNow(_Model):

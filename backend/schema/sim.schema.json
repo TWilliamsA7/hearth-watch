@@ -409,6 +409,27 @@
         },
         "scene": {
           "$ref": "#/$defs/Scene"
+        },
+        "tags": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "description": "Scenario.tags, e.g. generator settings.",
+          "title": "Tags",
+          "type": "object"
         }
       },
       "required": [
@@ -418,7 +439,8 @@
         "duration",
         "seed",
         "residents",
-        "scene"
+        "scene",
+        "tags"
       ],
       "title": "ScenarioInfo",
       "type": "object"
