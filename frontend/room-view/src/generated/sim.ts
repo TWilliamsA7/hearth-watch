@@ -13,6 +13,11 @@ export interface HearthSimApi {
   SimStatus?: SimStatus;
   TimelineEvent?: TimelineEvent;
   TruthNow?: TruthNow;
+  WorldFrame?: WorldFrame;
+  WorldObject?: WorldObject;
+  WorldPerson?: WorldPerson;
+  WorldRoom?: WorldRoom;
+  WorldTrack?: WorldTrack;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -295,4 +300,108 @@ export interface TruthNow {
     | "camera_outage"
     | "absent";
   expects_alert: boolean;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldFrame".
+ */
+export interface WorldFrame {
+  /**
+   * Scenario seconds.
+   */
+  t: number;
+  people: WorldPerson[];
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldPerson".
+ */
+export interface WorldPerson {
+  /**
+   * Matches Observation.person_id; None in a single-person run.
+   */
+  person_id: string | null;
+  /**
+   * Radians about +y; 0 faces the camera, +pi/2 faces image right.
+   */
+  heading: number;
+  /**
+   * Metres; every joint, visible to the camera or not.
+   */
+  joints: {
+    /**
+     * @minItems 3
+     * @maxItems 3
+     */
+    [k: string]: [number, number, number];
+  };
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldObject".
+ */
+export interface WorldObject {
+  kind: "bed" | "chair" | "couch" | "mat" | "occluder";
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  center: [number, number, number];
+  /**
+   * Width (x), height (y), depth (z) in metres.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  size: [number, number, number];
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldRoom".
+ */
+export interface WorldRoom {
+  /**
+   * Metres the camera sees across at depth 0.
+   */
+  width_front: number;
+  /**
+   * Metres the camera sees across at the back wall.
+   */
+  width_back: number;
+  depth: number;
+  height: number;
+  /**
+   * Approximate; for display only.
+   *
+   * @minItems 3
+   * @maxItems 3
+   */
+  camera_position: [number, number, number];
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  camera_target: [number, number, number];
+  /**
+   * Vertical field of view, degrees.
+   */
+  camera_fov: number;
+  objects: WorldObject[];
+}
+/**
+ * A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "WorldTrack".
+ */
+export interface WorldTrack {
+  scenario_id: string;
+  seed: number;
+  fps: number;
+  duration: number;
+  room: WorldRoom;
+  /**
+   * One per frame slot, in time order.
+   */
+  frames: WorldFrame[];
 }

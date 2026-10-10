@@ -32,6 +32,20 @@ function stripFieldTitles(node, isModel = false) {
   return out;
 }
 
+// Pydantic writes tuples the 2020-12 way ("prefixItems"); the generator only reads the
+// draft-07 form ("items" as an array), and would otherwise type each element as unknown.
+function draft7Tuples(node) {
+  if (Array.isArray(node)) return node.map(draft7Tuples);
+  if (node === null || typeof node !== "object") return node;
+  const out = Object.fromEntries(Object.entries(node).map(([k, v]) => [k, draft7Tuples(v)]));
+  if (out.prefixItems) {
+    out.items = out.prefixItems;
+    out.additionalItems = false;
+    delete out.prefixItems;
+  }
+  return out;
+}
+
 await mkdir(outDir, { recursive: true });
 for (const { schema, out, name } of targets) {
   const bundle = JSON.parse(await readFile(resolve(repo, schema), "utf8"));
@@ -41,7 +55,7 @@ for (const { schema, out, name } of targets) {
     type: "object",
     additionalProperties: false,
     properties: Object.fromEntries(Object.keys(bundle.$defs).map((k) => [k, { $ref: `#/$defs/${k}` }])),
-    $defs: Object.fromEntries(Object.entries(bundle.$defs).map(([k, v]) => [k, stripFieldTitles(v, true)])),
+    $defs: Object.fromEntries(Object.entries(bundle.$defs).map(([k, v]) => [k, draft7Tuples(stripFieldTitles(v, true))])),
   };
   const ts = await compile(root, name, {
     bannerComment: `/* Generated from ${schema} by scripts/gen-types.mjs. Do not edit. */`,

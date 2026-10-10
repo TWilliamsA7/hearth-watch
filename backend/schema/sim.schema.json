@@ -863,6 +863,284 @@
       ],
       "title": "TruthNow",
       "type": "object"
+    },
+    "WorldFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "description": "Scenario seconds.",
+          "title": "T",
+          "type": "number"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/WorldPerson"
+          },
+          "title": "People",
+          "type": "array"
+        }
+      },
+      "required": [
+        "t",
+        "people"
+      ],
+      "title": "WorldFrame",
+      "type": "object"
+    },
+    "WorldObject": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "bed",
+            "chair",
+            "couch",
+            "mat",
+            "occluder"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "center": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "size": {
+          "description": "Width (x), height (y), depth (z) in metres.",
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "center",
+        "size"
+      ],
+      "title": "WorldObject",
+      "type": "object"
+    },
+    "WorldPerson": {
+      "additionalProperties": false,
+      "properties": {
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Matches Observation.person_id; None in a single-person run.",
+          "title": "Person Id"
+        },
+        "heading": {
+          "description": "Radians about +y; 0 faces the camera, +pi/2 faces image right.",
+          "title": "Heading",
+          "type": "number"
+        },
+        "joints": {
+          "additionalProperties": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "description": "Metres; every joint, visible to the camera or not.",
+          "propertyNames": {
+            "enum": [
+              "nose",
+              "left_eye",
+              "right_eye",
+              "left_ear",
+              "right_ear",
+              "left_shoulder",
+              "right_shoulder",
+              "left_elbow",
+              "right_elbow",
+              "left_wrist",
+              "right_wrist",
+              "left_hip",
+              "right_hip",
+              "left_knee",
+              "right_knee",
+              "left_ankle",
+              "right_ankle",
+              "neck"
+            ]
+          },
+          "title": "Joints",
+          "type": "object"
+        }
+      },
+      "required": [
+        "person_id",
+        "heading",
+        "joints"
+      ],
+      "title": "WorldPerson",
+      "type": "object"
+    },
+    "WorldRoom": {
+      "additionalProperties": false,
+      "properties": {
+        "width_front": {
+          "description": "Metres the camera sees across at depth 0.",
+          "title": "Width Front",
+          "type": "number"
+        },
+        "width_back": {
+          "description": "Metres the camera sees across at the back wall.",
+          "title": "Width Back",
+          "type": "number"
+        },
+        "depth": {
+          "title": "Depth",
+          "type": "number"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        },
+        "camera_position": {
+          "description": "Approximate; for display only.",
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Camera Position",
+          "type": "array"
+        },
+        "camera_target": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Camera Target",
+          "type": "array"
+        },
+        "camera_fov": {
+          "description": "Vertical field of view, degrees.",
+          "title": "Camera Fov",
+          "type": "number"
+        },
+        "objects": {
+          "items": {
+            "$ref": "#/$defs/WorldObject"
+          },
+          "title": "Objects",
+          "type": "array"
+        }
+      },
+      "required": [
+        "width_front",
+        "width_back",
+        "depth",
+        "height",
+        "camera_position",
+        "camera_target",
+        "camera_fov",
+        "objects"
+      ],
+      "title": "WorldRoom",
+      "type": "object"
+    },
+    "WorldTrack": {
+      "additionalProperties": false,
+      "description": "A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only.",
+      "properties": {
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "fps": {
+          "title": "Fps",
+          "type": "number"
+        },
+        "duration": {
+          "title": "Duration",
+          "type": "number"
+        },
+        "room": {
+          "$ref": "#/$defs/WorldRoom"
+        },
+        "frames": {
+          "description": "One per frame slot, in time order.",
+          "items": {
+            "$ref": "#/$defs/WorldFrame"
+          },
+          "title": "Frames",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "seed",
+        "fps",
+        "duration",
+        "room",
+        "frames"
+      ],
+      "title": "WorldTrack",
+      "type": "object"
     }
   },
   "title": "Hearth simulator and evaluation API v1"
