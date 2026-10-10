@@ -15,7 +15,7 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
 | Step | Script | You learn | Project result |
 |---|---|---|---|
 | 1 | `01_check_gpu.py` | tensors, devices, GPU speed, autograd | PyTorch + CUDA working |
-| 2 | `02_load_model.py` (next) | a Hugging Face model in PyTorch: layers, parameters, raw output tensor; GPU vs CPU | the pinned model via Person 2's `download_weights` / `load_model`, on the GPU |
+| 2 | `02_load_model.py` | a Hugging Face model in PyTorch: layers, parameters, raw output tensor; GPU vs CPU | the pinned model via Person 2's `download_weights` / `load_model`, on the GPU |
 | 3 | `03_export_onnx.py` (next) | exporting, checking PyTorch vs ONNX numerically | an ONNX file the Jetson's TensorRT can build |
 | 4 | (next) | publishing a model on the Hugging Face Hub | the Jetson downloads it from your HF account |
 | 5 | on the Jetson | TensorRT engine + runner | `posture_prediction` in Jetson observations, same rules as Person 2's `prediction_from_detections` (tested against it), off by default until measured |
@@ -42,17 +42,20 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
    laptop's `.venv`). Calling its `python.exe` directly avoids PowerShell's script-activation
    restrictions:
    ```powershell
-   py -3.12 -m venv .venv-pc
+   python -m venv .venv-pc
    .\.venv-pc\Scripts\python.exe -m pip install --upgrade pip
    ```
+   (`python -m venv`, not `py -3.12`: the Microsoft Store Python usually has no `py` launcher.)
 
-4. **PyTorch with CUDA.** The CPU-only build is the default on Windows, so use PyTorch's CUDA
-   package index. `cu126` works with any driver reporting CUDA 12.6 or newer:
+4. **PyTorch with CUDA.** Plain `pip install torch` on Windows gives the CPU-only build
+   (`torch.__version__` ends in `+cpu` and the GPU is invisible), so use PyTorch's CUDA index.
+   `cu126` worked on this PC (torch 2.14.1+cu126, driver showing CUDA 12.6+ in `nvidia-smi`):
    ```powershell
    .\.venv-pc\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+   .\.venv-pc\Scripts\python.exe -m pip install numpy
+   .\.venv-pc\Scripts\python.exe -c "import torch; print(torch.__version__, torch.cuda.is_available())"
    ```
-   (If `nvidia-smi` shows an older CUDA than 12.6, use the matching index from
-   pytorch.org > Get Started, e.g. `cu118`.) It is a large download (~2.5 GB).
+   The last line must print `...+cu126 True`. It is a large download (~2.5 GB).
 
 5. **Person 2's perception code + Ultralytics** (needed from step 2 on; install it after the CUDA
    torch so pip keeps the GPU build):
@@ -62,12 +65,28 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
 
 ## Step 1
 
+Run it from a terminal (VS Code: Terminal > New Terminal) with the environment's python:
+
 ```powershell
 .\.venv-pc\Scripts\python.exe edge\pc\01_check_gpu.py
 ```
 
+Not with VS Code's Run button: that button (Code Runner extension) uses the global Python,
+which has no CUDA PyTorch.
+
 Expected: `CUDA available: True`, `NVIDIA GeForce RTX 3060 Ti`, and the GPU matrix multiply
 tens to hundreds of times faster than the CPU. Paste the output back for the next step.
+
+## Step 2
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\02_load_model.py
+```
+
+Downloads the pinned model once (~5.5 MB, with Person 2's verified downloader), then shows its
+layers and parameter count, the raw output tensor shape, detections on a sample photo (an
+annotated copy is saved to `models/step2_bus_annotated.jpg`), the `posture_prediction` Person 2's
+rules make of it, and GPU vs CPU speed. Paste the output back for step 3.
 
 ## Licenses
 
