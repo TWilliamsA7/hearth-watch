@@ -1,0 +1,366 @@
+{
+  "edge_revision": "9d9ccba",
+  "description": "Synthetic pixel poses passed through Gaston contract/features; not camera evidence.",
+  "heartbeat": {
+    "schema_version": "1",
+    "timestamp": "2026-10-10T00:00:00.000Z",
+    "source": "jetson-01",
+    "source_type": "edge",
+    "room_id": "room-01",
+    "fps": 12.7,
+    "inference_ms": 70,
+    "mem_used_mb": 1400
+  },
+  "observations": [
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000001",
+      "timestamp": "2026-10-10T00:00:00.000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.5,
+          "y": 0.2,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.5,
+          "y": 0.5,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.5,
+          "y": 0.3,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 0.0,
+        "head_y": 0.2,
+        "hip_y": 0.5,
+        "bbox_aspect": 0.2222
+      },
+      "face_present": true,
+      "face_confidence": 0.87
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000002",
+      "timestamp": "2026-10-10T00:00:00.500Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.35
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000003",
+      "timestamp": "2026-10-10T00:00:01.000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.175
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000004",
+      "timestamp": "2026-10-10T00:00:01.500Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0875
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000005",
+      "timestamp": "2026-10-10T00:00:02.000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0438
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000006",
+      "timestamp": "2026-10-10T00:00:02.500Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0219
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000007",
+      "timestamp": "2026-10-10T00:00:03.000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0109
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000008",
+      "timestamp": "2026-10-10T00:00:03.500Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.1562,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.625,
+          "y": 0.85,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.25,
+          "y": 0.85,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 90.0,
+        "head_y": 0.85,
+        "hip_y": 0.85,
+        "bbox_aspect": 6.25,
+        "vertical_velocity": 0.0055
+      },
+      "face_present": null,
+      "face_confidence": null
+    },
+    {
+      "schema_version": "1",
+      "obs_id": "jetson-01-1791590400-000009",
+      "timestamp": "2026-10-10T00:00:04.000Z",
+      "source": "jetson-01",
+      "source_type": "edge",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.5,
+          "y": 0.2,
+          "confidence": 1.0
+        },
+        {
+          "name": "left_hip",
+          "x": 0.5,
+          "y": 0.5,
+          "confidence": 1.0
+        },
+        {
+          "name": "neck",
+          "x": 0.5,
+          "y": 0.3,
+          "confidence": 1.0
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 0.0,
+        "head_y": 0.2,
+        "hip_y": 0.5,
+        "bbox_aspect": 0.2222,
+        "vertical_velocity": -0.3473
+      },
+      "face_present": false,
+      "face_confidence": null
+    }
+  ]
+}

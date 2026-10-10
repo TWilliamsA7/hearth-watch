@@ -1,0 +1,197 @@
+"""Posture feature tests. Run on the laptop: .venv/bin/python -m pytest edge/tests"""
+
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from hearth_edge import features as f  # noqa: E402
+
+W, H = 640, 480
+
+STANDING = {
+    "keypoints": {
+        "nose": (320, 60), "left_eye": (315, 55), "right_eye": (325, 55),
+        "neck": (320, 110), "left_shoulder": (290, 110), "right_shoulder": (350, 110),
+        "left_hip": (305, 250), "right_hip": (335, 250),
+        "left_ankle": (305, 440), "right_ankle": (335, 440),
+    },
+    "bbox": (280, 50, 360, 445),
+}
+
+LYING = {
+    "keypoints": {
+        "nose": (100, 400), "neck": (160, 405),
+        "left_hip": (320, 410), "right_hip": (320, 400),
+        "left_ankle": (520, 410),
+    },
+    "bbox": (90, 380, 530, 430),
+}
+
+
+def test_standing_is_upright():
+    assert f.torso_angle_deg(STANDING["keypoints"]) == pytest.approx(0.0, abs=0.5)
+    assert f.bbox_aspect(STANDING["bbox"]) < 0.5
+
+
+def test_lying_is_horizontal():
+    assert f.torso_angle_deg(LYING["keypoints"]) == pytest.approx(90.0, abs=5.0)
+    assert f.bbox_aspect(LYING["bbox"]) > 2.0
+
+
+def test_angle_uses_pixels_not_normalized_coords():
+    # 45 degrees in pixels; normalizing by 640x480 first would report about 37 degrees.
+    kps = {"neck": (100, 100), "left_hip": (200, 200)}
+    assert f.torso_angle_deg(kps) == pytest.approx(45.0, abs=0.01)
+
+
+def test_neck_falls_back_to_shoulder_midpoint():
+    kps = dict(STANDING["keypoints"])
+    del kps["neck"]
+    assert f.neck_point(kps) == (320.0, 110.0)
+    assert f.torso_angle_deg(kps) == pytest.approx(0.0, abs=0.5)
+
+
+def test_missing_neck_and_one_shoulder_gives_no_angle():
+    kps = {"left_shoulder": (290, 110), "left_hip": (305, 250)}
+    assert f.torso_angle_deg(kps) is None
+
+
+def test_missing_hips_omits_hip_features():
+    pose = {"keypoints": {"nose": (320, 60), "neck": (320, 110)}, "bbox": (300, 50, 340, 120)}
+    out = f.compute_features(pose, W, H, f.VerticalVelocity(), t=0.0)
+    assert "torso_angle_deg" not in out
+    assert "hip_y" not in out
+    assert "vertical_velocity" not in out
+    assert out["head_y"] == pytest.approx(60 / 480.0, abs=1e-3)
+
+
+def test_face_only_pose_omits_bbox_aspect():
+    # Measured on the Jetson: a face-only pose has a wide, short box (aspect 2.4-4.6),
+    # which would look like lying down. It must not be reported.
+    face = {
+        "keypoints": {"nose": (320, 240), "left_eye": (305, 230), "right_eye": (335, 230),
+                      "left_ear": (285, 240), "right_ear": (355, 240)},
+        "bbox": (285, 228, 355, 246),
+    }
+    out = f.compute_features(face, W, H, f.VerticalVelocity(), t=0.0)
+    assert "bbox_aspect" not in out
+    assert out["head_y"] == pytest.approx(0.49, abs=0.01)
+
+
+def test_torso_visible_needs_upper_and_lower_body():
+    assert f.torso_visible({"neck": (0, 0), "left_hip": (0, 1)})
+    assert f.torso_visible({"right_shoulder": (0, 0), "right_hip": (0, 1)})
+    assert not f.torso_visible({"neck": (0, 0), "left_shoulder": (0, 0)})
+    assert not f.torso_visible({"left_hip": (0, 1), "left_knee": (0, 2)})
+    assert f.compute_features(LYING, W, H, f.VerticalVelocity(), 0.0)["bbox_aspect"] > 2.0
+
+
+def test_heights_are_normalized_and_clamped():
+    assert f.hip_y(STANDING["keypoints"], H) == pytest.approx(250 / 480.0)
+    assert f.head_y({"nose": (10, -5)}, H) == 0.0
+    assert f.hip_y({"left_hip": (10, 999)}, H) == 1.0
+
+
+def test_velocity_positive_when_moving_down():
+    v = f.VerticalVelocity(alpha=1.0)
+    assert v.update(0.40, 0.0) is None          # first sample has nothing to compare to
+    assert v.update(0.50, 0.1) == pytest.approx(1.0)   # 0.1 down in 0.1 s
+    assert v.update(0.45, 0.2) == pytest.approx(-0.5)  # moving back up
+
+
+def test_velocity_smoothing_damps_jitter():
+    v = f.VerticalVelocity(alpha=0.5)
+    v.update(0.50, 0.0)
+    assert abs(v.update(0.52, 0.1)) < abs((0.52 - 0.50) / 0.1)
+
+
+def test_velocity_resets_after_gap_or_missing_hips():
+    v = f.VerticalVelocity(alpha=1.0, reset_gap_s=1.0)
+    v.update(0.30, 0.0)
+    assert v.update(0.90, 2.0) is None   # reappeared after 2 s: no fake fall
+    assert v.update(None, 2.1) is None
+    assert v.update(0.20, 2.2) is None   # first sample after losing hips
+
+
+def test_select_pose_picks_largest():
+    small = {"keypoints": {}, "bbox": (0, 0, 10, 10)}
+    assert f.select_pose([small, STANDING]) is STANDING
+    assert f.select_pose([]) is None
+
+
+# --- keypoint hold ------------------------------------------------------------------------
+
+def test_hold_fills_a_briefly_missing_joint_moved_with_the_body():
+    hold = f.KeypointHold(0.3)
+    hold.update({"neck": (100, 100), "left_hip": (100, 200)}, t=0.0)
+    merged, held = hold.update({"neck": (110, 105)}, t=0.1)  # hip dropped; body moved +10,+5
+    assert held == ["left_hip"]
+    assert merged["left_hip"] == (110, 205)
+    assert merged["neck"] == (110, 105)
+
+
+def test_hold_expires_after_max_age_from_when_the_joint_was_really_seen():
+    hold = f.KeypointHold(0.3)
+    hold.update({"neck": (100, 100), "left_hip": (100, 200)}, t=0.0)
+    assert hold.update({"neck": (100, 100)}, t=0.1)[1] == ["left_hip"]
+    assert hold.update({"neck": (100, 100)}, t=0.2)[1] == ["left_hip"]
+    assert hold.update({"neck": (100, 100)}, t=0.35)[1] == []   # 0.35 s since really seen
+
+
+def test_hold_needs_a_joint_in_common_to_estimate_motion():
+    hold = f.KeypointHold(0.3)
+    hold.update({"neck": (100, 100)}, t=0.0)
+    merged, held = hold.update({"left_hip": (100, 200)}, t=0.1)
+    assert held == [] and merged == {"left_hip": (100, 200)}
+
+
+def test_hold_disabled_and_detected_joints_win():
+    off = f.KeypointHold(0.0)
+    off.update({"neck": (1, 1), "left_hip": (1, 2)}, t=0.0)
+    assert off.update({"neck": (1, 1)}, t=0.1) == ({"neck": (1, 1)}, [])
+    on = f.KeypointHold(0.3)
+    on.update({"neck": (1, 1), "left_hip": (1, 2)}, t=0.0)
+    merged, held = on.update({"neck": (1, 1), "left_hip": (5, 6)}, t=0.1)
+    assert held == [] and merged["left_hip"] == (5, 6)
+
+
+def test_hold_keeps_torso_features_through_a_hip_dropout():
+    hold, vel = f.KeypointHold(0.3), f.VerticalVelocity()
+    lying = {"neck": (160, 405), "left_hip": (320, 410), "nose": (100, 400)}
+    hold.update(lying, t=0.0)
+    merged, _ = hold.update({"neck": (160, 405), "nose": (100, 400)}, t=0.1)  # hip missing
+    feats = f.compute_features({"keypoints": merged, "bbox": (90, 380, 530, 430)}, W, H, vel, 0.1)
+    assert feats["torso_angle_deg"] == pytest.approx(88.2, abs=0.5)
+    assert "hip_y" in feats
+
+
+# --- following one person ----------------------------------------------------------------
+
+LYING_HERE = {"keypoints": {"neck": (500, 320)}, "bbox": (300, 290, 700, 350)}   # centre (500, 320)
+BACKGROUND = {"keypoints": {"neck": (300, 60)}, "bbox": (270, 20, 330, 110)}     # centre (300, 65)
+
+
+def test_select_pose_follows_the_tracked_person_not_the_biggest():
+    big_background = dict(BACKGROUND, bbox=(0, 0, 640, 200))  # bigger box, wrong person
+    assert f.select_pose([big_background, LYING_HERE]) is big_background        # no track: largest
+    assert f.select_pose([big_background, LYING_HERE], near=(505, 318), max_dist=160) is LYING_HERE
+
+
+def test_select_pose_returns_none_when_only_someone_else_is_visible():
+    # The tracked person wasn't found upright this frame: don't switch to the background person
+    # (the caller then tries a rotated pass to find the tracked one).
+    assert f.select_pose([BACKGROUND], near=(500, 320), max_dist=160) is None
+
+
+def test_person_track_keeps_position_briefly_and_flags_short_dropouts():
+    tr = f.PersonTrack(keep_s=1.0, dropout_s=0.3)
+    assert tr.near(0.0) is None and not tr.brief_dropout(0.0)
+    tr.update(LYING_HERE, 0.0)
+    assert tr.near(0.5) == (500.0, 320.0)
+    assert tr.near(1.2) is None                       # stale: pick the largest again
+    tr.update(None, 0.1)                              # missing frames don't move the track
+    assert tr.brief_dropout(0.2)                      # 0.2 s after last seen: skip, don't say "no person"
+    assert not tr.brief_dropout(0.4)                  # 0.4 s: really gone, report it

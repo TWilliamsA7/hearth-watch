@@ -1,0 +1,11 @@
+scenario_id: possible-fall-01
+title: Fall while walking, stays on the floor
+description: >
+  The resident walks in, pauses, then falls quickly and remains on the floor.
+  A possible-fall alert is expected during the fall segment.
+seed: 42
+start_x: -0.15
+segments:
+  - {label: walking, duration: 6.0, transition: 0.0, x: 0.45}
+  - {label: standing, duration: 6.0, transition: 0.5, facing: right}
+  - {label: fall, duration: 18.0, transition: 0.8}

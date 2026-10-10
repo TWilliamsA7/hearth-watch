@@ -13,6 +13,13 @@ from pydantic import TypeAdapter
 from pydantic.json_schema import models_json_schema
 
 from hearth_schema import (
+    Alert,
+    HelpRequest,
+    NurseAction,
+    NursePreferences,
+    NurseProfile,
+    NurseSnapshot,
+    RoomSnapshot,
     Event,
     GroundTruth,
     Heartbeat,
@@ -25,6 +32,13 @@ from hearth_schema import (
 OUT = Path(__file__).resolve().parents[1] / "schema"
 
 STANDALONE = {
+    "alert": Alert,
+    "help_request": HelpRequest,
+    "nurse_action": NurseAction,
+    "nurse_preferences": NursePreferences,
+    "nurse_profile": NurseProfile,
+    "nurse_snapshot": NurseSnapshot,
+    "room_snapshot": RoomSnapshot,
     "observation": Observation,
     "event": Event,
     "ground_truth": GroundTruth,
@@ -40,11 +54,10 @@ def write(name: str, schema: dict) -> None:
     print(f"wrote {path.relative_to(OUT.parents[1])}")
 
 
-def main() -> None:
-    OUT.mkdir(exist_ok=True)
-    for name, model in STANDALONE.items():
-        write(name, model.model_json_schema(mode="serialization"))
-    write("server_message", TypeAdapter(ServerMessage).json_schema(mode="serialization"))
+def build_schemas() -> dict[str, dict]:
+    schemas = {name: model.model_json_schema(mode="serialization")
+               for name, model in STANDALONE.items()}
+    schemas["server_message"] = TypeAdapter(ServerMessage).json_schema(mode="serialization")
 
     # One bundle with every model under $defs; the frontend generates its types from this.
     _, bundle = models_json_schema(
@@ -54,7 +67,14 @@ def main() -> None:
     msg = TypeAdapter(ServerMessage).json_schema(mode="serialization", ref_template="#/$defs/{model}")
     bundle["$defs"].update(msg.pop("$defs", {}))
     bundle["$defs"]["ServerMessage"] = msg
-    write("hearth", bundle)
+    schemas["hearth"] = bundle
+    return schemas
+
+
+def main() -> None:
+    OUT.mkdir(exist_ok=True)
+    for name, schema in build_schemas().items():
+        write(name, schema)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+scenario_id: camera-outage-01
+title: Camera stops sending mid-scenario
+description: >
+  The simulated camera goes silent for 8 seconds: no observations and no heartbeats.
+  The room must be shown as offline / unknown, not as fine. No fall alert expected.
+seed: 5
+start_x: -0.15
+scene:
+  objects:
+    - {kind: chair, x: 0.66, y: 0.66, w: 0.14, h: 0.26}
+segments:
+  - {label: walking, duration: 4.0, transition: 0.0, x: 0.4}
+  - {label: standing, duration: 3.0, transition: 0.5, facing: camera}
+  - {label: camera_outage, duration: 8.0, transition: 0.0}
+  - {label: walking, duration: 3.0, transition: 0.0, x: 0.73}
+  - {label: sitting, duration: 6.0, transition: 1.4, facing: camera}

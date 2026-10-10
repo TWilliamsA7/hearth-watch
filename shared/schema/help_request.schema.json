@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "room_id": {
+      "title": "Room Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "room_id"
+  ],
+  "title": "HelpRequest",
+  "type": "object"
+}

@@ -27,7 +27,7 @@ frontend/dist/
 *.mp4
 *.avi
 *.mkv
-recordings/*
+scenarios/generated/
 !recordings/.gitkeep
 
 # Editors / OS
@@ -38,3 +38,10 @@ Thumbs.db
 
 # Local planning notes
 HEARTH_AGENT_HANDOFF.md
+
+# Downloaded model weights and local inference runtime settings
+models/
+.hearth-runtime/
+runs/
+interfaces.md
+planning.md
