@@ -48,6 +48,14 @@ QUEUE_MAX = 100
 FLOOR_GUIDE_Y = 0.65
 BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
 
+# Optional Hugging Face fall model (fall_model.py, --fall-model): TensorRT engine from
+# edge/tools/get_fall_model.sh. Checked every FALL_INTERVAL_S on a background thread; the latest
+# result (up to FALL_MAX_AGE_S old) goes on EVERY observation, because the backend restarts its
+# floor timer whenever observations switch between model evidence and pose evidence.
+FALL_MODEL_SIZE = 416
+FALL_INTERVAL_S = 0.3
+FALL_MAX_AGE_S = 1.0
+
 # Rotated poseNet passes for people lying down (pose_rotate.RotationPolicy): only when the
 # upright pose looks lying or incomplete; standing costs nothing extra.
 POSE_ROTATION = True

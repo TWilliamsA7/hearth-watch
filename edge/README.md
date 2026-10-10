@@ -59,6 +59,7 @@ Most of the time, use the one-command laptop tools below instead.
 | `recorder.py` | JSONL recordings (keypoints/numbers only, never video) |
 | `overlay.py`, `backend_view.py` | Preview info panel; the backend's own posture/alert view |
 | `pose_rotate.py`, `control.py` | Rotated poseNet passes for lying people; stdin commands for sessions |
+| `fall_model.py`, `fall_decode.py`, `fall_rules.py` | Optional Hugging Face fall model on TensorRT (`--fall-model`), see below |
 
 ## Laptop tools (`tools/`)
 
@@ -73,6 +74,7 @@ Most of the time, use the one-command laptop tools below instead.
 | `tools/replay.py <clip>.jsonl` | Re-sends clips as `source_type: replay`, `source: replay-01`, new `run_id` per pass; `--join` plays several as one run (demo fallback) |
 | `tools/face_test.sh`, `tools/pose_test.sh` | Guided probes (face detector; poseNet rotation) |
 | `tools/bench.py` (Jetson) | Speed/memory table for BENCHMARKS.md |
+| `tools/get_fall_model.sh` (Jetson) | Download the ONNX fall model from Hugging Face, check its hash, build the TensorRT engine |
 
 ## Tests
 
@@ -95,6 +97,34 @@ Most of the time, use the one-command laptop tools below instead.
 - One person per room: the edge follows the person it tracked a moment ago, so a passer-by in
   the background can't take over; a second person lying down at the same time is not handled.
 - Face detection at 3 m and with a covered mouth is not yet measured.
+
+## Optional: fall model on the Jetson (YOLO11n + TensorRT, `--fall-model`)
+
+Person 2's standing / sitting / fallen model (`melihuzunoglu/human-fall-detection` @ `97261b0`)
+running on the Nano itself, without PyTorch: exported to ONNX on a PC (`pc/`, published as
+`Lunar255/hearth-fall-yolo11n-onnx` @ `12dc1ac`) and built into a TensorRT FP16 engine on the
+Jetson. Off by default.
+
+```sh
+# On the Jetson, once (~10 min; downloads ~10 MB, checks sha256, builds models/fall/best_416_fp16.engine):
+~/hearth-watch/edge/tools/get_fall_model.sh
+python3 run_edge.py --fall-model --dry-run
+# Laptop: edge/tools/view_camera.sh --fall-model (panel shows its label), live_test.sh --real -- --fall-model
+```
+
+- A background thread checks a copy of the frame about every 0.3 s (~25 ms on the GPU at 416),
+  so the camera loop never waits. Results go through a Python 3.6 port of Person 2's rules
+  (`fall_rules.py`, tested against their real function), so the Jetson's `posture_prediction`
+  means exactly what the laptop runner's does.
+- The latest result (at most 1 s old) goes on **every** observation. The backend restarts its
+  floor timer whenever observations switch between model and pose evidence, so attaching it to
+  only some frames would never let the 3 s hold finish.
+- If poseNet loses the person but the model sees them, the observation says
+  `person_detected: true` with the prediction and no keypoints, so a lying person poseNet
+  can't find still counts.
+- With a prediction present, the backend trusts the model over the pose rules (see below), so
+  alerts depend on the model's call. If the engine is missing, the edge logs it and keeps sending
+  pose evidence only.
 
 ## Optional: laptop standing / fallen model (YOLO11, Person 2)
 

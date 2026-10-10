@@ -5,6 +5,44 @@ Jetson with someone in view and paste the output below:
 
     cd ~/hearth-watch/edge && python3 tools/bench.py --seconds 20
 
+## 2026-10-10 13:42 — Hugging Face fall model (YOLO11n) built with TensorRT 8.2 on the Nano
+
+`melihuzunoglu/human-fall-detection` @ `97261b0` exported to ONNX (edge/pc/03_export_onnx.py:
+opset 12, static, no NMS; 15 operation types, all supported by TensorRT 8.2; PyTorch vs ONNX
+decisions agree at every position), then on the Jetson:
+`trtexec --onnx=best_416.onnx --fp16 --workspace=512`.
+
+| Measure | 416 x 416, FP16 | 640 x 640, FP16 |
+|---|---|---|
+| Build | PASSED (~9 min on the Nano) | PASSED (~13 min) |
+| GPU compute per image | 24.7 ms median, 27.0 ms max | 49.7 ms median, 256 ms max (one spike) |
+| Throughput (model alone) | 40 images/s | 18 images/s |
+| Engine size | 10 MB | 9.7 MB |
+
+416 is the default (`FALL_MODEL_SIZE` in config.py): half the GPU time, and the edge only asks
+for ~3 checks per second. From Python (fall_model.py: letterbox + engine + decode + rules) one
+416 check took ~47 ms on bus.jpg, giving the same two "standing" boxes as PyTorch and ONNX Runtime.
+
+### All three together: poseNet + res10 face + fall model (`run_edge.py --fall-model --dry-run`)
+
+45 s dry run, nobody in view (speed and memory only), engine from `edge/tools/get_fall_model.sh`
+(Hugging Face ONNX, sha256 checked, 24.1 ms median in trtexec):
+
+| Measure | Without the fall model (above) | With `--fall-model` |
+|---|---|---|
+| FPS | 13.0-13.1 | 12.3-12.9 |
+| Fall model checks | - | 3 per second (every 0.3 s), 131-143 ms each beside poseNet + res10 (46 ms alone) |
+| Face checks | ~210 ms each | 209-219 ms each (unchanged) |
+| System memory in use | ~1340 MB | 1633 MB peak, ~250 MB still available (+5 GB swap) |
+| Observations with `posture_prediction` | - | 281 of 300 (all after the first result, ~1 s in) |
+
+The first attempt crashed on its first check: the buffers used CUDA managed memory, which the
+Nano's GPU forbids the CPU from touching while other GPU work runs (concurrentManagedAccess = 0).
+fall_model.py now uses cudaMalloc + cudaMemcpy.
+
+Not yet measured: accuracy on our camera (standing / sitting / lying across / lying toward), and
+FPS in the lying-down pattern with rotated poseNet passes.
+
 ## 2026-10-10 06:40 — end to end: the backend's real FallDetector alerts on a live clip
 
 recordings/lie_down-20261010-063944.jsonl (lying across the mat, camera ~3.5 m away), recorded

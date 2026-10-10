@@ -75,10 +75,11 @@ def normalize_keypoints(kps_px, width, height, confidence):
 
 def build_observation(obs_id, ts, source, room_id, person_detected, keypoints=None,
                       features=None, face_present=None, face_confidence=None,
-                      source_type="edge", scenario_id=None, run_id=None):
+                      source_type="edge", scenario_id=None, run_id=None, posture_prediction=None):
     """One Observation. face_present=None means face detection did not run on this frame.
 
-    run_id (replays) is only included when given, so live messages are unchanged.
+    run_id (replays) and posture_prediction (the optional fall model, fall_rules dict) are only
+    included when given, so messages without them are unchanged.
     """
     obs = {
         "schema_version": SCHEMA_VERSION,
@@ -96,6 +97,8 @@ def build_observation(obs_id, ts, source, room_id, person_detected, keypoints=No
     }
     if run_id is not None:
         obs["run_id"] = run_id
+    if posture_prediction is not None:
+        obs["posture_prediction"] = posture_prediction
     return obs
 
 

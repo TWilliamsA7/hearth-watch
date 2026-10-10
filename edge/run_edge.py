@@ -64,6 +64,10 @@ def parse_args(argv=None):
                     help="seconds between face checks (default %(default)s)")
     ap.add_argument("--face-threshold", type=float, default=config.FACE_THRESHOLD,
                     help="face-model confidence needed to count as a face (default %(default)s)")
+    ap.add_argument("--fall-model", action="store_true",
+                    help="also run the Hugging Face fall model (TensorRT; edge/tools/get_fall_model.sh) "
+                         "and send its posture_prediction on every observation")
+    ap.add_argument("--fall-engine", default=None, help="TensorRT engine path (default models/fall/...)")
     ap.add_argument("--no-rotation", action="store_true",
                     help="never run rotated poseNet passes (used for people lying down)")
     ap.add_argument("--keypoint-hold", type=float, default=config.KEYPOINT_HOLD_S,
@@ -137,20 +141,26 @@ class RateLimiter(object):
 
 
 def observation_for_frame(ids, frame, pose, feats, source, room_id, face_present=None,
-                          face_confidence=None, confidence=config.KEYPOINT_CONFIDENCE):
+                          face_confidence=None, confidence=config.KEYPOINT_CONFIDENCE,
+                          posture_prediction=None):
     """Build the Observation for one frame. pose/feats are None when nobody was detected.
 
     face_present is None when no face check ran on this frame (not the same as False).
+    posture_prediction (optional fall model): when it saw someone, person_detected is true even
+    if poseNet didn't - otherwise the backend would ignore the model's evidence for that frame.
     """
     if pose is None:
+        model_saw = bool(posture_prediction and posture_prediction.get("detection_count", 0) > 0)
         return contract.build_observation(ids.next(), frame["t"], source, room_id,
-                                          person_detected=False, face_present=face_present,
-                                          face_confidence=face_confidence)
+                                          person_detected=model_saw, face_present=face_present,
+                                          face_confidence=face_confidence,
+                                          posture_prediction=posture_prediction)
     keypoints = contract.normalize_keypoints(pose["keypoints"], frame["width"], frame["height"],
                                              confidence)
     return contract.build_observation(ids.next(), frame["t"], source, room_id,
                                       person_detected=True, keypoints=keypoints, features=feats,
-                                      face_present=face_present, face_confidence=face_confidence)
+                                      face_present=face_present, face_confidence=face_confidence,
+                                      posture_prediction=posture_prediction)
 
 
 def log(msg):
@@ -212,6 +222,24 @@ def main(argv=None):
         log("face detection off (--no-face): face_present stays null")
     face_checks = faces_seen = 0
     face_ms_total = 0.0
+
+    fall_model = fall_runner = fall_schedule = None
+    latest_fall = None      # (posture_prediction, time of the frame it checked)
+    fall_checks = 0
+    fall_ms_total = 0.0
+    if args.fall_model:
+        from hearth_edge.face import AsyncFaceChecker, FaceSchedule as Every
+        from hearth_edge.fall_model import FallModel, frame_to_rgb
+        try:
+            fall_model = FallModel(args.fall_engine, config.FALL_MODEL_SIZE)
+            # Same background-thread runner as the face check: copies the frame, runs off-loop.
+            fall_runner = AsyncFaceChecker(lambda rgb, roi: fall_model.predict_rgb(rgb), frame_to_rgb)
+            fall_schedule = Every(config.FALL_INTERVAL_S)
+            log("fall model on: %s, every %.1f s, posture_prediction on every observation"
+                % (fall_model.engine_path, config.FALL_INTERVAL_S))
+        except Exception as e:
+            log("FALL MODEL UNAVAILABLE (%s): continuing with pose evidence only" % e)
+            fall_model = fall_runner = None
     last_face = None        # (present, confidence, frame time) of the latest face result
     pending_face = None     # finished background result waiting for the next sent observation
     face_failed_logged = False
@@ -385,6 +413,16 @@ def main(argv=None):
                     face_checks += 1
                     faces_seen += 1 if face_present else 0
                     face_ms_total += face_ms
+            if fall_runner is not None:
+                if fall_runner.idle() and fall_schedule.due(frame["t"]):
+                    fall_runner.submit(frame)
+                done = fall_runner.poll()    # (time of the checked frame, prediction, ms)
+                if done is not None and done[1] is not None:
+                    latest_fall = (done[1], done[0])
+                    fall_ms_total += done[2]
+                    fall_checks += 1
+            fall_now = (latest_fall[0] if latest_fall is not None
+                        and frame["t"] - latest_fall[1] <= config.FALL_MAX_AGE_S else None)
             stats.record(inference_ms, frame["t"])
             if face is not None:
                 face.draw(frame)  # holds the last check's boxes so they don't flicker
@@ -409,6 +447,9 @@ def main(argv=None):
                      panel.WHITE),
                     (panel.features_line(feats), panel.WHITE),
                 ]
+                if latest_fall is not None:
+                    fall_line = panel.fall_model_line(latest_fall[0], frame["t"] - latest_fall[1])
+                    lines.append((fall_line, panel.CYAN))
                 lines += panel.backend_lines(backend_view.snapshot() if backend_view else None,
                                              args.source)
                 overlay.draw(frame, lines, features.head_point(kps) if kps else None,
@@ -417,7 +458,8 @@ def main(argv=None):
 
             if emit:
                 obs = observation_for_frame(ids, frame, pose, feats, args.source, args.room,
-                                            face_present, face_confidence)
+                                            face_present, face_confidence,
+                                            posture_prediction=fall_now)
                 emitted += 1
                 if rec["timer"] is not None and rec["timer"].recording(frame["t"]):
                     rec["recorder"].write(obs)
@@ -437,18 +479,26 @@ def main(argv=None):
                     line += " | face seen in %d of %d checks" % (faces_seen, face_checks)
                     if face_checks:
                         line += " (%.0f ms each)" % (face_ms_total / face_checks)
+                if fall_runner is not None:
+                    line += " | fall model %d checks" % fall_checks
+                    if fall_checks:
+                        line += " (%.0f ms each), last %s" % (fall_ms_total / fall_checks,
+                                                              latest_fall[0]["label"])
                 if client is not None:
                     state = {None: "not tried", True: "online", False: "OFFLINE"}[client.online]
                     line += " | sent %(sent)d dropped %(dropped)d rejected %(rejected)d" % client.counts
                     line += " | queued %d | backend %s" % (client.queued(), state)
                 log(line)
                 last_status = frame["t"]
-                frames = with_person = face_checks = faces_seen = 0
-                face_ms_total = 0.0
+                frames = with_person = face_checks = faces_seen = fall_checks = 0
+                face_ms_total = fall_ms_total = 0.0
     finally:
         log("stopping")
         if checker is not None:
             checker.stop()
+        if fall_runner is not None:
+            fall_runner.stop()
+            fall_model.close()
         if backend_view is not None:
             backend_view.stop()
         if rec["recorder"] is not None:

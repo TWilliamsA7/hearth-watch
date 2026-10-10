@@ -178,3 +178,11 @@ def test_person_line_shows_held_keypoints():
 def test_person_line_shows_rotated_pose_source():
     assert ov.person_line(True, 13, None, source="rotated CCW") == \
         "person: yes (13 keypoints, rotated CCW) | face: -"
+
+
+def test_fall_model_line():
+    assert ov.fall_model_line(None, 0) is None
+    p = {"label": "fallen", "confidence": 0.912, "uncertainty_reason": None}
+    assert ov.fall_model_line(p, 0.25) == "fall model: fallen 0.91 (0.2 s ago)"
+    p = {"label": "unknown", "confidence": None, "uncertainty_reason": "multiple_people"}
+    assert ov.fall_model_line(p, 1.0) == "fall model: unknown (multiple people, 1.0 s ago)"

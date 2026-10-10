@@ -45,6 +45,17 @@ def person_line(person_detected, n_keypoints, face, n_held=0, source=None):
     return "person: %s | face: %s" % (who, face_txt)
 
 
+def fall_model_line(prediction, age_s):
+    """The optional fall model's latest call, or None when it is off / has no result yet."""
+    if prediction is None:
+        return None
+    label = prediction["label"]
+    if label == "unknown":
+        why = (prediction.get("uncertainty_reason") or "").replace("_", " ")
+        return "fall model: unknown (%s, %.1f s ago)" % (why, age_s)
+    return "fall model: %s %.2f (%.1f s ago)" % (label, prediction["confidence"], age_s)
+
+
 def features_line(feats):
     f = feats or {}
     return "torso %s | head %s | hip %s | box %s | drop %s" % (

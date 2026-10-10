@@ -75,3 +75,52 @@ def test_log_survives_a_closed_stderr(monkeypatch):
 
     monkeypatch.setattr(run_edge.sys, "stderr", Broken())
     run_edge.log("stopping")  # must not raise
+
+
+# --- optional fall model (posture_prediction) -------------------------------------------
+
+def fallen_prediction():
+    from hearth_edge import fall_rules
+    return fall_rules.prediction_from_detections(
+        [{"label": "fallen", "confidence": 0.9, "xyxy": [100, 300, 500, 420]}], 640, 480)
+
+
+def test_observation_carries_posture_prediction_and_passes_contract():
+    ids = contract.ObservationIds("jetson-01", start=1791700000)
+    feats = features.compute_features(POSE, 640, 480, features.VerticalVelocity(), FRAME["t"])
+    obs = run_edge.observation_for_frame(ids, FRAME, POSE, feats, "jetson-01", "room-01",
+                                         posture_prediction=fallen_prediction())
+    model = hs.Observation.model_validate(obs)
+    assert model.posture_prediction.label == "fallen" and model.keypoints
+
+
+def test_model_detection_counts_as_person_when_posenet_lost_them():
+    ids = contract.ObservationIds("jetson-01", start=1791700000)
+    obs = run_edge.observation_for_frame(ids, FRAME, None, None, "jetson-01", "room-01",
+                                         posture_prediction=fallen_prediction())
+    model = hs.Observation.model_validate(obs)
+    assert model.person_detected and model.keypoints is None
+    from hearth_edge import fall_rules
+    nobody = fall_rules.prediction_from_detections([], 640, 480)
+    obs = run_edge.observation_for_frame(ids, FRAME, None, None, "jetson-01", "room-01",
+                                         posture_prediction=nobody)
+    assert obs["person_detected"] is False
+
+
+def test_backend_alerts_on_model_fallen_even_when_pose_drops_out():
+    """Person 2's real FallDetector: the same prediction on every observation (poseNet losing the
+    person on some frames) still completes the 3 s floor hold."""
+    mon = pytest.importorskip("hearth.monitor.detector")
+    from hearth.monitor.config import MonitorConfig
+    det = mon.FallDetector(MonitorConfig.load())
+    ids = contract.ObservationIds("jetson-01", start=1791700000)
+    pred, kinds = fallen_prediction(), []
+    for i in range(45):                                   # 4.5 s at 10 Hz
+        frame = dict(FRAME, t=FRAME["t"] + i * 0.1)
+        pose = POSE if i % 3 else None                    # poseNet misses every third frame
+        feats = (features.compute_features(pose, 640, 480, features.VerticalVelocity(), frame["t"])
+                 if pose else None)
+        obs = run_edge.observation_for_frame(ids, frame, pose, feats, "jetson-01", "room-01",
+                                             posture_prediction=pred)
+        kinds += [e.event_type for e in det.process(hs.Observation.model_validate(obs))]
+    assert kinds.count("possible_fall") == 1
