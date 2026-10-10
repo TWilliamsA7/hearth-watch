@@ -53,10 +53,10 @@ export const DEFAULT_THEME: Theme = {
   face: "#ffd166",
   text: "#f4f6fa",
   muted: "#9aa3b2",
-  badge: { simulation: "#7b61ff", replay: "#d99a1e", edge: "#e5484d" },
+  badge: { simulation: "#7b61ff", replay: "#d99a1e", edge: "#e5484d", manual: "#9aa3b2" },
 };
 
-const BADGE_TEXT: Record<SourceType, string> = { simulation: "SIMULATED", replay: "REPLAY", edge: "LIVE" };
+const BADGE_TEXT: Record<SourceType, string> = { simulation: "SIMULATED", replay: "REPLAY", edge: "LIVE", manual: "MANUAL" };
 
 /** Scene used when none is supplied (e.g. a live room with no configured geometry). */
 export const EMPTY_SCENE: Scene = {
@@ -69,6 +69,8 @@ export const EMPTY_SCENE: Scene = {
 };
 
 const MIN_CONFIDENCE = 0.3;
+/** Edge keypoints carry no confidence (poseNet reports none): a sent keypoint was detected. */
+const detected = (k: Keypoint) => k.confidence == null || k.confidence >= MIN_CONFIDENCE;
 
 /**
  * Draw one frame of the camera view. Pure: everything it shows comes from its arguments.
@@ -177,7 +179,7 @@ function drawSkeleton(
   color: string,
   theme: Theme,
 ): void {
-  const pts = new Map(keypoints.filter((k) => k.confidence >= MIN_CONFIDENCE).map((k) => [k.name, k]));
+  const pts = new Map(keypoints.filter(detected).map((k) => [k.name, k]));
   ctx.lineCap = "round";
   ctx.lineWidth = unit * 0.012;
   ctx.strokeStyle = color;
@@ -206,7 +208,7 @@ function drawFaceBox(
   unit: number,
   theme: Theme,
 ): void {
-  const head = keypoints.filter((k) => HEAD_POINTS.includes(k.name) && k.confidence >= MIN_CONFIDENCE);
+  const head = keypoints.filter((k) => HEAD_POINTS.includes(k.name) && detected(k));
   if (!head.length) return;
   const xs = head.map((k) => px(k.x));
   const ys = head.map((k) => py(k.y));

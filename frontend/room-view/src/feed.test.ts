@@ -11,8 +11,8 @@ function obs(s: number, id: string): StreamRecord {
     type: "observation",
     data: {
       schema_version: "1", obs_id: id, timestamp: at(s), source: "sim", source_type: "simulation",
-      room_id: "room-01", scenario_id: "t", person_id: null, person_detected: false, keypoints: null, features: null,
-      face_present: false, face_confidence: null,
+      room_id: "room-01", scenario_id: "t", run_id: null, person_id: null, person_detected: false, keypoints: null,
+      features: null, posture_prediction: null, hand_gesture_prediction: null, face_present: false, face_confidence: null,
     },
   };
 }
@@ -20,7 +20,7 @@ function beat(s: number): StreamRecord {
   return {
     type: "heartbeat",
     data: { schema_version: "1", timestamp: at(s), source: "sim", source_type: "simulation", room_id: "room-01",
-      fps: 12, inference_ms: null, mem_used_mb: null },
+      scenario_id: "t", run_id: null, fps: 12, inference_ms: null, mem_used_mb: null },
   };
 }
 

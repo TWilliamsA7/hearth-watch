@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "gen:types": "node scripts/gen-types.mjs",
+    "check:types": "node scripts/gen-types.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
