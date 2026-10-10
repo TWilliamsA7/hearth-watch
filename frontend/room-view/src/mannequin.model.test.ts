@@ -1,11 +1,12 @@
 // Poses the real mannequin (assets/models/resident.glb) from recorded world-track poses and
-// checks that its limbs land on the keypoints. Fixture: src/fixtures/world-poses.json.
+// checks that its limbs land on the keypoints. Fixtures: src/fixtures/*.json.
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { DEFAULT_THEME } from "./draw";
+import walking from "./fixtures/walking-p2.json";
 import poses from "./fixtures/world-poses.json";
 import { mannequinBody, mannequinTemplate, type Template } from "./mannequin";
 import type { WorldPerson } from "./types";
@@ -35,4 +36,15 @@ describe("mannequin rig", () => {
       body.dispose();
     });
   }
+
+  it("keeps the same size through a walking cycle, though the gait stretches the legs", () => {
+    const body = mannequinBody(template, null);
+    const scales = (walking as unknown as WorldPerson[]).map((person) => {
+      body.update(person, { alert: false, theme: DEFAULT_THEME });
+      return body.object.children[0].scale.x;
+    });
+    expect(new Set(scales).size).toBe(1);
+    expect(scales[0]).toBeCloseTo((walking[0] as { height: number }).height / template.height, 9);
+    body.dispose();
+  });
 });

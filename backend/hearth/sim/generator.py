@@ -40,6 +40,7 @@ from hearth.sim.pose import (
 from hearth.sim.scenario import Facing, PoseName, Resident, Scenario, Scene, Segment
 from hearth.sim.world import (
     HEADING,
+    PERSON_HEIGHT_M,
     WorldFrame,
     WorldPerson,
     WorldPose,
@@ -253,7 +254,8 @@ class ResidentTrack:
     def world_at(self, t: float) -> WorldPerson:
         i = self.segment_index(t)
         tau = min(t - self.plans[i].t_start, self.plans[i].segment.duration)
-        return world_person(self.person_id, self.heading_at(i, tau), self.world_pose_at(i, tau))
+        height = PERSON_HEIGHT_M * self.resident.height
+        return world_person(self.person_id, self.heading_at(i, tau), self.world_pose_at(i, tau), height)
 
 
 class ObservationGenerator:

@@ -48,6 +48,7 @@ class _Model(BaseModel):
 class WorldPerson(_Model):
     person_id: str | None = Field(description="Matches Observation.person_id; None in a single-person run.")
     heading: float = Field(description="Radians about +y; 0 faces the camera, +pi/2 faces image right.")
+    height: float = Field(description="Standing height in metres. Constant per person, unlike limb lengths in motion.")
     joints: dict[KeypointName, Vec3] = Field(description="Metres; every joint, visible to the camera or not.")
 
 
@@ -135,9 +136,9 @@ def _round(v: Vec3) -> Vec3:
     return (round(v[0], 3), round(v[1], 3), round(v[2], 3))
 
 
-def world_person(person_id: str | None, heading: float, pose: WorldPose) -> WorldPerson:
+def world_person(person_id: str | None, heading: float, pose: WorldPose, height: float) -> WorldPerson:
     joints = {j: _round(p) for j, p in pose.items()}
-    return WorldPerson(person_id=person_id, heading=round(heading, 4), joints=joints)  # type: ignore[arg-type]
+    return WorldPerson(person_id=person_id, heading=round(heading, 4), height=round(height, 3), joints=joints)  # type: ignore[arg-type]
 
 
 def _object(scene: Scene, o: SceneObject) -> WorldObject:

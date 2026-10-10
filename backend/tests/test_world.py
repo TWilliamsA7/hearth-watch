@@ -99,6 +99,12 @@ def test_absent_residents_are_left_out_but_outages_are_not():
     assert dark and all(len(f.people) == 1 for f in dark)  # the camera is dark; the person is still there
 
 
+def test_height_is_constant_while_walking():
+    gen = ObservationGenerator(SCENARIOS["day-room-02"])
+    p2 = gen.tracks[1]  # walks in; height 0.96
+    assert {p2.world_at(t / 10).height for t in range(50)} == {round(0.96 * PERSON_HEIGHT_M, 3)}
+
+
 def test_heading_turns_through_a_transition():
     gen = ObservationGenerator(SCENARIOS["day-room-02"])
     p1 = gen.tracks[0]  # sits facing the camera, then lies down side-on over 2.5 s

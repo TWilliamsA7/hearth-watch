@@ -77,7 +77,8 @@ export interface Template {
   rest: Map<string, { quaternion: THREE.Quaternion; dir: THREE.Vector3 }>;
   /** World axes of the rest body, inverted: undoes the model's own orientation. */
   restBasisInv: THREE.Matrix4;
-  legLength: number;
+  /** Rest height in model units, feet to top of head. */
+  height: number;
 }
 
 const templates = new Map<string, Promise<Template>>();
@@ -104,8 +105,8 @@ export function mannequinTemplate(scene: THREE.Object3D): Template {
   }
   const basis = bodyBasis(pos("thigh_l"), pos("thigh_r"), pos("neck_01"));
   if (!basis) throw new Error("mannequin rest pose has no usable hips");
-  const leg = (s: string) => pos(`thigh_${s}`).distanceTo(pos(`calf_${s}`)) + pos(`calf_${s}`).distanceTo(pos(`foot_${s}`));
-  return { scene, rest, restBasisInv: basis.invert(), legLength: (leg("l") + leg("r")) / 2 };
+  const height = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
+  return { scene, rest, restBasisInv: basis.invert(), height };
 }
 
 const v3 = (p: Vec3) => new THREE.Vector3(p[0], p[1], p[2]);
@@ -154,15 +155,11 @@ export function mannequinBody(t: Template, personId: string | null): PersonRig {
       }
       model.visible = true;
 
-      // Whole body: orientation from the hips and neck, size from the legs, hips on the hips.
+      // Whole body: orientation from the hips and neck, the person's height, hips on the hips.
+      // (Not sized from limb lengths: the simulated gait stretches them by ~10% per step.)
       const basis = bodyBasis(v3(j.left_hip), v3(j.right_hip), v3(j.neck));
       if (basis) model.quaternion.setFromRotationMatrix(rot.multiplyMatrices(basis, t.restBasisInv));
-      const leg = (s: "left" | "right") => {
-        const [h, k, an] = [j[`${s}_hip`], j[`${s}_knee`], j[`${s}_ankle`]];
-        return h && k && an ? v3(h).distanceTo(v3(k)) + v3(k).distanceTo(v3(an)) : null;
-      };
-      const legs = [leg("left"), leg("right")].filter((l): l is number => l !== null);
-      if (legs.length) model.scale.setScalar(legs.reduce((s, l) => s + l, 0) / legs.length / t.legLength);
+      model.scale.setScalar(person.height / t.height);
       for (const [name, bone] of bones) bone.quaternion.copy(t.rest.get(name)!.quaternion);
       model.position.set(0, 0, 0);
       model.updateMatrixWorld(true);

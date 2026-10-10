@@ -326,6 +326,10 @@ export interface WorldPerson {
    */
   heading: number;
   /**
+   * Standing height in metres. Constant per person, unlike limb lengths in motion.
+   */
+  height: number;
+  /**
    * Metres; every joint, visible to the camera or not.
    */
   joints: {

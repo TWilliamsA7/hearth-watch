@@ -4,7 +4,7 @@ import type { WorldPerson, WorldTrack } from "./types";
 import { sampleWorld } from "./world";
 
 function person(id: string | null, x: number, heading = 0): WorldPerson {
-  return { person_id: id, heading, joints: { nose: [x, 1.5, 0], neck: [x, 1.4, 0] } };
+  return { person_id: id, heading, height: 1.7, joints: { nose: [x, 1.5, 0], neck: [x, 1.4, 0] } };
 }
 
 const room: WorldTrack["room"] = {

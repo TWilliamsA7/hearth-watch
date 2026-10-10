@@ -965,6 +965,11 @@
           "title": "Heading",
           "type": "number"
         },
+        "height": {
+          "description": "Standing height in metres. Constant per person, unlike limb lengths in motion.",
+          "title": "Height",
+          "type": "number"
+        },
         "joints": {
           "additionalProperties": {
             "maxItems": 3,
@@ -1012,6 +1017,7 @@
       "required": [
         "person_id",
         "heading",
+        "height",
         "joints"
       ],
       "title": "WorldPerson",

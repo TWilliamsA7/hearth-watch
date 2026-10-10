@@ -42,7 +42,7 @@ function blendPerson(a: WorldPerson, b: WorldPerson, alpha: number): WorldPerson
     const q = b.joints[name];
     joints[name] = q ? lerp3(p, q, alpha) : p;
   }
-  return { person_id: a.person_id, heading: lerpAngle(a.heading, b.heading, alpha), joints };
+  return { person_id: a.person_id, heading: lerpAngle(a.heading, b.heading, alpha), height: b.height, joints };
 }
 
 function lerp3(p: Vec3, q: Vec3, alpha: number): Vec3 {
