@@ -353,7 +353,8 @@ def main(argv=None):
             pose_source, rotation_ms = None, 0.0
             if rotation is not None:
                 # People lying down: poseNet sees them far better on a 90-degree rotated frame.
-                for k in rotation.directions(pose, frame["t"]):
+                tries = rotation.directions(pose, frame["t"])
+                for k in tries:
                     candidate, ms = cam.rotated_pose(frame, k)
                     rotation_ms += ms
                     if pose_rotate.better_rotated(pose, candidate):
@@ -362,6 +363,9 @@ def main(argv=None):
                         frame["pose_override"] = candidate  # what the preview draws
                         rotation.accepted(k, frame["t"])
                         break
+                else:
+                    if tries:
+                        rotation.rejected(frame["t"])
             dropout = pose is None and track.brief_dropout(frame["t"])
             track.update(pose, frame["t"])
             if pose is None:

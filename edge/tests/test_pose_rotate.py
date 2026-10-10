@@ -130,3 +130,25 @@ def test_upright_pass_skipped_on_most_frames_only_while_lying():
     pattern = [pol.skip_upright(0.1 * i) for i in range(1, 7)]
     assert pattern == [True, True, False, True, True, False]  # upright on 1 frame in 3
     assert not pol.skip_upright(2.0)               # rotated pose no longer accepted: run it
+
+
+def test_backs_off_after_both_directions_lose_to_the_plain_pose():
+    """Seated near the camera (hips hidden): incomplete every frame, rotation never better."""
+    pol = pr.RotationPolicy()
+    tried = []
+    for i in range(14):                                  # 1 s at 14 FPS
+        t = i / 14.0
+        d = pol.directions(HEAD_ONLY_LYING, t)
+        if d:
+            tried.append(t)
+            pol.rejected(t)
+    assert len(tried) == 2                               # t = 0 and ~0.5 s, not 14 times
+
+
+def test_no_back_off_while_a_rotated_pose_keeps_being_accepted():
+    pol = pr.RotationPolicy()
+    pol.accepted(1, 0.0)
+    pol.rejected(0.1)                                    # one miss while lying down...
+    assert pol.directions(HEAD_ONLY_LYING, 0.2) == [1, -1]   # ...still tries the next frame
+    pol.rejected(1.1)                                    # a miss after the accept went stale
+    assert pol.directions(HEAD_ONLY_LYING, 1.2) == []        # ...does back off

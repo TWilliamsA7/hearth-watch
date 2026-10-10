@@ -18,8 +18,8 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
 | 2 | `02_load_model.py` | a Hugging Face model in PyTorch: layers, parameters, raw output tensor; GPU vs CPU | the pinned model via Person 2's `download_weights` / `load_model`, on the GPU |
 | 3 | `03_export_onnx.py` | exporting, checking PyTorch vs ONNX numerically | an ONNX file the Jetson's TensorRT can build |
 | 4 | `04_push_to_hub.py` | Hub repos, commits and pinning, model cards, licenses | the Jetson downloads it from your HF account, pinned to a commit |
-| 5 | on the Jetson | TensorRT engine + runner | `posture_prediction` in Jetson observations, same rules as Person 2's `prediction_from_detections` (tested against it), off by default until measured |
-| 6 | (optional) | datasets, training loop, evaluation | a fine-tuned model if step 5 shows weak spots |
+| 5 | on the Jetson | TensorRT engine + runner | `posture_prediction` in Jetson observations (`run_edge.py --fall-model`), same rules as Person 2's `prediction_from_detections` (tested against it); measured in edge/BENCHMARKS.md |
+| 6 | public datasets, then `05_...` onward | datasets, labels, train/test splits, a training loop written by hand, evaluation | our own posture classifier from keypoints, trained on public fall videos, tested on our own recordings |
 
 ## One-time setup
 
@@ -117,7 +117,91 @@ uploads both ONNX files, `export_info.json` and a model card (base model + exact
 AGPL-3.0, export settings, class order, the PyTorch-vs-ONNX check, intended use and limits) as
 one commit, and prints the commit id. Paste it back: the Jetson pins its download to it.
 
+## Step 6: train our own posture model on public data
+
+The goal: a small network that reads the keypoints the Jetson already sends (no video) and says
+**upright / sitting / on the floor**. Public datasets give us the training data; our own
+recordings (`recordings/*.jsonl`, ~1,450 frames) are the **test set**, so the score says whether
+it works on our camera in our room.
+
+No public dataset ships 2D keypoints in our format (the skeleton ones are 3D Kinect data). So we
+take labelled **videos**, run a pose model on the 3060 Ti to get COCO keypoints (the same body
+points poseNet reports; poseNet's extra `neck` is the midpoint of the shoulders), and train on
+those.
+
+### The data
+
+Labels come from [OmniFall](https://huggingface.co/datasets/simplexsigil2/omnifall), which
+re-labelled 8 public fall datasets with timed segments ("video X, 2.1-5.3 s: sitting"). Classes:
+0 walk, 1 fall, 2 fallen, 3 sit_down, 4 sitting, 5 lie_down, 6 lying, 7 stand_up, 8 standing,
+9 other. We use walk + standing -> upright, sitting -> sitting, fallen + lying -> on the floor,
+and skip the transitions (fall, sit_down, lie_down, stand_up) and other. The videos come from the
+original datasets:
+
+| Dataset | What it is | Labelled time (upright / sitting / floor) | License |
+|---|---|---|---|
+| [GMDCSA24](https://doi.org/10.5281/zenodo.13354453) | 4 actors, 3 real homes, day and night, cheap 0.92 MP webcam (closest to our setup), 160 videos | ~3 / ~4 / ~4 min | CC BY 4.0 |
+| [Le2i](https://search-data.ubfc.fr/FR-13002091000019-2024-04-09) | 191 videos, one wall-mounted camera, home / office / coffee room / lecture room, 320x240 | ~17 / ~6 / ~5.5 min | CC BY-NC-SA |
+
+Not used for now: OmniFall's synthetic set (12,000 AI-generated clips, ~9.1 GB, `pip install
+omnifall`), useful later if we need more data.
+
+### Download (PowerShell on the PC)
+
+Everything goes in `C:\hearth-data`, **outside the repo**, so no video can be committed by accident.
+
+1. Labels (a few seconds):
+
+   ```powershell
+   mkdir C:\hearth-data\labels
+   cd C:\hearth-data
+   curl.exe -L -o labels\GMDCSA24.csv https://huggingface.co/datasets/simplexsigil2/omnifall/resolve/main/labels/GMDCSA24.csv
+   curl.exe -L -o labels\le2i.csv https://huggingface.co/datasets/simplexsigil2/omnifall/resolve/main/labels/le2i.csv
+   ```
+
+2. GMDCSA24 (1.1 GB):
+
+   ```powershell
+   curl.exe -L -o gmdcsa24.zip "https://zenodo.org/records/13354453/files/ekramalam/GMDCSA24-A-Dataset-for-Human-Fall-Detection-in-Videos-v2.1.zip?download=1"
+   (Get-FileHash gmdcsa24.zip -Algorithm MD5).Hash
+   mkdir gmdcsa24; tar -xf gmdcsa24.zip -C gmdcsa24
+   ```
+
+   The hash must print `3D36F2C5C1A666B99639E4E9FD843EFB`; if not, the download was cut short,
+   run the `curl.exe` line again.
+
+3. Le2i: its site blocks scripts (bot check), so use a browser on the PC: open
+   https://search-data.ubfc.fr/FR-13002091000019-2024-04-09, download the dataset, and extract
+   everything into `C:\hearth-data\le2i` (room folders such as `Coffee_room_01`, `Home_01`).
+
+4. Check what landed:
+
+   ```powershell
+   cd C:\hearth-data
+   tree /F gmdcsa24 | Select-Object -First 25
+   tree /F le2i | Select-Object -First 25
+   (Get-ChildItem -Recurse -Include *.mp4,*.avi | Measure-Object).Count
+   ```
+
+   OmniFall names videos like `Subject_1/ADL/01` and `Coffee_room_01/video_14`; the real file
+   names can differ (Le2i uses names like `video (14).avi`), and the next script matches them up.
+
+### Next scripts
+
+- `05_extract_keypoints.py`: pose model on the GPU over every labelled stretch of video ->
+  one small file of keypoints + labels (no video).
+- then a hand-written PyTorch `Dataset`, network and training loop, tested on our recordings,
+  and an export the Jetson can run.
+
+Caveats: the keypoints come from a different pose model than the Jetson's poseNet (which misses
+more joints), so training randomly hides keypoints to make up for it. Both datasets are
+research data: credit them, don't build a product on them (Le2i is non-commercial).
+
 ## Licenses
 
 The fall model is AGPL-3.0 (declared by its author); anything derived from it (the ONNX export,
 a fine-tuned model) keeps that license and attribution. PyTorch is BSD-style.
+Step 6 data: OmniFall labels CC BY-NC-SA 4.0; GMDCSA24 CC BY 4.0 (Alam et al., Data in Brief
+2024); Le2i CC BY-NC-SA (Charfi et al., Laboratoire Le2i / UBFC). The model we train from them
+is ours (no AGPL code or weights involved), but must credit the datasets and stays non-commercial
+because of Le2i and the OmniFall labels.

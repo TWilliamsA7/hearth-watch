@@ -20,6 +20,10 @@ LYING_TORSO_DEG = 45.0     # a tilted torso suggests lying: try a rotated pass
 MIN_ROTATED_KEYPOINTS = 8  # rotated passes in an empty room invented 2-3 keypoint "people"
 EMPTY_RETRY_S = 1.0        # with nobody detected: one direction per try, once a second
 KEEP_TRYING_S = 1.0        # ...but every frame for a while after a rotated pose was accepted
+# Someone upright but partly visible (seated near the camera, hips hidden) looks "incomplete"
+# every frame, and both rotated passes then lose to the plain pose: that alone cut the loop from
+# 14.4 to 4.6 FPS (measured 2026-10-10). After both directions are rejected, wait this long.
+REJECTED_RETRY_S = 0.5
 UPRIGHT_EVERY = 3          # while someone stays down, run the upright pass on 1 frame in 3
 
 
@@ -75,16 +79,18 @@ def better_rotated(as_is, rotated, min_keypoints=MIN_ROTATED_KEYPOINTS):
 class RotationPolicy(object):
     """Decides when to spend an extra poseNet pass on a rotated frame, and in which direction.
 
-    Standing people cost nothing extra. A partly detected or lying person gets a rotated pass
-    every frame (head side first). With nobody detected, one direction is tried per
-    EMPTY_RETRY_S, alternating (each pass stalls the loop ~95 ms on the Nano), or every frame
-    for KEEP_TRYING_S after a rotated pose was last accepted.
+    Standing people cost nothing extra. A partly detected or lying person gets rotated passes
+    (head side first), but after both directions are rejected the next try waits
+    REJECTED_RETRY_S. With nobody detected, one direction is tried per EMPTY_RETRY_S,
+    alternating (each pass stalls the loop ~75-95 ms on the Nano). For KEEP_TRYING_S after a
+    rotated pose was last accepted (someone lying down), every frame is tried.
     """
 
     def __init__(self):
         self.last_k = 1
         self.last_accept_t = None
         self.last_empty_try_t = None
+        self.last_reject_t = None
         self._empty_k = 1
         self._lying_frames = 0
 
@@ -92,20 +98,27 @@ class RotationPolicy(object):
         """Rotation directions to try this frame, in order (possibly none)."""
         if not looks_lying_or_incomplete(as_is):
             return []
+        recent = self.last_accept_t is not None and t - self.last_accept_t <= KEEP_TRYING_S
         if as_is is None:
-            recent = self.last_accept_t is not None and t - self.last_accept_t <= KEEP_TRYING_S
             if not recent:
                 if self.last_empty_try_t is not None and t - self.last_empty_try_t < EMPTY_RETRY_S:
                     return []
                 self.last_empty_try_t = t
                 self._empty_k = -self._empty_k
                 return [self._empty_k]
+        elif (not recent and self.last_reject_t is not None
+              and t - self.last_reject_t < REJECTED_RETRY_S):
+            return []
         first = preferred_direction(as_is) or self.last_k
         return [first, -first]
 
     def accepted(self, k, t):
         self.last_k = k
         self.last_accept_t = t
+
+    def rejected(self, t):
+        """Every direction tried this frame lost to the plain pose."""
+        self.last_reject_t = t
 
     def skip_upright(self, t):
         """While a rotated pose keeps being accepted (someone lying down), skip the upright
