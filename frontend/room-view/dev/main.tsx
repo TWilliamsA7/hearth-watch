@@ -7,6 +7,8 @@ import {
   RecordedFeed,
   RoomView,
   RoomView3D,
+  createMannequinRig,
+  stickFigureRig,
   parseStream,
   type GroundTruth,
   type Observation,
@@ -48,6 +50,10 @@ const params = new URLSearchParams(window.location.search);
 type View = "2d" | "3d" | "both";
 const VIEWS: View[] = ["2d", "3d", "both"];
 
+// ?rig=stick to start with stick figures.
+const RIGS = { mannequin: createMannequinRig(), stick: stickFigureRig };
+type Rig = keyof typeof RIGS;
+
 function App() {
   const runs = useRuns();
   const [runId, setRunId] = useState<string>(params.get("run") ?? "");
@@ -56,6 +62,7 @@ function App() {
   const [state, setState] = useState<PlaybackState | null>(null);
   const [last, setLast] = useState<Observation | null>(null);
   const [view, setView] = useState<View>(VIEWS.find((v) => v === params.get("view")) ?? "both");
+  const [rig, setRig] = useState<Rig>(params.get("rig") === "stick" ? "stick" : "mannequin");
 
   useEffect(() => {
     if (!loaded) return;
@@ -96,11 +103,16 @@ function App() {
             {v.toUpperCase()}
           </button>
         ))}
+        {(Object.keys(RIGS) as Rig[]).map((r) => (
+          <button key={r} disabled={rig === r || view === "2d"} onClick={() => setRig(r)}>
+            {r[0].toUpperCase() + r.slice(1)}
+          </button>
+        ))}
       </div>
       {loaded && run && (
         <div className="views">
           {view !== "3d" && <RoomView feed={loaded.feed} scene={run.scene} roomId={run.room_id} />}
-          {view !== "2d" && <RoomView3D world={loaded.world} time={() => loaded.feed.state.t} />}
+          {view !== "2d" && <RoomView3D world={loaded.world} time={() => loaded.feed.state.t} rigFactory={RIGS[rig]} />}
         </div>
       )}
       <div className="bar">
