@@ -1,0 +1,23 @@
+[project]
+name = "hearth"
+version = "0.1.0"
+description = "Hearth backend: ingestion, monitor, simulator and evaluation"
+requires-python = ">=3.11"
+dependencies = [
+    "hearth-schema",
+    "pydantic>=2.7,<3",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hearth*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
