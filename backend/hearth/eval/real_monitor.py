@@ -45,15 +45,8 @@ class ServiceMonitor:
     def __init__(self, config: MonitorConfig) -> None:
         self._now: datetime | None = None
         self.service = MonitorService(config, clock=self._seconds, utcnow=self._utcnow)
-        # Every event the service emits goes through record(); collect them as they pass.
         self._pending: list[Event] = []
-        record = self.service.record
-
-        def capture(event: Event) -> None:
-            self._pending.append(event)
-            record(event)
-
-        self.service.record = capture
+        self.service.event_listeners.append(self._pending.append)
 
     def _utcnow(self) -> datetime:
         if self._now is None:
@@ -68,7 +61,8 @@ class ServiceMonitor:
             self._now = now
 
     def _new_events(self) -> list[Event]:
-        events, self._pending = self._pending, []
+        events = list(self._pending)
+        self._pending.clear()
         return events
 
     def ingest(self, item: Observation | Heartbeat) -> list[Event]:

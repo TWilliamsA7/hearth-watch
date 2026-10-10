@@ -20,7 +20,52 @@ from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
 
 
-def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None) -> FastAPI:
+def ingest_records(monitor: MonitorService, items) -> list[Event]:
+    """Push Observations and Heartbeats through the live service, in order; return the events.
+
+    The simulator's ingestion hook (hearth.sim.controller.IngestFn): simulated records take
+    exactly the path a camera's do."""
+    events: list[Event] = []
+    monitor.event_listeners.append(events.append)
+    try:
+        batch: list = []
+        for item in items:
+            if isinstance(item, Heartbeat):
+                if batch:
+                    monitor.ingest(batch)
+                    batch = []
+                monitor.heartbeat(item)
+            else:
+                batch.append(item)
+                if len(batch) == 500:
+                    monitor.ingest(batch)
+                    batch = []
+        if batch:
+            monitor.ingest(batch)
+    finally:
+        monitor.event_listeners.remove(events.append)
+    return events
+
+
+def mount_simulation(app: FastAPI, monitor: MonitorService) -> None:
+    """/sim (scenario control) and /eval (after-action reports), feeding the same service.
+
+    Imported here, not in hearth.monitor: the monitor never sees the simulator or ground truth."""
+    from hearth.eval.api import create_eval_router
+    from hearth.sim.api import create_sim_router
+    from hearth.sim.controller import SimController
+
+    async def ingest(items):
+        return ingest_records(monitor, items)
+
+    controller = SimController(ingest)
+    app.state.sim = controller
+    app.include_router(create_sim_router(controller), prefix="/sim")
+    app.include_router(create_eval_router(controller), prefix="/eval")
+
+
+def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
+               simulation: bool = True) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
 
     async def check_health():
@@ -34,13 +79,16 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
         try:
             yield
         finally:
+            if (sim := getattr(app.state, "sim", None)) is not None:
+                await sim.close()
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
-    # Person 3 can include a scenario router here and use the same service.
     app.state.monitor = monitor
+    if simulation:
+        mount_simulation(app, monitor)
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
     static = Path(__file__).with_name("static")

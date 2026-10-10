@@ -44,6 +44,8 @@ class MonitorService:
         self.nurses: dict[str, NurseProfile] = {}
         self.manual_requests: OrderedDict[str, str] = OrderedDict()
         self.offline_alerts: dict[SourceKey, str] = {}
+        # Called with every event as it is recorded (e.g. the simulator collecting a run's events).
+        self.event_listeners: list[Callable[[Event], None]] = []
         self.ingest_totals = dict(accepted=0, duplicates=0, out_of_order=0, stale=0, future=0)
 
     def matches_nurse(self, nurse: NurseProfile, alert: Alert) -> bool:
@@ -103,6 +105,8 @@ class MonitorService:
 
     def record(self, event: Event) -> None:
         self.events.append(event)
+        for listener in self.event_listeners:
+            listener(event)
         self.publish(EventMessage(data=event))
 
     def validate_room(self, room_id: str) -> None:
