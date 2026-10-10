@@ -140,3 +140,11 @@ def test_edge_messages_fit_the_exported_json_schema():
         if obs["features"]:
             _fits(obs["features"], defs["PostureFeatures"], defs)
     _fits(c.build_heartbeat(T0, "jetson-01", "room-01", fps=10.0), _schema("heartbeat"), {})
+
+
+def test_floor_guide_matches_the_backend_threshold():
+    import json
+    from hearth_edge import config
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "backend", "hearth", "monitor", "config.json")
+    with open(path) as fh:
+        assert config.FLOOR_GUIDE_Y == json.load(fh)["floor_hip_y_min"]

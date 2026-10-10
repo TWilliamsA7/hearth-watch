@@ -40,3 +40,13 @@ def test_floor_calibration_does_not_override_confident_model_sitting():
                           posture_prediction=prediction('sitting'))
         events += det.process(obs)
     assert not [e for e in events if e.event_type=='possible_fall']
+
+
+def test_code_defaults_match_the_shipped_config():
+    """Tests build MonitorConfig() from code defaults; they should exercise what ships.
+
+    posture_mode is the one deliberate difference: the code defaults to the model, and
+    config.json uses pose_fallback because the Jetson sends pose features, not predictions."""
+    shipped, default = MonitorConfig.load().model_dump(), MonitorConfig().model_dump()
+    differ = {k for k in shipped if shipped[k] != default[k]}
+    assert differ <= {"posture_mode", "additional_room_ids"}, {k: (default[k], shipped[k]) for k in differ}

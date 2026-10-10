@@ -43,9 +43,10 @@ HTTP_TIMEOUT_S = 2.0
 QUEUE_MAX = 100
 
 # Video preview panel (overlay.py, only when streaming). The dashed line marks the height the
-# team backend requires head and hips to be below to count as floor level
-# (backend/hearth/monitor/config.json floor_head_y_min / floor_hip_y_min): an aiming aid only.
-FLOOR_GUIDE_Y = 0.65
+# team backend requires the hips to be below to count as floor level
+# (backend/hearth/monitor/config.json floor_hip_y_min; the head needs floor_head_y_min, 0.40):
+# an aiming aid only. edge/tests/test_contract.py checks it against config.json.
+FLOOR_GUIDE_Y = 0.45
 BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
 
 # Rotated poseNet passes for people lying down (pose_rotate.RotationPolicy): only when the
