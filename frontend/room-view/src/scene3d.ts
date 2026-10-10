@@ -103,7 +103,8 @@ export const stickFigureRig: RigFactory = (personId) => {
   };
 };
 
-function makeTag(text: string) {
+/** Anonymous track label (P1) as a sprite that always faces the viewer. */
+export function makeTag(text: string) {
   const canvas = document.createElement("canvas");
   canvas.width = 128;
   canvas.height = 64;
