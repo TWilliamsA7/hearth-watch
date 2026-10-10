@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--duration", type=float, default=GenSpec().duration, help="target seconds")
     gen.add_argument("--fall-rate", type=float, default=GenSpec().fall_rate, help="chance someone falls (0-1)")
     gen.add_argument("--recover-rate", type=float, default=GenSpec().recover_rate, help="chance a faller gets up")
+    gen.add_argument("--responder-rate", type=float, default=GenSpec().responder_rate,
+                     help="chance someone helps a faller who stays down")
     gen.add_argument("--outage-rate", type=float, default=GenSpec().outage_rate, help="chance of a camera outage")
     gen.add_argument("--seed", type=int, default=0, help="first seed")
     gen.add_argument("--count", type=int, default=1, help="scenarios to generate, with consecutive seeds")
@@ -49,7 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "generate":
         spec = GenSpec(people=args.people, room=args.room, duration=args.duration, fall_rate=args.fall_rate,
-                       recover_rate=args.recover_rate, outage_rate=args.outage_rate)  # fmt: skip
+                       recover_rate=args.recover_rate, responder_rate=args.responder_rate,
+                       outage_rate=args.outage_rate)  # fmt: skip
         for seed in range(args.seed, args.seed + args.count):
             sc = generate(spec, seed)
             path = save_scenario(sc, Path(args.dir) / f"{sc.scenario_id}.yaml")

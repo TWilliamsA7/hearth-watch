@@ -211,3 +211,15 @@ def test_scenario_list_describes_rooms_and_residents(tmp_path):
     infos = {i.scenario_id: i for i in ctl.scenarios()}
     assert infos["day-room-01"].residents == ["p1", "p2", "p3", "p4"]
     assert infos["possible-fall-01"].residents == [] and infos["possible-fall-01"].scene.floor_y == 0.92
+
+
+def test_generated_scenarios_are_registered_and_capped():
+    from hearth.sim.generate import GenSpec, generate
+
+    controller = SimController(Pipeline().ingest, clock=FakeClock(), scenarios=SCENARIOS, live_dir=None)
+    controller.MAX_GENERATED = 3
+    ids = [controller.register(generate(GenSpec(), seed)).scenario_id for seed in range(5)]
+    known = {s.scenario_id for s in controller.scenarios()}
+    assert set(ids[-3:]) <= known and not set(ids[:2]) & known
+    assert set(SCENARIOS) <= known  # the library is never dropped
+    assert not set(ids) & set(SCENARIOS)  # nor is the caller's dict changed

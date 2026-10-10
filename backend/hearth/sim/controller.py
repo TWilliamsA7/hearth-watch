@@ -138,6 +138,7 @@ class SimController:
     TICK_SECONDS = 0.05
     PAUSE_HEARTBEAT_SECONDS = 1.0
     MIN_SPEED, MAX_SPEED = 0.25, 4.0
+    MAX_GENERATED = 50
 
     def __init__(
         self,
@@ -150,7 +151,7 @@ class SimController:
     ) -> None:
         self._ingest = ingest
         self.clock = clock or WallClock()
-        self._scenarios = scenarios if scenarios is not None else load_all()
+        self._scenarios = dict(scenarios) if scenarios is not None else load_all()
         self._live_dir = live_dir
         self._config = config
         self.state: SimState = "idle"
@@ -188,6 +189,16 @@ class SimController:
         if live.world is None:
             live.world = live.run.world()
         return live.world
+
+    def register(self, scenario: Scenario) -> ScenarioInfo:
+        """Make a scenario loadable by id (e.g. one just generated). Generated ones beyond
+        MAX_GENERATED are forgotten oldest first; the library's own never are."""
+        self._scenarios[scenario.scenario_id] = scenario
+        generated = [sid for sid, sc in self._scenarios.items() if "generator" in sc.tags]
+        for sid in generated[: max(0, len(generated) - self.MAX_GENERATED)]:
+            if self._live is None or self._live.run.scenario.scenario_id != sid:
+                del self._scenarios[sid]
+        return ScenarioInfo.of(scenario)
 
     def runs(self) -> list[RunInfo]:
         return [info for info, _ in self._finished.values()]
