@@ -12,17 +12,117 @@ The Person 2 monitoring core is implemented: shared schemas and generated TypeSc
 
 Detection thresholds are initial demo parameters, not tuned or validated on real camera traces. Synthetic tests exercise software behavior; they are not measured clinical accuracy.
 
-## Standing / fallen model
+## Install the models and test on a laptop (PowerShell)
 
-The optional local vision runner integrates [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection). It sends **Standing / Sitting / Fallen** predictions through the same backend, with confidence, bounding boxes and model provenance. The monitor requires sustained Fallen predictions before opening a possible-fall alert and sustained Standing predictions before recovery. Uncertain/multiple-person results stay unknown.
+The laptop runner uses two local models on the **same webcam frames**:
 
-See [`edge/README.md`](edge/README.md) for dependency setup, camera/video commands, and Jetson compatibility limits. The camera command, after installing the optional vision dependencies and downloading the weights, is:
+| Model | Purpose | Local weights |
+| --- | --- | --- |
+| [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection) | Standing, Sitting, Lying (checkpoint label `Fallen`) | `models/human-fall-detection/best.pt` |
+| [`SuperSura/hand-gesture-yolo26n`](https://huggingface.co/SuperSura/hand-gesture-yolo26n) | A held **fist** requests help | `models/hand-gesture/gesture.pt` |
+
+Run all commands below from the repository root with Python 3.11+. Models and dependencies need internet during installation; inference runs locally afterward. The downloader pins each model revision and verifies its SHA-256. Weight files are git-ignored; teammates download them rather than committing them. Camera frames are not saved or uploaded.
+
+### 1. Install dependencies and download weights
+
+If `.venv` already exists, reuse it; do not create a second environment. Activation is optional because these commands use the environment's Python explicitly.
 
 ```powershell
-.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --backend http://127.0.0.1:8000
+# Create this only on a fresh checkout without .venv:
+python -m venv .venv
+
+# CPU PyTorch for the laptop:
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev,vision]'
+
+# Download both models (safe to rerun; existing files are verified):
+.\.venv\Scripts\python.exe edge/run_fall_model.py --download-only --hand-gestures
+
+# Load the actual checkpoints and run blank-frame inference; no camera opens:
+.\.venv\Scripts\python.exe edge/run_fall_model.py --check --hand-gestures
 ```
 
-Restart the backend after pulling this schema update. Nurse and room pages display model posture in the source-health section. The model provides no pose keypoints or face detections, so the existing gesture feature still needs a pose source.
+The check should print posture labels `fallen`, `sitting`, `standing` and hand labels including `fist`. No detections on a blank frame is expected. This verifies runtime compatibility, not camera accuracy. Installation of PyTorch is larger than the model weights.
+
+### 2. Start or restart the backend — terminal 1
+
+Stop the previous backend with Ctrl+C first. Restarting is required after shared-schema or configuration changes.
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
+```
+
+For a Jetson connection, use `--host 0.0.0.0` instead. If the port is occupied, stop the existing server or choose another port; change the camera command and dashboard URL to match.
+
+### 3. Start the camera — terminal 2
+
+Close other apps/runners using this webcam. Run from the same repository folder:
+
+```powershell
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --preview --hand-gestures --backend http://127.0.0.1:8000 --room room-01
+```
+
+The preview draws body/hand boxes and shows **STANDING / SITTING / LYING / UNKNOWN**. Terminal output includes raw posture and hand labels, confidence, input processing and inference time. `fallen` in terminal/JSON corresponds to Lying in the UI. Press Q in the preview or Ctrl+C in the terminal to stop.
+
+Open [the nurse dashboard](http://127.0.0.1:8000/nurses), enter a display name, select **room-01**, **Possible falls** and **Help requests**, keep **On duty** checked, and start the session.
+
+### 4. Test the expected behavior
+
+Use one consenting person at a time. Position the camera to include the full body and floor; safely lie on a mat rather than actually falling.
+
+| Test | Expected result |
+| --- | --- |
+| Stand, then sit | Source health shows Standing, then Sitting when confidence is at least 0.65 |
+| Safely lie down and remain visible | Lying; after 3 seconds of consecutive confident lying observations, one **Possible fall** alert |
+| Stand again for at least 1 second | Recovery recorded; the alert remains open for human acknowledgement/resolution |
+| Show a fist briefly, for less than 2 seconds | No help alert |
+| Hold one fist toward the camera for at least 2 seconds | One **Help requested** alert; terminal should show `hand: fist` with confidence >= 0.65 |
+| Keep holding the fist | No repeated help alerts |
+| Show an open palm for at least 1 second, wait until 10 seconds have elapsed since the last request, then hold a fist again | A new help alert |
+| Leave the frame or obscure the hand | Unknown; missing detections do not imply safety or release the help latch |
+| Stop the camera runner | Source becomes stale/offline; subscribed nurses can receive a source-offline alert |
+
+For either temporal signal, accepted observations must remain no more than 1 second apart. Low confidence, missing detections and gaps reset a pending hold. Multiple detected people/hands are uncertain. The camera model does not identify who requested help.
+
+OpenCV CLAHE contrast retry is enabled for uncertain posture output; confident original detections are preserved. The model still determines the class—wide boxes alone do not imply lying. To compare the original model without contrast retry, stop the runner and repeat the same test with:
+
+```powershell
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --preview --hand-gestures --posture-enhancement none --backend http://127.0.0.1:8000 --room room-01
+```
+
+Contrast retry adds inference work on uncertain frames; improved accuracy must be measured on your camera. Keep `--posture-retry-threshold` aligned with backend `model_confidence_min` if changing it.
+
+### 5. Automated tests and edge recording checks
+
+```powershell
+# Run separately: the backend and edge suites have overlapping test filenames.
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+.\.venv\Scripts\python.exe -m pytest edge/tests -q
+
+# Check one actual Jetson observation recording (replace the example filename):
+.\.venv\Scripts\python.exe edge/tools/check_rules.py recordings/lie_down-example.jsonl --config backend/hearth/monitor/config.json
+
+# Check every JSONL recording in PowerShell:
+Get-ChildItem recordings -Filter *.jsonl | ForEach-Object {
+    .\.venv\Scripts\python.exe edge/tools/check_rules.py $_.FullName --config backend/hearth/monitor/config.json
+}
+```
+
+The checker prints the real detector verdict, alert/recovery times and conditions that fail. Repeat with standing, sitting and lie-down clips. Tests with synthetic observations verify software behavior; actual recordings are needed to validate the camera calibration. Windows skips the Jetson's POSIX stdin-control test.
+
+The live config supports both producers: supplied model predictions are authoritative; pose-only edge observations use calibrated pose rules (`posture_mode: "pose_fallback"`). Floor head/hips are 0.40/0.45 for the reported mat-camera setup; upright hips use an independent bound of 0.65. Use `posture_mode: "model"` to require model predictions. Separate camera sources are not automatically fused. See [the edge integration notes](docs/gaston-edge-integration.md), [model runner details](edge/MODEL_RUNNER.md), and [fist-help rules](docs/hand-help-signal.md).
+
+### Troubleshooting
+
+- **422 / `extra_forbidden` for model fields:** an older backend/schema is running. Reinstall the editable shared/backend packages using step 1, stop the old server and restart with this checkout's `.venv` Python. Do not remove the model fields.
+- **Posture unknown:** inspect the preview and terminal scores. Below 0.65, absent detections, multiple people or stale observations remain unknown. Check [ingestion status](http://127.0.0.1:8000/ingest/status): increasing `stale` counts indicate delayed frames; `future` counts suggest clock mismatch. Synchronize laptop/Jetson clocks.
+- **No fist alert:** check `hand: fist`, score >= 0.65, continuous detection for 2 seconds, and nurse room/help coverage. After a request, observe a non-fist gesture for release and respect the cooldown. `hand_help_label` is set in backend config, so restart after changing it.
+- **Camera fails to open:** close other camera apps or try `--camera 1`.
+- **Slow inference breaks the hold:** inspect `inference_ms`; compare with `--posture-enhancement none`. Raising `--max-fps` does not make the model run faster.
+- **Temporary-directory permission error during installation/tests:** create `.venv/tmp`, then set `$env:TEMP` and `$env:TMP` to its absolute path in that terminal and retry.
+
+AngelCare 8B is a separate, unverified GPU experiment; it is not part of these CPU-laptop commands or nurse alerts. See [its setup notes](docs/angelcare-live.md) if an appropriate GPU machine becomes available.
 
 ## Nurse desk and help requests
 
