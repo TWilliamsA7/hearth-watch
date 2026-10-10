@@ -61,7 +61,8 @@ class CameraInfo(BaseModel):
 
 class CalibrateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    seconds: float = Field(default=3.0, ge=1.0, le=15.0, description="How long to watch the person standing still.")
+    seconds: float = Field(default=8.0, ge=1.0, le=20.0,
+                           description="How long to watch the person walking about, upright, in view.")
     height: float = Field(default=1.7, ge=1.2, le=2.1, description="The person's height in metres.")
 
 
@@ -141,8 +142,8 @@ class LiveLink:
         return CameraInfo(preset=c.preset, height=c.height, tilt=c.tilt, fov=w.camera.fov)
 
     async def calibrate(self, req: CalibrateRequest) -> CalibrateResult:
-        """Watch the linked person standing still, work out the real camera's height and tilt,
-        and use them for the simulated camera."""
+        """Watch the linked person walking about upright, work out the real camera's height and
+        tilt, and use them for the simulated camera."""
         loop = asyncio.get_running_loop()
         frames: list[CalibrationFrame] = []
         seen: set[str] = set()
@@ -239,7 +240,7 @@ def create_link_router(link: LiveLink) -> APIRouter:
 
     @router.post("/live/link/calibrate", response_model=CalibrateResult)
     async def link_calibrate(body: CalibrateRequest) -> CalibrateResult:
-        """Stand still, whole body in view: works out the real camera's height and tilt."""
+        """Walk slowly around, upright and in view: works out the real camera's height and tilt."""
         if link.controller.world is None:
             raise HTTPException(409, "generate a room first (POST /sim/live/new)")
         if not link.enabled:

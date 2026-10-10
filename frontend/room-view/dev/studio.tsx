@@ -228,7 +228,7 @@ function Studio() {
       setCalibrating(true);
       setCalibration(null);
       try {
-        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { seconds: 3, height: liveHeight });
+        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { seconds: 8, height: liveHeight });
         setCalibration(r);
         if (r.ok && r.height != null && r.tilt != null) {
           setPreset("jetson");
@@ -373,8 +373,8 @@ function Studio() {
             </button>
             <button onClick={liveOnly}>Live only (empty room)</button>
             <button disabled={!link?.enabled || calibrating} onClick={calibrate}
-              title="Stand still, upright, whole body (head to feet) in view">
-              {calibrating ? "Calibrating… hold still" : "Calibrate camera"}
+              title="Walk slowly around for 8 s: left, right, nearer, further; upright, head and knees in view">
+              {calibrating ? "Calibrating… walk slowly around" : "Calibrate camera"}
             </button>
           </div>
           {calibration && (

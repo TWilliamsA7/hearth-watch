@@ -5,7 +5,8 @@ match the real one. With the field of view known (the Jetson's C270: about 43 de
 vertical, 4:3), a standing person of known height pins down the rest: for the right camera
 height and tilt, the ray through their feet meets the floor at a spot where a head at their
 height appears exactly where the camera saw it. A grid search finds the height and tilt that
-make that true across a few seconds of frames.
+make that true across a few seconds of frames. Any two body points at known heights work the
+same way (the camera often cuts off the feet): knees or hips below, head or neck above.
 
 The "jetson" preset looks straight into the room from the middle of the front wall
 (hearth.sim.live.camera.placement), so its view direction depends only on the tilt.
@@ -16,19 +17,38 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from hearth.sim.live.lift import ANKLE_Y, HEAD
 
 C270_FOV = 43.0  # degrees, vertical (55 degrees diagonal at 4:3)
-HEAD_FRACTION = 0.93  # nose / eyes height as a fraction of standing height
 MIN_FRAMES = 15
+# From one spot the camera's height and tilt trade off against each other (the answer can be
+# 0.6 m out); frames from around the room pin them down. Required spread of the low mark, in
+# image units, across and up/down the frame.
+MIN_SPREAD_U, MIN_SPREAD_V = 0.15, 0.05
 MAX_RMS = 0.025  # of the frame height (about 12 px at 480): a worse fit isn't trusted
 CAMERA_Z = -0.12  # the jetson preset's lens, just in front of the front wall
 
 
+# Body points usable as calibration marks, lowest first / highest first, with their height as a
+# fraction of standing height (from the standing template the avatar uses, hearth.sim.pose).
+LOW_MARKS = (("ankle", ("left_ankle", "right_ankle")), ("knee", ("left_knee", "right_knee")),
+             ("hip", ("left_hip", "right_hip")))  # fmt: skip
+HIGH_MARKS = (("eyes", ("left_eye", "right_eye")), ("nose", ("nose",)), ("ears", ("left_ear", "right_ear")),
+              ("neck", ("neck",)), ("shoulders", ("left_shoulder", "right_shoulder")))  # fmt: skip
+MIN_GAP = 0.25  # of standing height, between the two marks: closer marks constrain too little
+
+
+def _mark_height(names: tuple[str, ...]) -> float:
+    from hearth.sim.pose import KEY_POSES
+
+    return sum(KEY_POSES["standing"][n][1] for n in names) / len(names)
+
+
 @dataclass(frozen=True)
 class CalibrationFrame:
-    feet: tuple[float, float]  # (u, v): mid-ankle in the image
-    head: tuple[float, float]  # (u, v): nose, else mean of eyes / ears
+    low: tuple[float, float]  # (u, v) of the lowest mark seen (ankles, else knees, else hips)
+    low_frac: float  # its height, as a fraction of standing height
+    high: tuple[float, float]  # (u, v) of the highest mark seen (eyes, nose, ears, neck, shoulders)
+    high_frac: float
 
 
 @dataclass(frozen=True)
@@ -43,15 +63,21 @@ class Calibration:
 
 
 def frame_from(keypoints: list[tuple[str, float, float]]) -> CalibrationFrame | None:
-    """A usable frame has both ankles and a head point."""
+    """Two marks at known heights on a standing person, as far apart as the frame allows. The
+    Jetson's camera often cuts off the feet: knees or hips with the head work just as well."""
     pts = {n: (u, v) for n, u, v in keypoints}
-    if "left_ankle" not in pts or "right_ankle" not in pts:
+
+    def first(marks):
+        for _, names in marks:
+            if all(n in pts for n in names):
+                uv = (sum(pts[n][0] for n in names) / len(names), sum(pts[n][1] for n in names) / len(names))
+                return uv, _mark_height(names)
         return None
-    head = [pts[n] for n in (("nose",) if "nose" in pts else HEAD) if n in pts]
-    if not head:
+
+    low, high = first(LOW_MARKS), first(HIGH_MARKS)
+    if low is None or high is None or high[1] - low[1] < MIN_GAP:
         return None
-    feet = ((pts["left_ankle"][0] + pts["right_ankle"][0]) / 2, (pts["left_ankle"][1] + pts["right_ankle"][1]) / 2)
-    return CalibrationFrame(feet, (sum(p[0] for p in head) / len(head), sum(p[1] for p in head) / len(head)))
+    return CalibrationFrame(low[0], low[1], high[0], high[1])
 
 
 class _Pinhole:
@@ -80,20 +106,26 @@ class _Pinhole:
         return (0.5 + x / z / (2 * self.th), 0.5 - y / z / (2 * self.tv))
 
 
-def _error(cam: _Pinhole, frames: list[CalibrationFrame], head_y: float) -> float:
-    """Mean squared head-position error (frame-height units), or inf if the geometry fails."""
-    total = 0.0
+def _error(cam: _Pinhole, frames: list[CalibrationFrame], person_height: float) -> float:
+    """Mean squared error (frame-height units) of where the high mark should appear, given the
+    low mark's ray, over the best 80% of frames (a few bad detections don't spoil the fit)."""
+    errs = []
     for fr in frames:
-        d = cam.ray(*fr.feet)
-        if d[1] >= -1e-6:
-            return math.inf  # the feet ray never reaches the floor: this camera can't be right
-        s = (ANKLE_Y - cam.o[1]) / d[1]
-        foot = (cam.o[0] + d[0] * s, ANKLE_Y, cam.o[2] + d[2] * s)
-        q = cam.project((foot[0], head_y, foot[2]))
+        d = cam.ray(*fr.low)
+        low_y = fr.low_frac * person_height
+        if abs(d[1]) < 1e-6:
+            return math.inf
+        s = (low_y - cam.o[1]) / d[1]
+        if s <= 0.05:
+            return math.inf  # the low mark's ray never reaches its height: this camera can't be right
+        spot = (cam.o[0] + d[0] * s, cam.o[2] + d[2] * s)
+        q = cam.project((spot[0], fr.high_frac * person_height, spot[1]))
         if q is None:
             return math.inf
-        total += (q[1] - fr.head[1]) ** 2 + 0.25 * (q[0] - fr.head[0]) ** 2
-    return total / len(frames)
+        errs.append((q[1] - fr.high[1]) ** 2 + 0.25 * (q[0] - fr.high[0]) ** 2)
+    errs.sort()
+    kept = errs[: max(1, int(len(errs) * 0.8))]
+    return sum(kept) / len(kept)
 
 
 def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = C270_FOV,
@@ -101,15 +133,19 @@ def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = 
     """Best camera height (m) and tilt (degrees down) for these frames of a standing person."""
     if len(frames) < MIN_FRAMES:
         return Calibration(False, frames=len(frames), reason=(
-            f"only {len(frames)} usable frames (need {MIN_FRAMES}): stand still with your whole body, "
-            "head to feet, in view"))  # fmt: skip
-    head_y = HEAD_FRACTION * person_height
+            f"only {len(frames)} usable frames (need {MIN_FRAMES}): stay upright with your head and at least "
+            "your knees or hips in view"))  # fmt: skip
+    us, vs = [f.low[0] for f in frames], [f.low[1] for f in frames]
+    if max(us) - min(us) < MIN_SPREAD_U or max(vs) - min(vs) < MIN_SPREAD_V:
+        return Calibration(False, frames=len(frames), reason=(
+            "you stayed in one place: walk slowly around while it watches (left, right, nearer, further), "
+            "staying upright and in view"))  # fmt: skip
 
     def search(heights, tilts):
         best = (math.inf, None, None)
         for h in heights:
             for t in tilts:
-                e = _error(_Pinhole(h, t, fov, aspect), frames, head_y)
+                e = _error(_Pinhole(h, t, fov, aspect), frames, person_height)
                 if e < best[0]:
                     best = (e, h, t)
         return best
@@ -125,5 +161,5 @@ def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = 
     rms = math.sqrt(e)
     if rms > MAX_RMS:
         return Calibration(False, round(h, 2), round(t, 1), fov, len(frames), round(rms, 4),
-                           "the fit is poor: stand still and upright, whole body in view, and check your height")  # fmt: skip
+                           "the fit is poor: stand still and upright, facing the camera, and check the height you entered")  # fmt: skip
     return Calibration(True, round(h, 2), round(t, 1), fov, len(frames), round(rms, 4))

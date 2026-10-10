@@ -51,8 +51,26 @@ def test_too_few_frames_fails_with_a_reason():
     assert not got.ok and "frames" in got.reason
 
 
-def test_frames_without_feet_are_not_used():
-    assert frame_from([("nose", 0.5, 0.2), ("left_hip", 0.5, 0.6), ("right_hip", 0.52, 0.6)]) is None
+def test_standing_in_one_place_is_refused():
+    """From one spot, height and tilt trade off: a confident wrong answer is worse than none."""
+    frames = [f for f in (frame_from(k) for k in seen_frames(1.9, 29.0)) if f]
+    one_spot = [type(f)(frames[0].low, f.low_frac, frames[0].high, f.high_frac) for f in frames]
+    got = solve(one_spot, PERSON)
+    assert not got.ok and "walk" in got.reason
+
+
+def test_feet_are_not_needed():
+    """The Jetson's camera cut off the feet in every real frame: knees or hips with the head do."""
+    assert frame_from([("nose", 0.5, 0.2), ("left_hip", 0.5, 0.6), ("right_hip", 0.52, 0.6)]) is not None
+    assert frame_from([("nose", 0.5, 0.2), ("left_shoulder", 0.45, 0.3), ("right_shoulder", 0.55, 0.3)]) is None
+
+
+def test_recovers_the_camera_with_the_feet_out_of_view():
+    frames = [f for f in (frame_from([k for k in kps if "ankle" not in k[0]])
+                          for kps in seen_frames(1.75, 12.0)) if f]  # fmt: skip
+    got = solve(frames, PERSON)
+    assert got.ok, got.reason
+    assert got.height == pytest.approx(1.75, abs=0.08) and got.tilt == pytest.approx(12.0, abs=1.5)
 
 
 def test_calibrate_endpoint_applies_the_camera():
