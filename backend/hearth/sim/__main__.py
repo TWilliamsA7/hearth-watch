@@ -4,6 +4,7 @@
   python -m hearth.sim run possible-fall-01 [--seed 42] [--out DIR]
   python -m hearth.sim run --all
   python -m hearth.sim generate --people 3 --fall-rate 1 --seed 7 [--count 5] [--run]
+  python -m hearth.sim generate --people 2 --fall-rate 0 --collision-rate 1 --run
 """
 
 from __future__ import annotations
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     gen.add_argument("--responder-rate", type=float, default=GenSpec().responder_rate,
                      help="chance someone helps a faller who stays down")
     gen.add_argument("--outage-rate", type=float, default=GenSpec().outage_rate, help="chance of a camera outage")
+    gen.add_argument("--collision-rate", type=float, default=GenSpec().collision_rate,
+                     help="chance two people walk into each other (when nobody else falls)")
     gen.add_argument("--seed", type=int, default=0, help="first seed")
     gen.add_argument("--count", type=int, default=1, help="scenarios to generate, with consecutive seeds")
     gen.add_argument("--dir", default=DEFAULT_SCENARIOS_DIR / GENERATED_SUBDIR, help="where to write the YAML")
@@ -52,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "generate":
         spec = GenSpec(people=args.people, room=args.room, duration=args.duration, fall_rate=args.fall_rate,
                        recover_rate=args.recover_rate, responder_rate=args.responder_rate,
-                       outage_rate=args.outage_rate)  # fmt: skip
+                       outage_rate=args.outage_rate, collision_rate=args.collision_rate)  # fmt: skip
         for seed in range(args.seed, args.seed + args.count):
             sc = generate(spec, seed)
             path = save_scenario(sc, Path(args.dir) / f"{sc.scenario_id}.yaml")

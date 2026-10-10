@@ -69,7 +69,8 @@ def _range(text: str) -> tuple[int, int]:
 
 def _study(args: argparse.Namespace) -> int:
     base = GenSpec(duration=args.duration, fall_rate=args.fall_rate, recover_rate=args.recover_rate,
-                   responder_rate=args.responder_rate, outage_rate=args.outage_rate)  # fmt: skip
+                   responder_rate=args.responder_rate, outage_rate=args.outage_rate,
+                   collision_rate=args.collision_rate)  # fmt: skip
     plan = plan_study(base, count=args.count, people=_range(args.people), rooms=args.rooms, seed=args.seed,
                       sweep=args.sweep)  # fmt: skip
     print(f"Running {len(plan)} generated scenarios on {args.jobs} worker(s)...")
@@ -122,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     study.add_argument("--recover-rate", type=float, default=GenSpec().recover_rate)
     study.add_argument("--responder-rate", type=float, default=GenSpec().responder_rate)
     study.add_argument("--outage-rate", type=float, default=GenSpec().outage_rate)
+    study.add_argument("--collision-rate", type=float, default=GenSpec().collision_rate)
     study.add_argument("--seed", type=int, default=0, help="first scenario seed")
     study.add_argument("--sweep", action="store_true", help="equal runs per people x room x fall kind")
     study.add_argument("--jobs", type=int, default=1, help="worker processes")
