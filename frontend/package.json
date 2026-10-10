@@ -1,0 +1,14 @@
+{
+  "name": "hearth-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "generate:types": "node scripts/generate-types.mjs",
+    "build": "npm run generate:types && tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
+  "devDependencies": { "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "typescript": "^5.7.0", "vite": "^6.0.0", "json-schema-to-typescript": "^15.0.0" }
+}
