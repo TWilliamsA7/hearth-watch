@@ -20,6 +20,19 @@
           "title": "Outcome",
           "type": "string"
         },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resident the record concerns; None in single-person runs.",
+          "title": "Person Id"
+        },
         "segment_id": {
           "anyOf": [
             {
@@ -70,6 +83,7 @@
         "event_id",
         "t",
         "outcome",
+        "person_id",
         "segment_id",
         "truth_label",
         "delay"
@@ -145,6 +159,14 @@
           "title": "Duration",
           "type": "number"
         },
+        "people": {
+          "description": "Resident ids; empty for single-person runs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "People",
+          "type": "array"
+        },
         "alert_tolerance": {
           "title": "Alert Tolerance",
           "type": "number"
@@ -189,6 +211,7 @@
         "source",
         "start",
         "duration",
+        "people",
         "alert_tolerance",
         "counts",
         "detection_delays",
@@ -469,6 +492,19 @@
           "title": "Segment Id",
           "type": "string"
         },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resident the record concerns; None in single-person runs.",
+          "title": "Person Id"
+        },
         "truth_label": {
           "enum": [
             "walking",
@@ -561,6 +597,7 @@
       },
       "required": [
         "segment_id",
+        "person_id",
         "truth_label",
         "t_start",
         "t_end",
@@ -599,12 +636,26 @@
           ],
           "title": "Event Type",
           "type": "string"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resident the record concerns; None in single-person runs.",
+          "title": "Person Id"
         }
       },
       "required": [
         "event_id",
         "t",
-        "event_type"
+        "event_type",
+        "person_id"
       ],
       "title": "TimelineEvent",
       "type": "object"

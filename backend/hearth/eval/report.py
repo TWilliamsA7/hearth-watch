@@ -24,6 +24,7 @@ class _Model(BaseModel):
 
 class SegmentResult(_Model):
     segment_id: str
+    person_id: str | None = Field(default=None, description="Resident the record concerns; None in single-person runs.")
     truth_label: TruthLabel
     t_start: float
     t_end: float
@@ -38,6 +39,7 @@ class AlertResult(_Model):
     event_id: str
     t: float
     outcome: AlertOutcome
+    person_id: str | None = Field(default=None, description="Resident the record concerns; None in single-person runs.")
     segment_id: str | None
     truth_label: TruthLabel | None
     delay: float | None = None
@@ -49,6 +51,7 @@ class TimelineEvent(_Model):
     event_id: str
     t: float
     event_type: EventType
+    person_id: str | None = Field(default=None, description="Resident the record concerns; None in single-person runs.")
 
 
 class Counts(_Model):
@@ -67,6 +70,7 @@ class EvaluationReport(_Model):
     source: str
     start: datetime
     duration: float
+    people: list[str] = Field(default_factory=list, description="Resident ids; empty for single-person runs.")
     alert_tolerance: float
     counts: Counts
     detection_delays: list[float]

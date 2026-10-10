@@ -79,3 +79,38 @@ def test_summary_totals_and_labels():
     s = summarize(reports)
     assert (s.runs, s.counts.true_positives, s.counts.false_positives, s.counts.missed) == (2, 1, 1, 1)
     assert s.delay_median == 1.0 and s.false_positives_by_label == {"standing": 1}
+
+
+# --- several residents ---
+
+DAY = load_all()["day-room-01"].model_copy(update={"variation": Variation.none()}).ground_truth()
+P3_FALL = next(g for g in DAY if g.expects_alert)  # p3 falls at 10 s
+
+
+def pev(t, person_id, event_type="possible_fall"):
+    return ev(t, event_type, scenario_id="day-room-01").model_copy(update={"person_id": person_id})
+
+
+def test_alert_for_the_right_person_counts():
+    r = evaluate([pev(P3_FALL.t_start + 2, "p3")], DAY, SIM_EPOCH)
+    assert (r.counts.true_positives, r.counts.false_positives, r.counts.missed) == (1, 0, 0)
+    assert r.alerts[0].person_id == "p3" and r.people == ["p1", "p2", "p3", "p4"]
+
+
+def test_alert_for_the_wrong_person_is_a_false_alert_and_a_miss():
+    r = evaluate([pev(P3_FALL.t_start + 2, "p4")], DAY, SIM_EPOCH)
+    assert (r.counts.true_positives, r.counts.false_positives, r.counts.missed) == (0, 1, 1)
+    assert r.alerts[0].truth_label == "sitting"  # p4 was on the couch at the time
+
+
+def test_alert_without_a_person_cannot_be_attributed_in_a_crowd():
+    r = evaluate([pev(P3_FALL.t_start + 2, None)], DAY, SIM_EPOCH)
+    assert (r.counts.false_positives, r.counts.missed) == (1, 1)
+
+
+def test_person_not_visible_must_name_the_absent_person():
+    absent = next(g for g in DAY if g.person_id == "p2" and g.truth_label == "absent")
+    right = evaluate([pev(absent.t_start + 1, "p2", "person_not_visible")], DAY, SIM_EPOCH)
+    wrong = evaluate([pev(absent.t_start + 1, "p1", "person_not_visible")], DAY, SIM_EPOCH)
+    seg = lambda r: next(s for s in r.segments if s.segment_id == absent.segment_id)  # noqa: E731
+    assert seg(right).detected and not seg(wrong).detected

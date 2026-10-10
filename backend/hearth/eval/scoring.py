@@ -11,6 +11,8 @@ Rules:
   * Any other possible_fall alert is a false positive, attributed to the segment it
     happened in, so results read as "1 false alert during lying_intentional".
   * An alert-expected segment with no match is a missed event.
+  * With several residents, alerts and person-level checks only match truth for the
+    same person_id. Camera-level events (source_offline) match any resident.
   * Non-alert labels can carry a secondary expectation (camera_outage -> source_offline,
     absent -> person_not_visible), scored the same way but kept out of the alert counts.
 """
@@ -54,11 +56,17 @@ def _seconds(ts: datetime, start: datetime) -> float:
     return round((ts - start).total_seconds(), 6)
 
 
-def _segment_at(truth: list[GroundTruth], t: float) -> GroundTruth | None:
-    for gt in truth:
+SOURCE_LEVEL_EVENTS: frozenset[str] = frozenset({"source_offline", "source_online"})
+"""Events about the camera, not a person: they match truth for any resident."""
+
+
+def segment_at(truth: list[GroundTruth], t: float, person_id: str | None = None) -> GroundTruth | None:
+    """The truth segment for one person at scenario time t (the last one if t is past the end)."""
+    mine = [gt for gt in truth if gt.person_id == person_id]
+    for gt in mine:
         if gt.t_start <= t < gt.t_end:
             return gt
-    return truth[-1] if truth and t >= truth[-1].t_end else None
+    return mine[-1] if mine and t >= mine[-1].t_end else None
 
 
 def evaluate(
@@ -69,11 +77,15 @@ def evaluate(
     source: str = "sim",
     config: EvalConfig = EvalConfig(),
 ) -> EvaluationReport:
-    """Score one run. start = the run's virtual start time (scenario t = 0)."""
+    """Score one run. start = the run's virtual start time (scenario t = 0).
+
+    With several residents, an alert only counts for the person it names: an alert raised
+    for the wrong person_id is a false alert, and the real faller's segment is a miss.
+    """
     if not truth:
         raise ValueError("no ground truth segments")
     scenario_id, seed = truth[0].scenario_id, truth[0].seed
-    truth = sorted(truth, key=lambda gt: gt.t_start)
+    truth = sorted(truth, key=lambda gt: (gt.person_id or "", gt.t_start))
 
     relevant = sorted(
         (e for e in events if e.source == source and e.scenario_id in (None, scenario_id)),
@@ -89,24 +101,26 @@ def evaluate(
         if e.event_type != ALERT_EVENT:
             continue
         target = next(
-            (gt for gt in truth if gt.expects_alert and gt.t_start <= t <= gt.t_end + config.alert_tolerance),
+            (gt for gt in truth if gt.expects_alert and gt.person_id == e.person_id
+             and gt.t_start <= t <= gt.t_end + config.alert_tolerance),
             None,
-        )
+        )  # fmt: skip
         if target is None:
-            where = _segment_at(truth, t)
+            where = segment_at(truth, t, e.person_id)
             if where is not None:
                 fp_by_segment[where.segment_id] += 1
-            alerts.append(AlertResult(event_id=e.event_id, t=t, outcome="false_positive",
+            alerts.append(AlertResult(event_id=e.event_id, t=t, outcome="false_positive", person_id=e.person_id,
                                       segment_id=where and where.segment_id,
                                       truth_label=where and where.truth_label))  # fmt: skip
         elif target.segment_id in matched:
-            alerts.append(AlertResult(event_id=e.event_id, t=t, outcome="duplicate",
+            alerts.append(AlertResult(event_id=e.event_id, t=t, outcome="duplicate", person_id=e.person_id,
                                       segment_id=target.segment_id, truth_label=target.truth_label))  # fmt: skip
         else:
             delay = round(t - target.t_start, 3)
             matched[target.segment_id] = (e.event_id, delay)
             alerts.append(AlertResult(event_id=e.event_id, t=t, outcome="true_positive", delay=delay,
-                                      segment_id=target.segment_id, truth_label=target.truth_label))  # fmt: skip
+                                      person_id=e.person_id, segment_id=target.segment_id,
+                                      truth_label=target.truth_label))  # fmt: skip
 
     # Per segment, including secondary expectations.
     segments: list[SegmentResult] = []
@@ -120,12 +134,15 @@ def evaluate(
             if expected is not None:
                 hit = next(
                     ((e.event_id, round(t - gt.t_start, 3)) for t, e in timed
-                     if e.event_type == expected and gt.t_start <= t <= gt.t_end + config.check_tolerance),
+                     if e.event_type == expected
+                     and (expected in SOURCE_LEVEL_EVENTS or e.person_id == gt.person_id)
+                     and gt.t_start <= t <= gt.t_end + config.check_tolerance),
                     None,
                 )  # fmt: skip
         segments.append(
             SegmentResult(
                 segment_id=gt.segment_id,
+                person_id=gt.person_id,
                 truth_label=gt.truth_label,
                 t_start=gt.t_start,
                 t_end=gt.t_end,
@@ -145,7 +162,8 @@ def evaluate(
         seed=seed,
         source=source,
         start=start,
-        duration=truth[-1].t_end,
+        duration=max(gt.t_end for gt in truth),
+        people=sorted({gt.person_id for gt in truth if gt.person_id}),
         alert_tolerance=config.alert_tolerance,
         counts=Counts(
             expected_alerts=expected_alerts,
@@ -157,7 +175,8 @@ def evaluate(
         detection_delays=[delay for _, delay in matched.values()],
         segments=segments,
         alerts=alerts,
-        timeline=[TimelineEvent(event_id=e.event_id, t=t, event_type=e.event_type) for t, e in timed],
+        timeline=[TimelineEvent(event_id=e.event_id, t=t, event_type=e.event_type, person_id=e.person_id)
+                  for t, e in timed],  # fmt: skip
     )
 
 

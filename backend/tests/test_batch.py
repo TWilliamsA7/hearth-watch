@@ -77,3 +77,41 @@ def test_cli_scores_a_captured_websocket_log(tmp_path, capsys):
     assert main(["score", "--run", str(paths["run"]), "--events", str(log)]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["counts"]["true_positives"] == 1
+
+
+# --- several residents ---
+
+
+def test_each_person_gets_their_own_monitor_and_alerts_name_them():
+    report, events = evaluate_run(SCENARIOS["day-room-01"], None, stub_monitor.create_monitor)
+    falls = [e for e in events if e.event_type == "possible_fall"]
+    assert [e.person_id for e in falls] == ["p3"]
+    assert report.counts.true_positives == 1 and report.counts.false_positives == 0
+
+
+def test_one_monitor_for_a_whole_crowd_cannot_attribute_alerts():
+    """Why the adapter exists: a person-unaware monitor mixes everyone's keypoints together."""
+    report, _ = evaluate_run(SCENARIOS["day-room-01"], None, stub_monitor.create_monitor, per_person=False)
+    assert report.counts.true_positives == 0
+
+
+def test_camera_events_are_reported_once_not_per_person():
+    from datetime import timedelta
+
+    from hearth.eval.batch import PerPersonMonitor
+    from hearth.sim.generator import SIM_EPOCH
+    from hearth_schema.models import Event, Observation
+
+    class Loud:
+        def ingest(self, item):
+            return []
+
+        def advance_to(self, now):
+            return [Event(event_id=f"x-{id(self)}", timestamp=now, source="sim", source_type="simulation",
+                          room_id="room-01", event_type="source_offline")]
+
+    m = PerPersonMonitor(Loud)
+    for pid in ("p1", "p2", "p3"):
+        m.ingest(Observation(obs_id=pid, timestamp=SIM_EPOCH, source="sim", source_type="simulation",
+                             room_id="room-01", person_id=pid, person_detected=True))
+    assert len(m.advance_to(SIM_EPOCH + timedelta(seconds=5))) == 1

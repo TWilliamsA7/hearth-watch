@@ -14,6 +14,10 @@ MonitorLike:
 Time is always taken from the records, never the wall clock, so a 30 s scenario scores
 in milliseconds and gives the same answer every time. Each run gets its own monitor,
 so no state leaks between runs.
+
+Several residents: until the monitor tracks people itself (keyed by person_id), the
+PerPersonMonitor adapter gives each person their own monitor instance. A monitor that
+already handles person_id works through the adapter unchanged.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ from typing import Protocol
 from hearth_schema.models import Event, Heartbeat, Observation
 
 from hearth.eval.report import EvaluationReport, EvaluationSummary
-from hearth.eval.scoring import EvalConfig, evaluate
+from hearth.eval.scoring import SOURCE_LEVEL_EVENTS, EvalConfig, evaluate
 from hearth.sim.runner import SimRun, run_headless
 from hearth.sim.scenario import Scenario
 
@@ -42,6 +46,54 @@ class MonitorLike(Protocol):
 
 
 MonitorFactory = Callable[[], MonitorLike]
+
+
+class PerPersonMonitor:
+    """One monitor per person_id, behind a single MonitorLike.
+
+    * Observations for a person go to that person's monitor; its events get their person_id.
+    * "Nobody visible" observations (no person_id) and heartbeats go to every monitor.
+    * Camera-level events (source_offline / source_online) are reported once, not per person.
+    A single-person stream (person_id always None) uses exactly one monitor, as before.
+    """
+
+    def __init__(self, factory: MonitorFactory) -> None:
+        self._factory = factory
+        self._monitors: dict[str | None, MonitorLike] = {}
+        self._source_events: set[tuple[str, str, datetime]] = set()
+
+    def _for(self, person_id: str | None) -> MonitorLike:
+        if person_id not in self._monitors:
+            self._monitors[person_id] = self._factory()
+        return self._monitors[person_id]
+
+    def _targets(self, item: Observation | Heartbeat) -> list[tuple[str | None, MonitorLike]]:
+        if isinstance(item, Observation) and item.person_id is not None:
+            return [(item.person_id, self._for(item.person_id))]
+        if not self._monitors:
+            self._for(None)
+        return list(self._monitors.items())
+
+    def _collect(self, person_id: str | None, events: Iterable[Event]) -> list[Event]:
+        out = []
+        for e in events:
+            if e.event_type in SOURCE_LEVEL_EVENTS:
+                key = (e.source, e.event_type, e.timestamp)
+                if key in self._source_events:
+                    continue
+                self._source_events.add(key)
+                out.append(e.model_copy(update={"person_id": None}))
+            elif e.person_id is None and person_id is not None:
+                out.append(e.model_copy(update={"person_id": person_id}))
+            else:
+                out.append(e)
+        return out
+
+    def ingest(self, item: Observation | Heartbeat) -> list[Event]:
+        return [e for pid, m in self._targets(item) for e in self._collect(pid, m.ingest(item))]
+
+    def advance_to(self, now: datetime) -> list[Event]:
+        return [e for pid, m in list(self._monitors.items()) for e in self._collect(pid, m.advance_to(now))]
 
 
 def load_monitor_factory(spec: str = DEFAULT_MONITOR) -> MonitorFactory:
@@ -81,10 +133,17 @@ def drive(run: SimRun, monitor: MonitorLike, *, tail: float = 5.0, tick: float =
 
 
 def evaluate_run(
-    scenario: Scenario, seed: int | None, factory: MonitorFactory, config: EvalConfig = EvalConfig()
+    scenario: Scenario,
+    seed: int | None,
+    factory: MonitorFactory,
+    config: EvalConfig = EvalConfig(),
+    *,
+    per_person: bool = True,
 ) -> tuple[EvaluationReport, list[Event]]:
+    """per_person=False hands the whole stream to one monitor (for a monitor that tracks people itself)."""
     run = run_headless(scenario, seed)
-    events = drive(run, factory(), tail=max(config.alert_tolerance, config.check_tolerance) + 1.0)
+    monitor = PerPersonMonitor(factory) if per_person else factory()
+    events = drive(run, monitor, tail=max(config.alert_tolerance, config.check_tolerance) + 1.0)
     return evaluate(events, run.ground_truth, run.start, config=config), events
 
 
