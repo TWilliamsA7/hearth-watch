@@ -284,6 +284,14 @@ about an hour for all videos).
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py --final-test  # the locked 20% test: once, at the end
 ```
 
+**"Unknown"**: the model may decline to answer, when the torso isn't visible (no shoulder or no
+hip: the edge's `torso_visible` rule; with only a head nobody can tell standing from lying) or
+when its top probability (softmax) is under the cut-off (`--min-conf`, default 0.70, saved in
+the model file). After training, and with `--test-only`, a table on **validation** shows each
+cut-off's trade-off: how often it decides vs how often it's right then. Pick the cut-off there,
+never on the test. Field-test timelines show `?` for unknown; reports give "decided on X%,
+right on Y% of those".
+
 `--final-test` prints accuracy and a confusion table for test real people and test synthetic
 clips, and appends a line to `D:\hearth-data\test_log.txt`; it says which run this is. Report
 that number; don't tune on it (every look makes it less honest).

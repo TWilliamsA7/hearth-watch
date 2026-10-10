@@ -15,6 +15,10 @@ Input: D:\\hearth-data\\keypoints.npz from 05_extract_keypoints.py. Built in par
            with --test-only.
   --final-test - the locked 20%: scored once, when development is finished. Every run is
            logged in test_log.txt, so it's visible how often the test was looked at.
+  "unknown" - the model may decline to answer: when the torso isn't visible (no shoulder or no
+           hip, the edge's torso_visible rule) or when its top probability is under --min-conf.
+           Reports then give two numbers: how often it decides, and how often it's right then.
+           The cut-off is chosen on VALIDATION (a table of cut-offs is printed), never on test.
 """
 
 import argparse
@@ -302,10 +306,68 @@ def progress_line(epoch, epochs):
 
 
 def confusion_table(confusion):
-    lines = ["              predicted: " + "".join("%9s" % c for c in CLASSES)]
+    columns = CLASSES + (["unknown"] if confusion.shape[1] == 4 else [])
+    lines = ["              predicted: " + "".join("%9s" % c for c in columns)]
     for c, row in zip(CLASSES, confusion):
         lines.append("  actually %-8s     " % c + "".join("%9d" % v for v in row))
     return "\n".join(lines)
+
+
+# --- "unknown": deciding not to answer --------------------------------------------------------
+
+UNSURE_BELOW = 0.7       # default cut-off: top probability under this -> "unknown"
+SHOULDERS, HIPS = [5, 6], [11, 12]     # COCO indices
+
+
+def decide(scores, x, min_conf):
+    """Network scores + its inputs -> a class per frame, or -1 = unknown.
+
+    softmax turns the 3 raw scores into probabilities that add up to 1 (e.g. 0.92 / 0.05 /
+    0.03). Unknown when the top one is under min_conf, or when the torso isn't visible: with
+    only a head (or no head and no hips) nobody can tell standing from lying, so a guess there
+    is just noise.
+    """
+    probability = torch.softmax(scores, dim=1)
+    confidence, predicted = probability.max(dim=1)
+    found = x.view(-1, 17, 3)[:, :, 2] > 0.5           # the "found" flags inside the input
+    torso = found[:, SHOULDERS].any(dim=1) & found[:, HIPS].any(dim=1)
+    predicted[(confidence < min_conf) | ~torso] = -1
+    return predicted
+
+
+def collect(model, loader, device):
+    """Run a DataLoader through the model once: (scores, inputs, labels) for every frame."""
+    model.eval()
+    scores, inputs, labels = [], [], []
+    with torch.no_grad():
+        for x, y in loader:
+            scores.append(model(x.to(device)).cpu())
+            inputs.append(x)
+            labels.append(y)
+    return torch.cat(scores), torch.cat(inputs), torch.cat(labels)
+
+
+def decided_report(predicted, labels):
+    """(share decided, accuracy when decided, per-class accuracy when decided, 3x4 confusion)."""
+    predicted, labels = predicted.numpy(), labels.numpy()
+    confusion = np.zeros((3, 4), dtype=np.int64)
+    np.add.at(confusion, (labels, np.where(predicted < 0, 3, predicted)), 1)
+    decided = confusion[:, :3]
+    coverage = decided.sum() / max(confusion.sum(), 1)
+    accuracy = decided.diagonal().sum() / max(decided.sum(), 1)
+    per_class = decided.diagonal() / np.maximum(decided.sum(axis=1), 1)
+    return coverage, accuracy, per_class, confusion
+
+
+def cutoff_table(scores, inputs, labels):
+    """How the cut-off trades answering often against being right (on validation)."""
+    print("choosing the cut-off on validation (real people):")
+    print("   cut-off   decides on   right when deciding   (upright / sitting / floor)")
+    for cut in (0.0, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95):
+        coverage, accuracy, per_class, _ = decided_report(decide(scores, inputs, cut), labels)
+        print("   %5.2f      %5.1f%%         %5.1f%%            (%3.0f%% / %3.0f%% / %3.0f%%)"
+              % (cut, 100 * coverage, 100 * accuracy, *(100 * per_class)))
+    print("   (0.00 = torso rule only)")
 
 
 # --- part 3: the real test, on our own Jetson recordings -------------------------------------
@@ -341,16 +403,18 @@ def load_recording(path):
     return np.array(xys), np.array(founds), np.array(times)
 
 
-def test_on_recordings(model, folder, device):
-    """Per clip: how many frames the model got right, and a timeline (one letter per frame,
-    U upright / S sitting / F floor, . = getting down, not scored). Then the overall table."""
+def test_on_recordings(model, folder, device, min_conf=UNSURE_BELOW):
+    """Per clip: how often the model decided, how often it was right then, and a timeline (one
+    letter per frame: U upright / S sitting / F floor / ? unknown, . = getting down, not scored).
+    Then the overall table."""
     clips = sorted(Path(folder).glob("*.jsonl"))
     if not clips:
         print("no recordings in %s (they come with git pull)" % folder)
         return
     model.eval()
-    confusion = np.zeros((3, 3), dtype=np.int64)
+    all_predicted, all_truth = [], []
     print("\nOUR JETSON RECORDINGS (poseNet, our camera) - the model has never seen these:")
+    print("  (cut-off %.2f; decided = frames it answered, right = of those)" % min_conf)
     for clip in clips:
         kind = clip.name.split("-")[0]
         if kind not in CLIP_LABEL:
@@ -360,23 +424,28 @@ def test_on_recordings(model, folder, device):
             continue
         x = torch.from_numpy(np.stack([features(a, f, JETSON_ASPECT) for a, f in zip(xy, found)]))
         with torch.no_grad():
-            predicted = model(x.to(device)).argmax(dim=1).cpu().numpy()
+            predicted = decide(model(x.to(device)).cpu(), x, min_conf).numpy()
         truth = CLIP_LABEL[kind]
         scored = t >= LIE_SKIP_S if kind == "lie_down" else np.ones(len(t), bool)
-        np.add.at(confusion, (np.full(scored.sum(), truth), predicted[scored]), 1)
-        right = (predicted[scored] == truth).mean() if scored.any() else 0.0
-        timeline = "".join("USF"[p] if s else "." for p, s in zip(predicted, scored))
-        print("  %-32s %-8s %4d frames  %3.0f%% right  %s"
-              % (clip.name, CLASSES[truth], scored.sum(), 100 * right, timeline[::3]))
-    per_class = confusion.diagonal() / np.maximum(confusion.sum(axis=1), 1)
-    print("overall: %.0f%% of %d frames right, balanced %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
-          % (100 * confusion.diagonal().sum() / max(confusion.sum(), 1), confusion.sum(),
-             100 * per_class.mean(), *(100 * per_class)))
+        p = predicted[scored]
+        all_predicted.append(p)
+        all_truth.append(np.full(len(p), truth))
+        decided = p >= 0
+        right = (p[decided] == truth).mean() if decided.any() else 0.0
+        timeline = "".join(("USF?"[q] if s else ".") for q, s in zip(predicted, scored))
+        print("  %-32s %-8s %4d frames  decided %3.0f%%  right %3.0f%%  %s"
+              % (clip.name, CLASSES[truth], scored.sum(), 100 * decided.mean() if len(p) else 0,
+                 100 * right, timeline[::3]))
+    coverage, accuracy, per_class, confusion = decided_report(
+        torch.from_numpy(np.concatenate(all_predicted)), torch.from_numpy(np.concatenate(all_truth)))
+    print("overall: decided on %.0f%% of %d frames; right on %.0f%% of those, balanced %.0f%% "
+          "(upright %.0f%% sitting %.0f%% floor %.0f%%)"
+          % (100 * coverage, confusion.sum(), 100 * accuracy, 100 * per_class.mean(), *(100 * per_class)))
     print(confusion_table(confusion))
     print("(timelines show every 3rd frame, ~0.3 s per letter)")
 
 
-def final_test(model, out, measure, device):
+def final_test(model, out, measure, device, min_conf):
     """The locked 20%: score the saved model on test people, log it, and say how often it ran."""
     saved = torch.load(out, map_location=device)
     model.load_state_dict(saved["state_dict"])
@@ -389,11 +458,17 @@ def final_test(model, out, measure, device):
     for name, title in (("test", "real people"), ("test_syn", "synthetic clips")):
         if name not in measure:
             continue
-        _, acc, per_class, confusion = run_epoch(model, measure[name], loss_fn, device)
-        print("\n%s: %.0f%% right, balanced %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
+        _, acc, per_class, _ = run_epoch(model, measure[name], loss_fn, device)
+        print("\n%s, always answering: %.0f%% right, balanced %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
               % (title, 100 * acc, 100 * per_class.mean(), *(100 * per_class)))
+        scores, inputs, labels = collect(model, measure[name], device)
+        coverage, d_acc, d_class, confusion = decided_report(decide(scores, inputs, min_conf), labels)
+        print("%s, with unknown (cut-off %.2f): decides on %.0f%%, right on %.0f%% of those, "
+              "balanced %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
+              % (title, min_conf, 100 * coverage, 100 * d_acc, 100 * d_class.mean(), *(100 * d_class)))
         print(confusion_table(confusion))
-        line.append("%s %.1f%% balanced %.1f%%" % (name, 100 * acc, 100 * per_class.mean()))
+        line.append("%s %.1f%% balanced %.1f%% | with unknown @%.2f: decides %.1f%% right %.1f%%"
+                    % (name, 100 * acc, 100 * per_class.mean(), min_conf, 100 * coverage, 100 * d_acc))
     with open(log, "a") as fh:
         fh.write(" | ".join(line) + "\n")
     print("\nlogged in %s" % log)
@@ -411,6 +486,8 @@ def main():
     ap.add_argument("--test-only", action="store_true", help="part 3 only: field-test the saved model")
     ap.add_argument("--final-test", action="store_true",
                     help="score the saved model on the LOCKED test people (logged; do this last)")
+    ap.add_argument("--min-conf", type=float, default=None,
+                    help="cut-off for 'unknown' (default: the saved model's, else %.2f)" % UNSURE_BELOW)
     ap.add_argument("--recordings", type=Path, default=Path("recordings"),
                     help="our Jetson clips (default: the repo's recordings folder)")
     ap.add_argument("--no-chart", action="store_true", help="no live chart window")
@@ -434,13 +511,17 @@ def main():
     device = torch.device(args.device)
     model = PostureNet().to(device)            # weights move to the GPU
     out = args.out or args.data.parent / "posture_mlp.pt"
-    if args.test_only:
-        model.load_state_dict(torch.load(out, map_location=device)["state_dict"])
-        test_on_recordings(model, args.recordings, device)
+    if args.test_only or args.final_test:
+        saved = torch.load(out, map_location=device)
+        model.load_state_dict(saved["state_dict"])
+        min_conf = args.min_conf if args.min_conf is not None else saved.get("min_conf", UNSURE_BELOW)
+        if args.final_test:
+            final_test(model, out, measure, device, min_conf)
+            return
+        cutoff_table(*collect(model, val_loader, device))
+        test_on_recordings(model, args.recordings, device, min_conf)
         return
-    if args.final_test:
-        final_test(model, out, measure, device)
-        return
+    min_conf = args.min_conf if args.min_conf is not None else UNSURE_BELOW
     weights = class_weights(train.labels)
     loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
     # AdamW: a gradient-descent variant that adapts the step size per weight; weight_decay
@@ -470,6 +551,7 @@ def main():
             torch.save({"state_dict": model.state_dict(), "classes": CLASSES,
                         "found_conf": FOUND_CONF, "min_found": MIN_FOUND, "epoch": epoch,
                         "val_balanced_acc": balanced, "split_file": str(info["split_file"]),
+                        "min_conf": min_conf, "unknown_rule": "no shoulder or no hip, or top probability < min_conf",
                         "features": "17 COCO keypoints x (dx, dy, found); see features()"}, out)
             mark = "  <- best so far, saved"
         print("\r  epoch %2d/%d  train loss %.3f acc %.0f%% | val loss %.3f acc %.0f%% "
@@ -489,8 +571,13 @@ def main():
         _, syn_acc, syn_class, _ = run_epoch(model, measure["val_syn"], loss_fn, device)
         print("validation synthetic clips: %.0f%% (upright %.0f%% sitting %.0f%% floor %.0f%%)"
               % (100 * syn_acc, *(100 * syn_class)))
+    scores, inputs, labels = collect(model, val_loader, device)
+    cutoff_table(scores, inputs, labels)
+    coverage, d_acc, d_class, confusion = decided_report(decide(scores, inputs, min_conf), labels)
+    print("validation with unknown (cut-off %.2f): decides on %.0f%%, right on %.0f%% of those\n%s"
+          % (min_conf, 100 * coverage, 100 * d_acc, confusion_table(confusion)))
     print("(the locked test set was not touched; --final-test scores it once you're done)")
-    test_on_recordings(model, args.recordings, device)
+    test_on_recordings(model, args.recordings, device, min_conf)
     if chart.plt is not None:
         print("curves saved to %s. Close the chart window to finish." % curves)
         chart.plt.ioff()
