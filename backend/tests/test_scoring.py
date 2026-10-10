@@ -3,11 +3,17 @@ from datetime import timedelta
 import pytest
 from hearth.eval.scoring import EvalConfig, evaluate, summarize
 from hearth.sim.generator import SIM_EPOCH
-from hearth.sim.scenario import load_all
+from hearth.sim.scenario import Variation, load_all
 from hearth_schema.models import Event
 
-FALL = load_all()["possible-fall-01"].ground_truth()  # walking 0-6, standing 6-12, fall 12-30
-OUTAGE = load_all()["camera-outage-01"].ground_truth()  # camera_outage 7-15
+
+
+def nominal_truth(scenario_id):
+    return load_all()[scenario_id].model_copy(update={"variation": Variation.none()}).ground_truth()
+
+
+FALL = nominal_truth("possible-fall-01")  # walking 0-6, standing 6-12, fall 12-30
+OUTAGE = nominal_truth("camera-outage-01")  # camera_outage 7-15
 
 
 def ev(t, event_type="possible_fall", source="sim", scenario_id="possible-fall-01", n=[0]):
@@ -44,7 +50,7 @@ def test_repeat_alerts_are_duplicates_not_false_positives():
 
 
 def test_tolerance_after_segment_end():
-    truth = load_all()["possible-fall-01"].ground_truth()
+    truth = nominal_truth("possible-fall-01")
     truth[-1] = truth[-1].model_copy(update={"t_end": 20.0})
     assert evaluate([ev(22.0)], truth, SIM_EPOCH, config=EvalConfig(alert_tolerance=3.0)).counts.true_positives == 1
     assert evaluate([ev(24.0)], truth, SIM_EPOCH, config=EvalConfig(alert_tolerance=3.0)).counts.false_positives == 1

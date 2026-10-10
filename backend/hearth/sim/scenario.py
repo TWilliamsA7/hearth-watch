@@ -3,11 +3,17 @@
 A scenario is an ordered list of segments. Each segment becomes exactly one GroundTruth
 record, so the script and the truth can never drift apart. All scene coordinates are
 normalized to the simulated camera frame: (0, 0) top-left, (1, 1) bottom-right.
+
+The file holds nominal values. Each seed realizes its own variant (Scenario.realize):
+segment timing, transition speed and positions vary within the scenario's declared
+bounds, so evaluating several seeds tests several different performances of the same
+script, not just different sensor noise on one.
 """
 
 from __future__ import annotations
 
 import os
+import random
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -47,6 +53,18 @@ class Scene(_Model):
     person_height: Unit = Field(default=0.62, description="Standing height as a fraction of frame height.")
     frame_aspect: float = Field(default=4 / 3, gt=0.0, description="Simulated camera width / height.")
     objects: list[SceneObject] = Field(default_factory=list)
+
+
+class Variation(_Model):
+    """How much each seed may deviate from the nominal script (all +/-)."""
+
+    duration: Unit = Field(default=0.10, description="Fraction of each segment's duration.")
+    transition: Unit = Field(default=0.20, description="Fraction of each transition's length.")
+    position: Unit = Field(default=0.03, description="Frame x for on-screen positions.")
+
+    @classmethod
+    def none(cls) -> Variation:
+        return cls(duration=0.0, transition=0.0, position=0.0)
 
 
 class Segment(_Model):
@@ -93,7 +111,35 @@ class Scenario(_Model):
     start_x: float = 0.5
     start_facing: Facing = "camera"
     scene: Scene = Field(default_factory=Scene)
+    variation: Variation = Field(default_factory=Variation)
     segments: list[Segment] = Field(min_length=1)
+
+    def realize(self, seed: int | None = None) -> Scenario:
+        """The concrete variant for one seed, with variation already applied (and zeroed)."""
+        seed = self.seed if seed is None else seed
+        v = self.variation
+        if v == Variation.none():
+            return self.model_copy(update={"seed": seed})
+        # String seeds hash deterministically (unlike hash()), and keep this stream
+        # independent of the generator's perception-noise stream.
+        rng = random.Random(f"{self.scenario_id}/{seed}")
+
+        def scale(value: float, amount: float) -> float:
+            return round(value * (1.0 + rng.uniform(-amount, amount)), 3)
+
+        def shift(x: float | None) -> float | None:
+            if x is None or not 0.0 <= x <= 1.0:  # off-screen entry/exit points stay put
+                return x
+            return round(min(max(x + rng.uniform(-v.position, v.position), 0.0), 1.0), 4)
+
+        segments = []
+        for seg in self.segments:
+            duration = scale(seg.duration, v.duration)
+            transition = min(scale(seg.transition, v.transition), duration)
+            segments.append(seg.model_copy(update={"duration": duration, "transition": transition, "x": shift(seg.x)}))
+        return self.model_copy(
+            update={"seed": seed, "start_x": shift(self.start_x), "segments": segments, "variation": Variation.none()}
+        )
 
     @property
     def duration(self) -> float:
@@ -108,7 +154,12 @@ class Scenario(_Model):
         return times
 
     def ground_truth(self, seed: int | None = None) -> list[GroundTruth]:
-        seed = self.seed if seed is None else seed
+        """Ground truth for one seed's realized variant."""
+        realized = self.realize(seed)
+        return realized._segment_truth()
+
+    def _segment_truth(self) -> list[GroundTruth]:
+        seed = self.seed
         return [
             GroundTruth(
                 scenario_id=self.scenario_id,

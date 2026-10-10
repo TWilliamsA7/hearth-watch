@@ -23,7 +23,7 @@ DEFAULT_OUT_DIR = Path(__file__).resolve().parents[3] / "recordings" / "sim"
 
 @dataclass(frozen=True)
 class SimRun:
-    scenario: Scenario
+    scenario: Scenario  # realized for this seed: its timings match ground_truth
     seed: int
     start: datetime
     items: list[Observation | Heartbeat]
@@ -42,7 +42,7 @@ def run_headless(
     scenario: Scenario, seed: int | None = None, *, start: datetime = SIM_EPOCH, noise: NoiseConfig | None = None
 ) -> SimRun:
     gen = ObservationGenerator(scenario, seed, start=start, noise=noise)
-    return SimRun(scenario, gen.seed, start, list(gen.stream()), scenario.ground_truth(gen.seed))
+    return SimRun(gen.scenario, gen.seed, start, list(gen.stream()), scenario.ground_truth(gen.seed))
 
 
 def stream_line(item: Observation | Heartbeat) -> str:

@@ -93,8 +93,8 @@ class ObservationGenerator:
         noise: NoiseConfig | None = None,
         source: str = SOURCE,
     ) -> None:
-        self.scenario = scenario
         self.seed = scenario.seed if seed is None else seed
+        self.scenario = scenario.realize(self.seed)  # timings for this seed; ground truth uses the same
         self.start = start
         self.noise = noise or NoiseConfig()
         self.source = source

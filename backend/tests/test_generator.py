@@ -60,7 +60,7 @@ def test_figure_moves_continuously(scenario):
     gen = ObservationGenerator(scenario, noise=NoiseConfig.off())
     prev = None
     for _, t, i in gen.frame_times():
-        pose = gen.pose_at(i, t - scenario.segment_times()[i][0])
+        pose = gen.pose_at(i, t - gen.scenario.segment_times()[i][0])
         if prev is not None:
             jump = max(abs(pose[j][0] - prev[j][0]) + abs(pose[j][1] - prev[j][1]) for j in pose)
             assert jump < 0.2, f"t={t:.2f}s joint jump {jump:.3f}"
