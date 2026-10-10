@@ -241,10 +241,26 @@ Training randomly hides keypoints to make up for it, and the test set is our own
 hurts a lot: run the extraction on the Jetson with poseNet itself (identical keypoints to live,
 about an hour for all videos).
 
-### Step 6b onward
+### Step 6b: `06_train.py`
 
-- A hand-written PyTorch `Dataset`, network (`nn.Module`) and training loop on CUDA; test
-  accuracy and a confusion table on our recordings.
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --show-data   # part 1: what the network is fed
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py               # part 2: train (30 epochs, live chart)
+```
+
+- Part 1 (data): each frame -> 51 numbers (17 keypoints x dx, dy, found; aspect ratio undone,
+  centred on the body, scaled by its size), split **by person** (validation = GMDCSA24 person 4,
+  Le2i persons 3 and 5), a `Dataset` that augments training frames (hidden keypoints, mirroring,
+  jitter) and a `DataLoader` serving shuffled batches of 256.
+- Part 2 (training): `PostureNet` (51 -> 64 -> 64 -> 3, 7,683 weights), class-weighted
+  cross-entropy (training is ~52% upright), AdamW. Each epoch: forward, loss, `backward()`,
+  optimizer step for every batch, then a measurement on the unseen people. Shows a progress line,
+  a summary per epoch and a live chart; keeps the epoch with the best **balanced** accuracy in
+  `C:\hearth-data\posture_mlp.pt`, curves in `training_curves.png`, then prints a confusion table.
+
+### Step 6c onward
+
+- Test on our own Jetson recordings (real poseNet output) with a confusion table.
 - Export to ONNX; a network this small runs on the Jetson with plain numpy in under 1 ms.
 
 Both datasets are research data: credit them, don't build a product on them (Le2i is

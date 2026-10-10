@@ -3,17 +3,21 @@
     .\\.venv-pc\\Scripts\\python.exe edge\\pc\\06_train.py
 
 Input: C:\\hearth-data\\keypoints.npz from 05_extract_keypoints.py. Built in parts:
-  part 1 (this file so far) - DATA: keypoints -> network inputs, split by person, Dataset and
-                              DataLoader that hand out shuffled batches
-  part 2                    - the network (nn.Module) and the training loop, with live progress
-  part 3                    - evaluation on held-out people and on our own Jetson recordings
+  part 1 - DATA: keypoints -> network inputs, split by person, Dataset and DataLoader that
+           hand out shuffled batches  (--show-data prints what the network is fed, then stops)
+  part 2 - the network (nn.Module) and the training loop, with live progress: a line per batch,
+           a summary per epoch, a chart window that redraws every epoch; saves the best model to
+           C:\\hearth-data\\posture_mlp.pt and the curves to training_curves.png
+  part 3 - (next) evaluation on our own Jetson recordings, export for the Jetson
 """
 
 import argparse
+import time
 from pathlib import Path
 
 import numpy as np
 import torch
+from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 # --- part 1: data ---------------------------------------------------------------------------
@@ -122,20 +126,187 @@ def show_data(train, val, info, loader):
           % (CLASSES[y[0]], dict(zip(CLASSES, np.bincount(y.numpy(), minlength=3).tolist()))))
 
 
+# --- part 2: the network and the training loop ---------------------------------------------
+
+class PostureNet(nn.Module):
+    """51 numbers in -> 3 scores out (one per class; the highest wins).
+
+    nn.Module is PyTorch's base class for anything with learnable weights. __init__ creates the
+    layers; forward() says how data flows through them. nn.Linear(a, b) is a b x a weight matrix
+    plus b biases: every output is a weighted sum of every input. ReLU (max(0, x)) between them
+    lets the network learn bends, not just straight lines. Dropout switches off a random 20% of
+    the 64 values during training only, so no single one can be relied on (less memorising).
+    51*64+64 + 64*64+64 + 64*3+3 = 7,683 weights: tiny on purpose, it has to run on the Jetson.
+    """
+
+    def __init__(self, inputs=51, hidden=64, classes=3, dropout=0.2):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(inputs, hidden), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(hidden, classes))
+
+    def forward(self, x):
+        return self.layers(x)          # raw scores ("logits"); softmax would turn them into %
+
+
+def class_weights(labels):
+    """Rarer classes count more in the loss: weight = (frames per class on average) / (this class's
+    frames). Training is ~52% upright; unweighted, "always upright" would already score 52%."""
+    counts = np.bincount(labels, minlength=3).astype(np.float32)
+    return torch.tensor(counts.sum() / (3 * counts))
+
+
+def run_epoch(model, loader, loss_fn, device, optimizer=None, progress=None):
+    """One pass over a DataLoader. With an optimizer it trains; without, it only measures.
+    Returns (mean loss, accuracy, per-class accuracy, confusion matrix)."""
+    training = optimizer is not None
+    model.train(training)              # switches Dropout on (train) or off (measure)
+    total_loss, confusion = 0.0, np.zeros((3, 3), dtype=np.int64)
+    with torch.set_grad_enabled(training):     # no gradient bookkeeping when only measuring
+        for i, (x, y) in enumerate(loader, 1):
+            x, y = x.to(device), y.to(device)  # the batch moves to the GPU
+            scores = model(x)                  # 1. forward: 256 x 3 scores
+            loss = loss_fn(scores, y)          # 2. loss: how wrong, as one number
+            if training:
+                optimizer.zero_grad()          # 3. forget the previous batch's gradients
+                loss.backward()                # 4. backward: d(loss)/d(weight) for all 7,683
+                optimizer.step()               # 5. nudge every weight downhill
+            total_loss += loss.item() * len(y)
+            predicted = scores.argmax(dim=1)
+            np.add.at(confusion, (y.cpu().numpy(), predicted.cpu().numpy()), 1)
+            if progress:
+                progress(i, len(loader), loss.item())
+    n = confusion.sum()
+    per_class = confusion.diagonal() / np.maximum(confusion.sum(axis=1), 1)
+    return total_loss / max(n, 1), confusion.diagonal().sum() / max(n, 1), per_class, confusion
+
+
+class LiveChart(object):
+    """A window with loss and accuracy curves, redrawn after every epoch."""
+
+    def __init__(self, enabled):
+        self.plt = None
+        if not enabled:
+            return
+        import matplotlib.pyplot as plt
+        self.plt = plt
+        plt.ion()                              # interactive: draw without blocking the script
+        self.fig, (self.ax_loss, self.ax_acc) = plt.subplots(1, 2, figsize=(11, 4.5))
+        self.fig.canvas.manager.set_window_title("Hearth posture training")
+
+    def update(self, history):
+        if self.plt is None:
+            return
+        epochs = range(1, len(history["train_loss"]) + 1)
+        for ax, key, title in ((self.ax_loss, "loss", "loss (lower is better)"),
+                               (self.ax_acc, "acc", "accuracy (higher is better)")):
+            ax.clear()
+            ax.plot(epochs, history["train_" + key], "o-", label="train (augmented)")
+            ax.plot(epochs, history["val_" + key], "o-", label="validation (unseen people)")
+            ax.set_title(title)
+            ax.set_xlabel("epoch")
+            ax.grid(alpha=0.3)
+            ax.legend()
+        self.ax_acc.set_ylim(0, 1)
+        self.fig.tight_layout()
+        self.plt.pause(0.05)                   # lets the window redraw
+
+    def save(self, path):
+        if self.plt is not None:
+            self.fig.savefig(path, dpi=120)
+
+
+def progress_line(epoch, epochs):
+    def show(i, n, loss):
+        bar = "#" * (20 * i // n)
+        print("\r  epoch %2d/%d [%-20s] batch %3d/%d  loss %.3f" % (epoch, epochs, bar, i, n, loss),
+              end="", flush=True)
+    return show
+
+
+def confusion_table(confusion):
+    lines = ["              predicted: " + "".join("%9s" % c for c in CLASSES)]
+    for c, row in zip(CLASSES, confusion):
+        lines.append("  actually %-8s     " % c + "".join("%9d" % v for v in row))
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Train the upright/sitting/floor classifier.")
     ap.add_argument("--data", default=r"C:\hearth-data\keypoints.npz", type=Path)
+    ap.add_argument("--out", type=Path, help="model file (default: next to --data, posture_mlp.pt)")
     ap.add_argument("--batch", type=int, default=256, help="frames per batch")
+    ap.add_argument("--epochs", type=int, default=30, help="passes over the training data")
+    ap.add_argument("--lr", type=float, default=1e-3, help="learning rate (step size)")
     ap.add_argument("--drop", type=float, default=0.2, help="chance of hiding each keypoint (training)")
+    ap.add_argument("--show-data", action="store_true", help="part 1 only: print a batch, then stop")
+    ap.add_argument("--no-chart", action="store_true", help="no live chart window")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
+    torch.manual_seed(0)                       # same starting weights every run: comparable runs
 
     train, val, info = load_splits(args.data, args.drop)
     # DataLoader: asks the Dataset for `batch` random items and stacks them into one tensor.
     # shuffle=True: a new random order every epoch, so batches never repeat the same mix.
     # num_workers=0: build batches in this process (simplest; Windows-safe).
     loader = DataLoader(train, batch_size=args.batch, shuffle=True, num_workers=0)
-    show_data(train, val, info, loader)
-    print("\npart 1 (data) works. Part 2 adds the network and the training loop.")
+    val_loader = DataLoader(val, batch_size=1024, shuffle=False, num_workers=0)
+    if args.show_data:
+        show_data(train, val, info, loader)
+        return
+
+    device = torch.device(args.device)
+    model = PostureNet().to(device)            # weights move to the GPU
+    weights = class_weights(train.labels)
+    loss_fn = nn.CrossEntropyLoss(weight=weights.to(device))
+    # AdamW: a gradient-descent variant that adapts the step size per weight; weight_decay
+    # gently pulls weights toward 0 (another guard against memorising).
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    print("device %s | %d weights | train %d frames, val %d | class weights %s"
+          % (device, sum(p.numel() for p in model.parameters()), len(train), len(val),
+             dict(zip(CLASSES, [round(float(w), 2) for w in weights]))))
+
+    out = args.out or args.data.parent / "posture_mlp.pt"
+    chart = LiveChart(not args.no_chart)
+    history = {k: [] for k in ("train_loss", "train_acc", "val_loss", "val_acc")}
+    best = (-1.0, 0)
+    for epoch in range(1, args.epochs + 1):
+        start = time.time()
+        tr_loss, tr_acc, _, _ = run_epoch(model, loader, loss_fn, device, optimizer,
+                                          progress_line(epoch, args.epochs))
+        va_loss, va_acc, va_class, confusion = run_epoch(model, val_loader, loss_fn, device)
+        for k, v in (("train_loss", tr_loss), ("train_acc", tr_acc), ("val_loss", va_loss),
+                     ("val_acc", va_acc)):
+            history[k].append(v)
+        # "Balanced" accuracy (mean of the three per-class accuracies) picks the best epoch, so
+        # being good at the common class can't hide being bad at a rare one.
+        balanced = float(va_class.mean())
+        mark = ""
+        if balanced > best[0]:
+            best = (balanced, epoch)
+            torch.save({"state_dict": model.state_dict(), "classes": CLASSES,
+                        "found_conf": FOUND_CONF, "min_found": MIN_FOUND, "epoch": epoch,
+                        "val_balanced_acc": balanced, "val_people": sorted(VAL_PEOPLE),
+                        "features": "17 COCO keypoints x (dx, dy, found); see features()"}, out)
+            mark = "  <- best so far, saved"
+        print("\r  epoch %2d/%d  train loss %.3f acc %.0f%% | val loss %.3f acc %.0f%% "
+              "(upright %.0f%% sitting %.0f%% floor %.0f%%)  %.1f s%s"
+              % (epoch, args.epochs, tr_loss, 100 * tr_acc, va_loss, 100 * va_acc,
+                 *(100 * va_class), time.time() - start, mark))
+        chart.update(history)
+
+    curves = out.parent / "training_curves.png"
+    chart.save(curves)
+    model.load_state_dict(torch.load(out, map_location=device)["state_dict"])
+    _, va_acc, va_class, confusion = run_epoch(model, val_loader, loss_fn, device)
+    print("\nbest epoch %d: validation %.0f%% (balanced %.0f%%), saved to %s"
+          % (best[1], 100 * va_acc, 100 * best[0], out))
+    print("on the unseen people, frame counts:\n" + confusion_table(confusion))
+    if chart.plt is not None:
+        print("curves saved to %s. Close the chart window to finish." % curves)
+        chart.plt.ioff()
+        chart.plt.show()
 
 
 if __name__ == "__main__":
