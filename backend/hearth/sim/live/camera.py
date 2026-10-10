@@ -64,6 +64,10 @@ def placement(room: Room, spec: CameraSpec) -> tuple[Vec3, Vec3]:
         return (w / 2 - 0.15, h, -0.15), look
     if spec.preset == "front":
         return (0.0, h, -0.12), (0.0, 0.5, -d * 0.6)
+    if spec.preset == "jetson":
+        # The Jetson's mount: centre of the front wall, tilted down, aimed `reach` metres in.
+        reach = min(spec.reach, d - 0.2)
+        return (0.0, h, -0.12), (0.0, h - reach * math.tan(math.radians(spec.tilt)), -0.12 - reach)
     return (0.0, room.height - 0.05, -d / 2 + 0.001), (0.0, 0.0, -d / 2)  # ceiling, looking straight down
 
 
@@ -114,6 +118,13 @@ class Camera:
         if z < 0.05:
             return None
         return (0.5 + _dot(d, self.right) / z / (2 * self.tan_h), 0.5 - _dot(d, self.up) / z / (2 * self.tan_v), z)
+
+    def ray(self, u: float, v: float) -> Vec3:
+        """The inverse of project(): the direction through image point (u, v), scaled so its
+        forward component is 1, so position + ray * depth is the point at that depth."""
+        a, b = (2 * u - 1) * self.tan_h, (1 - 2 * v) * self.tan_v
+        f, r, up = self.forward, self.right, self.up
+        return (f[0] + a * r[0] + b * up[0], f[1] + a * r[1] + b * up[1], f[2] + a * r[2] + b * up[2])
 
     def blocked(self, p: Vec3) -> bool:
         """Does a piece of furniture stand between the lens and p?"""
