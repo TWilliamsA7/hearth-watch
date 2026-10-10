@@ -275,6 +275,19 @@
           "default": null,
           "title": "Run Id"
         },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Anonymous per-session track id of the person the event concerns (e.g. 'p1'). Not an identity. None = single-person source.",
+          "title": "Person Id"
+        },
         "event_type": {
           "enum": [
             "possible_fall",
@@ -321,6 +334,7 @@
         "room_id",
         "scenario_id",
         "run_id",
+        "person_id",
         "event_type",
         "confidence",
         "metadata"
@@ -545,6 +559,19 @@
           "description": "Unique replay/run id; change on reset.",
           "title": "Run Id"
         },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Anonymous per-session track id when a source reports several people (e.g. 'p1'). Not an identity. None = single-person source.",
+          "title": "Person Id"
+        },
         "person_detected": {
           "title": "Person Detected",
           "type": "boolean"
@@ -634,6 +661,7 @@
         "room_id",
         "scenario_id",
         "run_id",
+        "person_id",
         "person_detected",
         "keypoints",
         "features",

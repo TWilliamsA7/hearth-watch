@@ -42,6 +42,7 @@ export type Event = {
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
+  "person_id": string | null;
   "event_type": "possible_fall" | "recovered" | "person_visible" | "person_not_visible" | "face_present" | "face_absent" | "source_offline" | "source_online" | "alert_acknowledged" | "alert_resolved" | "help_requested";
   "confidence": number | null;
   "metadata": Record<string, unknown>;
@@ -57,6 +58,7 @@ export type GroundTruth = {
   "scenario_id": string;
   "seed": number;
   "segment_id": string;
+  "person_id": string | null;
   "t_start": number;
   "t_end": number;
   "truth_label": "walking" | "standing" | "sitting" | "bending" | "lying_intentional" | "fall" | "occluded" | "camera_outage" | "absent";
@@ -138,6 +140,7 @@ export type Observation = {
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
+  "person_id": string | null;
   "person_detected": boolean;
   "keypoints": Array<Keypoint> | null;
   "features": PostureFeatures | null;
