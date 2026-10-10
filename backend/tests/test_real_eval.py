@@ -154,3 +154,33 @@ def test_cli_scores_a_live_session_export_by_start_time(clips, tmp_path, capsys)
     assert main(["score", "--start", rec.start.isoformat(), "--truth", str(truth_path(clips["fall"])),
                  "--events", str(export), "--source", "jetson-01"]) == 0
     assert json.loads(capsys.readouterr().out)["counts"]["true_positives"] == 1
+
+
+def test_fall_model_recording_scores_like_any_clip(tmp_path):
+    """hearth.perception.cli --record on a video: model posture predictions, no keypoints."""
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+    from hearth.perception.cli import Recorder
+    from hearth.perception.fall_model import ModelSettings, prediction_from_detections
+    from hearth_schema import Observation
+
+    settings = ModelSettings.load()
+    start = datetime(2026, 10, 10, 15, 0, tzinfo=timezone.utc)
+    context = dict(source="fall-model-01", source_type="replay", room_id="room-01", run_id="video-1")
+    path = tmp_path / "video-fall.jsonl"
+    recorder = Recorder(path)
+    for i in range(60):  # 12 s at 5 fps: standing 4 s, then fallen
+        label = "Standing" if i < 20 else "Fallen"
+        box = [200, 80, 300, 460] if i < 20 else [100, 330, 500, 460]
+        prediction = prediction_from_detections([dict(label=label, confidence=0.9, xyxy=box)], 640, 480, settings)
+        recorder.write(Observation(obs_id=str(uuid4()), timestamp=start + timedelta(seconds=i / 5),
+                                   person_detected=True, posture_prediction=prediction, face_present=None,
+                                   **context), context, {"fps": 5.0, "inference_ms": 80.0})
+    recorder.close()
+    write_truth(truth_path(path), truth("video-fall", [(0, 4, "standing"), (4, 12, "fall")]))
+
+    rec = load_recording(path)
+    assert rec.source == "fall-model-01" and any(type(i).__name__ == "Heartbeat" for i in rec.items)
+    result = evaluate_recording(rec)
+    assert result.report.counts.true_positives == 1 and result.report.counts.false_positives == 0

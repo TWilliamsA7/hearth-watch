@@ -23,6 +23,35 @@ def post(base, endpoint, body):
         return json.load(response)
 
 
+class Recorder:
+    """Writes observations and ~1 Hz heartbeats as JSONL envelopes, stamped on record time.
+
+    The file is what python -m hearth.eval real (and the room view's recorded feed) read:
+    {"type": "observation" | "heartbeat", "data": {...}} per line."""
+
+    def __init__(self, path):
+        from hearth_schema import Heartbeat
+        self._heartbeat_model = Heartbeat
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = self.path.open("w", encoding="utf-8")
+        self._last_beat = None
+
+    def write(self, observation, context, metrics):
+        if self._last_beat is None or (observation.timestamp - self._last_beat).total_seconds() >= 1:
+            beat = self._heartbeat_model(timestamp=observation.timestamp, fps=metrics.get("fps"),
+                                         inference_ms=metrics.get("inference_ms"), **context)
+            self._line("heartbeat", beat)
+            self._last_beat = observation.timestamp
+        self._line("observation", observation)
+
+    def _line(self, kind, model):
+        self._file.write(json.dumps({"type": kind, "data": model.model_dump(mode="json")}) + "\n")
+
+    def close(self):
+        self._file.close()
+
+
 def main(argv=None):
     config = ModelSettings.load()
     parser = argparse.ArgumentParser(description=__doc__)
@@ -43,6 +72,8 @@ def main(argv=None):
     parser.add_argument("--video-fps", type=float, help="Override missing/incorrect video FPS metadata")
     parser.add_argument("--preview", action="store_true", help="Show local annotated video; Q closes it")
     parser.add_argument("--dry-run", action="store_true", help="Print observations without contacting backend")
+    parser.add_argument("--record", type=Path, help="Also write observations and heartbeats to this JSONL file "
+                        "(score it with python -m hearth.eval real). With --dry-run --video, runs as fast as possible")
     parser.add_argument("--hand-gestures", action="store_true", help="Also classify hand gestures on the same frames")
     parser.add_argument("--hand-weights", type=Path, default=Path("models/hand-gesture/gesture.pt"))
     parser.add_argument("--posture-enhancement", choices=["none", "clahe"], default="clahe",
@@ -123,6 +154,7 @@ def main(argv=None):
     if not args.dry_run:
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
+    recorder = Recorder(args.record) if args.record else None
     processed, frame_index = 0, -1
     last_warning = float("-inf")
     started = time.monotonic()
@@ -156,6 +188,8 @@ def main(argv=None):
                 observation.hand_gesture_prediction = hand_prediction(hand_result, hand_config)
             processed += 1
             metrics["fps"] = processed / max(time.monotonic()-started, .001)
+            if recorder is not None:
+                recorder.write(observation, context, metrics)
             if args.dry_run:
                 print(observation.model_dump_json(), flush=True)
             else:
@@ -192,10 +226,14 @@ def main(argv=None):
                     break
             if args.image or (args.max_frames is not None and processed >= args.max_frames):
                 break
-            time.sleep(max(0, 1/args.max_fps - (time.monotonic()-tick)))
+            if not (recorder is not None and args.dry_run and args.video):  # offline: no real-time pacing
+                time.sleep(max(0, 1/args.max_fps - (time.monotonic()-tick)))
     except KeyboardInterrupt:
         pass
     finally:
+        if recorder is not None:
+            recorder.close()
+            print(f"Recorded {processed} observations to {recorder.path}", file=sys.stderr)
         stop.set()
         if thread:
             thread.join(timeout=3)
