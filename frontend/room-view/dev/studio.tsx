@@ -84,6 +84,16 @@ interface LinkStatus {
   posture: string | null;
   label: string | null;
   alert_open: boolean;
+  camera: { preset: string; height: number; tilt: number; fov: number } | null;
+}
+
+interface CalibrateResult {
+  ok: boolean;
+  frames: number;
+  height: number | null;
+  tilt: number | null;
+  rms: number | null;
+  reason: string;
 }
 
 // Sources that send keypoints (the fall model sends none, so it can't be placed in the room).
@@ -138,6 +148,8 @@ function Studio() {
   const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
   const [liveHeight, setLiveHeight] = useState(1.7);
   const [showReal, setShowReal] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+  const [calibration, setCalibration] = useState<CalibrateResult | null>(null);
   const { feed, log, alertPersonIds } = useMonitorFeed(link?.enabled ? link.source : null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -211,6 +223,23 @@ function Studio() {
   useEffect(() => {
     if (link?.enabled) setLinkSource(link.source);
   }, [link?.enabled, link?.source]);
+  const calibrate = () =>
+    run(async () => {
+      setCalibrating(true);
+      setCalibration(null);
+      try {
+        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { seconds: 3, height: liveHeight });
+        setCalibration(r);
+        if (r.ok && r.height != null && r.tilt != null) {
+          setPreset("jetson");
+          setCamHeight(r.height);
+          setCamTilt(r.tilt);
+          setCamFov(43);
+        }
+      } finally {
+        setCalibrating(false);
+      }
+    });
   const setLinkEnabled = (enabled: boolean, source = linkSource, height = liveHeight) =>
     run(() => api<LinkStatus>("/sim/live/link", { enabled, source, height }).then(setLink));
   const liveOnly = () =>
@@ -297,13 +326,16 @@ function Studio() {
           <Slider label="Furniture" value={density} min={0} max={1} step={0.05} onChange={setDensity} fmt={(v) => `${Math.round(v * 100)}%`} />
           <div className="row">
             <label>Camera</label>
-            <select value={preset} onChange={(e) => setPreset(e.target.value as typeof preset)}>
+            <select value={preset} onChange={(e) => { const v = e.target.value as typeof preset; setPreset(v); if (v === "jetson") setCamFov(43); }}>
               <option value="corner_left">Corner (left)</option>
               <option value="corner_right">Corner (right)</option>
               <option value="front">Front wall</option>
               <option value="ceiling">Ceiling</option>
               <option value="jetson">Jetson mount</option>
             </select>
+            {preset === "jetson" && camFov !== 43 && (
+              <button title="Logitech C270: 43° vertical" onClick={() => setCamFov(43)}>C270 lens</button>
+            )}
           </div>
           <Slider label="Camera height" value={camHeight} min={1.0} max={3.2} step={0.05} onChange={setCamHeight} fmt={(v) => `${v.toFixed(2)} m`} />
           {preset === "jetson" && (
@@ -340,7 +372,21 @@ function Studio() {
               {link?.enabled ? "Unlink" : "Link into this room"}
             </button>
             <button onClick={liveOnly}>Live only (empty room)</button>
+            <button disabled={!link?.enabled || calibrating} onClick={calibrate}
+              title="Stand still, upright, whole body (head to feet) in view">
+              {calibrating ? "Calibrating… hold still" : "Calibrate camera"}
+            </button>
           </div>
+          {calibration && (
+            <p className="hint" style={{ color: calibration.ok ? "var(--ok)" : "var(--alert)" }}>
+              {calibration.ok
+                ? `Camera set: ${calibration.height?.toFixed(2)} m up, tilted ${calibration.tilt?.toFixed(1)}° (fit ±${Math.round((calibration.rms ?? 0) * 480)} px, ${calibration.frames} frames)`
+                : `Calibration failed: ${calibration.reason}`}
+            </p>
+          )}
+          {link?.camera && (
+            <p className="hint">Simulated camera: {link.camera.preset}, {link.camera.height.toFixed(2)} m, tilt {link.camera.tilt.toFixed(1)}°, fov {Math.round(link.camera.fov)}°</p>
+          )}
           {link?.enabled && (
             <p className="hint">
               {link.state === "live" ? `In the room: ${link.label ?? link.posture}${link.alert_open ? " · ALERT OPEN" : ""}`

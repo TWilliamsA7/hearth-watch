@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 IncidentKind = Literal["fall", "inactivity", "pacing", "exit_loiter"]
 FallMotion = Literal["trip", "faint", "collapse", "sit_miss", "stand_up"]
@@ -41,6 +41,13 @@ class CameraSpec(_Model):
     reach: Annotated[float, Field(gt=0.5, le=12.0)] = Field(
         default=3.5, description="Preset 'jetson': metres into the room where the view centre is aimed."
     )
+
+    @model_validator(mode="after")
+    def _jetson_lens(self) -> CameraSpec:
+        # The Jetson's Logitech C270 sees about 43 degrees vertically (55 diagonal at 4:3), not 62.
+        if self.preset == "jetson" and "fov" not in self.model_fields_set:
+            object.__setattr__(self, "fov", 43.0)
+        return self
 
 
 class IncidentSpec(_Model):

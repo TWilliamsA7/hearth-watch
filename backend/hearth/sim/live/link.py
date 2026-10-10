@@ -15,6 +15,7 @@ monitor, and ground truth never reaches it.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Literal
 
@@ -25,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hearth.monitor.detector import track_key
 from hearth.sim.live.controller import LiveController
 from hearth.sim.live.avatar import LiveAvatar
+from hearth.sim.live.calibrate import C270_FOV, CalibrationFrame, frame_from, solve
 from hearth.sim.live.lift import LiftedBody
 
 # No fresh frame for this long: the person is shown as gone. The Jetson pauses for a few
@@ -50,6 +52,30 @@ class LinkRequest(BaseModel):
     height: float = Field(default=1.7, ge=1.2, le=2.1, description="The person's height in metres (sets depth).")
 
 
+class CameraInfo(BaseModel):
+    preset: str
+    height: float
+    tilt: float
+    fov: float
+
+
+class CalibrateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    seconds: float = Field(default=3.0, ge=1.0, le=15.0, description="How long to watch the person standing still.")
+    height: float = Field(default=1.7, ge=1.2, le=2.1, description="The person's height in metres.")
+
+
+class CalibrateResult(BaseModel):
+    ok: bool
+    frames: int
+    height: float | None = None
+    tilt: float | None = None
+    fov: float | None = None
+    rms: float | None = Field(default=None, description="Fit error, as a fraction of the frame height.")
+    reason: str = ""
+    camera: CameraInfo | None = Field(default=None, description="The simulated camera now in use.")
+
+
 class LinkStatus(BaseModel):
     enabled: bool
     source: str
@@ -59,6 +85,7 @@ class LinkStatus(BaseModel):
     posture: str | None = None
     label: str | None = None
     alert_open: bool = False
+    camera: CameraInfo | None = None
 
 
 class LiveLink:
@@ -103,7 +130,43 @@ class LiveLink:
             state = "live" if self._present else "stale"
         return LinkStatus(enabled=self.enabled, source=self.source, state=state, person_id=self.person_id,
                           last_seen=self._last_seen, posture=self._posture if self._present else None,
-                          label=self._label if self._present else None, alert_open=self.alert_open)  # fmt: skip
+                          label=self._label if self._present else None, alert_open=self.alert_open,
+                          camera=self._camera())  # fmt: skip
+
+    def _camera(self) -> CameraInfo | None:
+        w = self.controller.world
+        if w is None:
+            return None
+        c = w.spec.camera
+        return CameraInfo(preset=c.preset, height=c.height, tilt=c.tilt, fov=w.camera.fov)
+
+    async def calibrate(self, req: CalibrateRequest) -> CalibrateResult:
+        """Watch the linked person standing still, work out the real camera's height and tilt,
+        and use them for the simulated camera."""
+        loop = asyncio.get_running_loop()
+        frames: list[CalibrationFrame] = []
+        seen: set[str] = set()
+        end = loop.time() + req.seconds
+        while loop.time() < end:
+            obs = self._latest()
+            if obs is not None and obs.obs_id not in seen and obs.keypoints and self._fresh():
+                seen.add(obs.obs_id)
+                if (f := frame_from([(k.name, k.x, k.y) for k in obs.keypoints])) is not None:
+                    frames.append(f)
+            await asyncio.sleep(0.05)
+        result = await asyncio.to_thread(solve, frames, req.height, fov=C270_FOV)
+        out = CalibrateResult(ok=result.ok, frames=result.frames, height=result.height, tilt=result.tilt,
+                              fov=result.fov, rms=result.rms, reason=result.reason)  # fmt: skip
+        w = self.controller.world
+        if result.ok and w is not None and result.height is not None and result.tilt is not None:
+            spec = w.spec.camera.model_copy(update={"preset": "jetson", "height": result.height,
+                                                    "tilt": result.tilt, "fov": result.fov})  # fmt: skip
+            w.set_camera(spec)
+            self.height = req.height
+            self.avatar = LiveAvatar(req.height)  # positions were measured with the old camera
+            self.controller.announce_world()
+        out.camera = self._camera()
+        return out
 
     # --- every tick ---
 
@@ -173,6 +236,15 @@ def create_link_router(link: LiveLink) -> APIRouter:
     @router.get("/live/link", response_model=LinkStatus)
     async def link_status() -> LinkStatus:
         return link.status()
+
+    @router.post("/live/link/calibrate", response_model=CalibrateResult)
+    async def link_calibrate(body: CalibrateRequest) -> CalibrateResult:
+        """Stand still, whole body in view: works out the real camera's height and tilt."""
+        if link.controller.world is None:
+            raise HTTPException(409, "generate a room first (POST /sim/live/new)")
+        if not link.enabled:
+            raise HTTPException(409, "link a live source first (POST /sim/live/link)")
+        return await link.calibrate(body)
 
     @router.post("/live/link", response_model=LinkStatus)
     async def link_configure(body: LinkRequest) -> LinkStatus:

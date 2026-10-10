@@ -53,7 +53,7 @@ def test_standing_body_lands_where_it_stood(camera, x, z, heading):
 
 
 def test_body_on_the_floor_lies_on_the_floor(camera):
-    truth = body(KEY_POSES["side_lying"], 0.4, 0.5, -3.0, 0.0, HEIGHT)
+    truth = body(KEY_POSES["side_lying"], 0.4, 0.5, -3.8, 0.0, HEIGHT)  # in view of every preset (the C270 sees floor from ~2.6 m)
     got = lift(seen(camera, truth), camera, ROOM, height=HEIGHT, posture="floor")
     assert got is not None
     assert all(p[1] < 0.5 for p in got.joints.values())

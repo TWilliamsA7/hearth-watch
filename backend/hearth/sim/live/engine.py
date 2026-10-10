@@ -54,7 +54,7 @@ from hearth.sim.live.models import (
 )
 from hearth.sim.live.room import LEGACY_KIND, Room, generate_room
 from hearth.sim.live.social import Social, waiting
-from hearth.sim.live.spec import EngineSpec
+from hearth.sim.live.spec import CameraSpec, EngineSpec
 from hearth.sim.live.truth import TruthRecorder
 
 DT = 0.05
@@ -156,6 +156,12 @@ class World:
         e.posture = posture if posture in ("standing", "sitting", "lying", "floor") else "standing"  # type: ignore[assignment]
         e.live_label, e.seen_at = label, seen_at
         return e
+
+    def set_camera(self, spec: CameraSpec) -> None:
+        """Swap the simulated camera (e.g. after calibrating it against the real one), in place."""
+        self.spec = self.spec.model_copy(update={"camera": spec})
+        self.camera = Camera(self.room, spec)
+        self.observer.camera = self.camera
 
     def remove_external(self, source: str) -> None:
         self.externals.pop(f"live-{source}", None)

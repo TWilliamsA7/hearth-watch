@@ -114,6 +114,11 @@ class LiveController:
             self._ensure_task()  # keep ticking while paused, for the live link
         return world
 
+    def announce_world(self) -> None:
+        """Send the room again (e.g. after the camera changed) to everyone watching."""
+        if self.world is not None:
+            self._broadcast("world", self.world.live_world(self.run_id or "").model_dump_json())
+
     def keep_running(self) -> None:
         """Tick even before play(), so tick hooks run and frames go out (the live link)."""
         if self.world is not None:
