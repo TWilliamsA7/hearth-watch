@@ -16,11 +16,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "1"
 
-SourceType = Literal["edge", "simulation", "replay"]
+SourceType = Literal["edge", "simulation", "replay", "manual"]
 """edge = live Jetson; simulation = simulator; replay = recorded trace played back."""
 
 # poseNet resnet18-body / COCO-18 keypoint names.
@@ -56,7 +56,10 @@ EventType = Literal[
     "source_online",
     "alert_acknowledged",
     "alert_resolved",
+    "help_requested",
 ]
+
+AlertKind = Literal["possible_fall", "help_requested", "source_offline"]
 
 TruthLabel = Literal[
     "walking",
@@ -104,6 +107,37 @@ class PostureFeatures(_Model):
     )
 
 
+class BoundingBox(_Model):
+    x1: Unit
+    y1: Unit
+    x2: Unit
+    y2: Unit
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.x2 <= self.x1 or self.y2 <= self.y1:
+            raise ValueError("Bounding box must have positive width and height")
+        return self
+
+
+class PosturePrediction(_Model):
+    model_id: str
+    model_revision: str
+    label: Literal["standing", "sitting", "fallen", "unknown"]
+    confidence: Unit | None = None
+    bbox: BoundingBox | None = None
+    detection_count: int = Field(ge=0)
+    uncertainty_reason: Literal["no_detection", "multiple_people", "unsupported_label"] | None = None
+
+    @model_validator(mode="after")
+    def require_single_detection(self):
+        if self.label != "unknown" and (self.detection_count != 1 or self.confidence is None or self.bbox is None):
+            raise ValueError("A posture label requires one detection, a confidence and a bounding box")
+        if self.label != "unknown" and self.uncertainty_reason is not None:
+            raise ValueError("An uncertain detection must use the unknown label")
+        return self
+
+
 class Observation(_Model):
     schema_version: Literal["1"] = SCHEMA_VERSION
     obs_id: str
@@ -116,6 +150,7 @@ class Observation(_Model):
     person_detected: bool
     keypoints: list[Keypoint] | None = None
     features: PostureFeatures | None = None
+    posture_prediction: PosturePrediction | None = None
     face_present: bool | None = Field(
         default=None, description="None = face detection did not run on this frame."
     )
@@ -180,6 +215,9 @@ class SourceStatus(_Model):
     last_seen: datetime | None = None
     last_observation_at: datetime | None = None
     observation_stale: bool = True
+    posture: Literal["standing", "sitting", "fallen", "unknown"] = "unknown"
+    posture_confidence: Unit | None = None
+    posture_model: str | None = None
     fps: float | None = None
     inference_ms: float | None = None
     mem_used_mb: float | None = None
@@ -188,6 +226,7 @@ class SourceStatus(_Model):
 class Alert(_Model):
     alert_id: str
     event_id: str
+    kind: AlertKind = "possible_fall"
     source: str
     source_type: SourceType
     room_id: str
@@ -199,7 +238,36 @@ class Alert(_Model):
     acknowledged_at: AwareDatetime | None = None
     resolved_at: AwareDatetime | None = None
     recovered_at: AwareDatetime | None = None
+    accepted_by: str | None = None
+    accepted_by_name: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NursePreferences(_Model):
+    display_name: str = Field(min_length=1, max_length=80)
+    room_ids: list[str] = Field(min_length=1, max_length=100)
+    alert_kinds: list[AlertKind] = Field(min_length=1, max_length=3)
+    on_duty: bool = True
+
+
+class NurseProfile(NursePreferences):
+    nurse_id: str
+
+
+class NurseAction(_Model):
+    nurse_id: str
+
+
+class HelpRequest(_Model):
+    request_id: str = Field(min_length=1, max_length=128)
+    room_id: str
+
+
+class NurseSnapshot(_Model):
+    nurse: NurseProfile
+    alerts: list[Alert]
+    events: list[Event]
+    sources: list[SourceStatus]
 
 
 class RoomSnapshot(_Model):
@@ -233,7 +301,12 @@ class AlertMessage(_Model):
     data: Alert
 
 
+class NurseSnapshotMessage(_Model):
+    type: Literal["nurse_snapshot"] = "nurse_snapshot"
+    data: NurseSnapshot
+
+
 ServerMessage = Annotated[
-    Union[ObservationMessage, EventMessage, SourceStatusMessage, AlertMessage],
+    Union[ObservationMessage, EventMessage, SourceStatusMessage, AlertMessage, NurseSnapshotMessage],
     Field(discriminator="type"),
 ]

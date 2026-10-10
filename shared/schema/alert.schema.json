@@ -9,6 +9,16 @@
       "title": "Event Id",
       "type": "string"
     },
+    "kind": {
+      "default": "possible_fall",
+      "enum": [
+        "possible_fall",
+        "help_requested",
+        "source_offline"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
     "source": {
       "title": "Source",
       "type": "string"
@@ -17,7 +27,8 @@
       "enum": [
         "edge",
         "simulation",
-        "replay"
+        "replay",
+        "manual"
       ],
       "title": "Source Type",
       "type": "string"
@@ -113,6 +124,30 @@
       "default": null,
       "title": "Recovered At"
     },
+    "accepted_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accepted By"
+    },
+    "accepted_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accepted By Name"
+    },
     "metadata": {
       "additionalProperties": true,
       "title": "Metadata",
@@ -122,6 +157,7 @@
   "required": [
     "alert_id",
     "event_id",
+    "kind",
     "source",
     "source_type",
     "room_id",
@@ -133,6 +169,8 @@
     "acknowledged_at",
     "resolved_at",
     "recovered_at",
+    "accepted_by",
+    "accepted_by_name",
     "metadata"
   ],
   "title": "Alert",

@@ -9,7 +9,8 @@
       "enum": [
         "edge",
         "simulation",
-        "replay"
+        "replay",
+        "manual"
       ],
       "title": "Source Type",
       "type": "string"
@@ -77,6 +78,43 @@
       "title": "Observation Stale",
       "type": "boolean"
     },
+    "posture": {
+      "default": "unknown",
+      "enum": [
+        "standing",
+        "sitting",
+        "fallen",
+        "unknown"
+      ],
+      "title": "Posture",
+      "type": "string"
+    },
+    "posture_confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Posture Confidence"
+    },
+    "posture_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Posture Model"
+    },
     "fps": {
       "anyOf": [
         {
@@ -124,6 +162,9 @@
     "last_seen",
     "last_observation_at",
     "observation_stale",
+    "posture",
+    "posture_confidence",
+    "posture_model",
     "fps",
     "inference_ms",
     "mem_used_mb"

@@ -23,7 +23,16 @@ class Zone(BaseModel):
 class MonitorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     room_id: str = "room-01"
+    additional_room_ids: list[str] = Field(default_factory=list)
+    gesture_hold_seconds: float = Field(default=2, gt=0)
+    gesture_release_seconds: float = Field(default=1, gt=0)
+    gesture_cooldown_seconds: float = Field(default=10, ge=0)
+    gesture_keypoint_confidence_min: float = Field(default=.5, gt=0, le=1)
+    gesture_raise_margin: float = Field(default=.08, gt=0, le=1)
     floor_hold_seconds: float = Field(default=3, gt=0)
+    fall_model_id: str = "melihuzunoglu/human-fall-detection"
+    model_confidence_min: float = Field(default=.65, gt=0, le=1)
+    model_standing_hold_seconds: float = Field(default=1, gt=0)
     max_observation_gap_seconds: float = Field(default=1, gt=0)
     source_timeout_seconds: float = Field(default=3, gt=0)
     health_poll_seconds: float = Field(default=.25, gt=0)
@@ -46,6 +55,10 @@ class MonitorConfig(BaseModel):
         if not self.upright_angle_max_deg < self.floor_angle_min_deg <= self.floor_angle_max_deg:
             raise ValueError("Upright and floor angle ranges must not overlap")
         return self
+
+    @property
+    def room_ids(self) -> list[str]:
+        return list(dict.fromkeys([self.room_id, *self.additional_room_ids]))
 
     @classmethod
     def load(cls, path: str | Path | None = None):

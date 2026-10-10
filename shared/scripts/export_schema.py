@@ -14,6 +14,11 @@ from pydantic.json_schema import models_json_schema
 
 from hearth_schema import (
     Alert,
+    HelpRequest,
+    NurseAction,
+    NursePreferences,
+    NurseProfile,
+    NurseSnapshot,
     RoomSnapshot,
     Event,
     GroundTruth,
@@ -28,6 +33,11 @@ OUT = Path(__file__).resolve().parents[1] / "schema"
 
 STANDALONE = {
     "alert": Alert,
+    "help_request": HelpRequest,
+    "nurse_action": NurseAction,
+    "nurse_preferences": NursePreferences,
+    "nurse_profile": NurseProfile,
+    "nurse_snapshot": NurseSnapshot,
     "room_snapshot": RoomSnapshot,
     "observation": Observation,
     "event": Event,

@@ -21,7 +21,8 @@
       "enum": [
         "edge",
         "simulation",
-        "replay"
+        "replay",
+        "manual"
       ],
       "title": "Source Type",
       "type": "string"

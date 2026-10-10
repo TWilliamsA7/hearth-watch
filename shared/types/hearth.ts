@@ -4,8 +4,9 @@
 export type Alert = {
   "alert_id": string;
   "event_id": string;
+  "kind": "possible_fall" | "help_requested" | "source_offline";
   "source": string;
-  "source_type": "edge" | "simulation" | "replay";
+  "source_type": "edge" | "simulation" | "replay" | "manual";
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
@@ -15,6 +16,8 @@ export type Alert = {
   "acknowledged_at": string | null;
   "resolved_at": string | null;
   "recovered_at": string | null;
+  "accepted_by": string | null;
+  "accepted_by_name": string | null;
   "metadata": Record<string, unknown>;
 };
 
@@ -23,16 +26,23 @@ export type AlertMessage = {
   "data": Alert;
 };
 
+export type BoundingBox = {
+  "x1": number;
+  "y1": number;
+  "x2": number;
+  "y2": number;
+};
+
 export type Event = {
   "schema_version": "1";
   "event_id": string;
   "timestamp": string;
   "source": string;
-  "source_type": "edge" | "simulation" | "replay";
+  "source_type": "edge" | "simulation" | "replay" | "manual";
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
-  "event_type": "possible_fall" | "recovered" | "person_visible" | "person_not_visible" | "face_present" | "face_absent" | "source_offline" | "source_online" | "alert_acknowledged" | "alert_resolved";
+  "event_type": "possible_fall" | "recovered" | "person_visible" | "person_not_visible" | "face_present" | "face_absent" | "source_offline" | "source_online" | "alert_acknowledged" | "alert_resolved" | "help_requested";
   "confidence": number | null;
   "metadata": Record<string, unknown>;
 };
@@ -57,13 +67,18 @@ export type Heartbeat = {
   "schema_version": "1";
   "timestamp": string;
   "source": string;
-  "source_type": "edge" | "simulation" | "replay";
+  "source_type": "edge" | "simulation" | "replay" | "manual";
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
   "fps": number | null;
   "inference_ms": number | null;
   "mem_used_mb": number | null;
+};
+
+export type HelpRequest = {
+  "request_id": string;
+  "room_id": string;
 };
 
 export type Keypoint = {
@@ -73,18 +88,50 @@ export type Keypoint = {
   "confidence": number;
 };
 
+export type NurseAction = {
+  "nurse_id": string;
+};
+
+export type NursePreferences = {
+  "display_name": string;
+  "room_ids": Array<string>;
+  "alert_kinds": Array<"possible_fall" | "help_requested" | "source_offline">;
+  "on_duty": boolean;
+};
+
+export type NurseProfile = {
+  "display_name": string;
+  "room_ids": Array<string>;
+  "alert_kinds": Array<"possible_fall" | "help_requested" | "source_offline">;
+  "on_duty": boolean;
+  "nurse_id": string;
+};
+
+export type NurseSnapshot = {
+  "nurse": NurseProfile;
+  "alerts": Array<Alert>;
+  "events": Array<Event>;
+  "sources": Array<SourceStatus>;
+};
+
+export type NurseSnapshotMessage = {
+  "type": "nurse_snapshot";
+  "data": NurseSnapshot;
+};
+
 export type Observation = {
   "schema_version": "1";
   "obs_id": string;
   "timestamp": string;
   "source": string;
-  "source_type": "edge" | "simulation" | "replay";
+  "source_type": "edge" | "simulation" | "replay" | "manual";
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
   "person_detected": boolean;
   "keypoints": Array<Keypoint> | null;
   "features": PostureFeatures | null;
+  "posture_prediction": PosturePrediction | null;
   "face_present": boolean | null;
   "face_confidence": number | null;
 };
@@ -106,6 +153,16 @@ export type PostureFeatures = {
   "vertical_velocity": number | null;
 };
 
+export type PosturePrediction = {
+  "model_id": string;
+  "model_revision": string;
+  "label": "standing" | "sitting" | "fallen" | "unknown";
+  "confidence": number | null;
+  "bbox": BoundingBox | null;
+  "detection_count": number;
+  "uncertainty_reason": "no_detection" | "multiple_people" | "unsupported_label" | null;
+};
+
 export type RoomSnapshot = {
   "room_id": string;
   "observations": Array<Observation>;
@@ -114,11 +171,11 @@ export type RoomSnapshot = {
   "sources": Array<SourceStatus>;
 };
 
-export type ServerMessage = ObservationMessage | EventMessage | SourceStatusMessage | AlertMessage;
+export type ServerMessage = ObservationMessage | EventMessage | SourceStatusMessage | AlertMessage | NurseSnapshotMessage;
 
 export type SourceStatus = {
   "source": string;
-  "source_type": "edge" | "simulation" | "replay";
+  "source_type": "edge" | "simulation" | "replay" | "manual";
   "room_id": string;
   "scenario_id": string | null;
   "run_id": string | null;
@@ -126,6 +183,9 @@ export type SourceStatus = {
   "last_seen": string | null;
   "last_observation_at": string | null;
   "observation_stale": boolean;
+  "posture": "standing" | "sitting" | "fallen" | "unknown";
+  "posture_confidence": number | null;
+  "posture_model": string | null;
   "fps": number | null;
   "inference_ms": number | null;
   "mem_used_mb": number | null;

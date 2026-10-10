@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "room_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Room Ids",
+      "type": "array"
+    },
+    "alert_kinds": {
+      "items": {
+        "enum": [
+          "possible_fall",
+          "help_requested",
+          "source_offline"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Alert Kinds",
+      "type": "array"
+    },
+    "on_duty": {
+      "default": true,
+      "title": "On Duty",
+      "type": "boolean"
+    },
+    "nurse_id": {
+      "title": "Nurse Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "display_name",
+    "room_ids",
+    "alert_kinds",
+    "on_duty",
+    "nurse_id"
+  ],
+  "title": "NurseProfile",
+  "type": "object"
+}
