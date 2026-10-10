@@ -13,7 +13,7 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat, 
                            SourceStatus, SourceStatusMessage)
 
 from .config import MonitorConfig
-from .detector import FallDetector, SourceKey, make_event, source_key
+from .detector import FallDetector, SourceKey, TrackKey, make_event, source_key, track_key
 from .gestures import HelpGestureDetector
 
 
@@ -36,7 +36,7 @@ class MonitorService:
         self.alerts: dict[str, Alert] = {}
         self.event_alerts: dict[str, str] = {}
         self.health: dict[SourceKey, HealthEntry] = {}
-        self.observations: dict[SourceKey, Observation] = {}
+        self.observations: dict[TrackKey, Observation] = {}  # latest per person per source
         self.seen: OrderedDict[tuple, None] = OrderedDict()
         self.subscribers: set[asyncio.Queue] = set()
         self.subscription_rooms: dict[asyncio.Queue, str] = {}
@@ -147,7 +147,7 @@ class MonitorService:
             entry.status.posture_confidence = prediction.confidence if reliable else None
             entry.status.posture_model = prediction.model_id if prediction else None
             if prediction is None and self.config.posture_mode == "pose_fallback":
-                state = self.detector.states.get(key)
+                state = self.detector.states.get(track_key(record))
                 entry.status.posture = {"upright": "standing", "floor_level": "fallen",
                                         "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
         if isinstance(record, Heartbeat):
@@ -197,7 +197,8 @@ class MonitorService:
         counts = dict.fromkeys(self.ingest_totals, 0)
         received_at = self.utcnow()
         for obs in batch:
-            key = source_key(obs)
+            # Ordering and dedupe are per person: people in one frame share a timestamp.
+            key = track_key(obs)
             identity = (*key, obs.obs_id)
             if identity in self.seen:
                 counts["duplicates"] += 1

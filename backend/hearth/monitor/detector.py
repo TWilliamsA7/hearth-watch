@@ -8,17 +8,23 @@ from hearth_schema import Event, Observation
 from .config import MonitorConfig
 
 SourceKey = tuple[str, str, str, str | None, str | None]
+# One person on one source. Single-person sources (the edge) send person_id=None.
+TrackKey = tuple[str, str, str, str | None, str | None, str | None]
 
 
 def source_key(record) -> SourceKey:
     return (record.room_id, record.source_type, record.source, record.scenario_id, record.run_id)
 
 
+def track_key(record) -> TrackKey:
+    return (*source_key(record), getattr(record, "person_id", None))
+
+
 def make_event(record, kind: str, timestamp: datetime | None = None, **metadata) -> Event:
     return Event(event_id=str(uuid4()), timestamp=timestamp or record.timestamp,
                  source=record.source, source_type=record.source_type, room_id=record.room_id,
                  scenario_id=record.scenario_id, run_id=record.run_id,
-                 event_type=kind, metadata=metadata)
+                 person_id=getattr(record, "person_id", None), event_type=kind, metadata=metadata)
 
 
 def inside_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
@@ -52,11 +58,15 @@ class PostureState:
 class FallDetector:
     def __init__(self, config: MonitorConfig):
         self.config = config
-        self.states: dict[SourceKey, PostureState] = {}
+        self.states: dict[TrackKey, PostureState] = {}
 
-    def invalidate(self, key: SourceKey) -> None:
-        """Drop pending evidence on gaps; never recover an existing incident from silence."""
-        if state := self.states.get(key):
+    def invalidate(self, key: SourceKey | TrackKey) -> None:
+        """Drop pending evidence on gaps; never recover an existing incident from silence.
+
+        A SourceKey invalidates every person tracked on that source."""
+        for track, state in self.states.items():
+            if track[:len(key)] != key:
+                continue
             state.posture = "unknown"
             state.floor_since = None
             state.person_visible = None
@@ -64,7 +74,7 @@ class FallDetector:
             state.standing_since = None
 
     def process(self, obs: Observation) -> list[Event]:
-        key = source_key(obs)
+        key = track_key(obs)
         state = self.states.setdefault(key, PostureState())
         if state.last_timestamp is not None:
             gap = (obs.timestamp - state.last_timestamp).total_seconds()

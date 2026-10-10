@@ -1,7 +1,7 @@
 import pytest
 from conftest import observation
 from hearth.monitor.config import MonitorConfig
-from hearth.monitor.detector import FallDetector, source_key
+from hearth.monitor.detector import FallDetector, track_key
 
 
 def test_mid_frame_floor_alert_and_standing_recovery_use_independent_bounds():
@@ -15,7 +15,7 @@ def test_mid_frame_floor_alert_and_standing_recovery_use_independent_bounds():
     assert len([e for e in events if e.event_type == 'possible_fall']) == 1
     events = detector.process(observation(3.2, standing))
     assert [e.event_type for e in events] == ['recovered']
-    assert detector.states[source_key(observation(0))].posture == 'upright'
+    assert detector.states[track_key(observation(0))].posture == 'upright'
 
 
 @pytest.mark.parametrize('features', [
