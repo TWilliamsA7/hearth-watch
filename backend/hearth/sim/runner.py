@@ -60,6 +60,10 @@ class SimRun:
     def observations(self) -> list[Observation]:
         return [i for i in self.items if isinstance(i, Observation)]
 
+    @property
+    def duration(self) -> float:
+        return self.scenario.duration
+
     def world(self) -> WorldTrack:
         """The run's bodies in 3D. Computed on demand: batch evaluation never needs it."""
         return ObservationGenerator(self.scenario, self.seed, start=self.start).world_track()
