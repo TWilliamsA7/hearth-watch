@@ -167,7 +167,8 @@
             "corner_left",
             "corner_right",
             "front",
-            "ceiling"
+            "ceiling",
+            "jetson"
           ],
           "title": "Preset",
           "type": "string"
@@ -200,6 +201,22 @@
           "maximum": 30.0,
           "title": "Fps",
           "type": "number"
+        },
+        "tilt": {
+          "default": 12.0,
+          "description": "Preset 'jetson': degrees the camera looks down (edge/DEMO.md: 10-15).",
+          "maximum": 60.0,
+          "minimum": 0.0,
+          "title": "Tilt",
+          "type": "number"
+        },
+        "reach": {
+          "default": 3.5,
+          "description": "Preset 'jetson': metres into the room where the view centre is aimed.",
+          "exclusiveMinimum": 0.5,
+          "maximum": 12.0,
+          "title": "Reach",
+          "type": "number"
         }
       },
       "required": [
@@ -207,7 +224,9 @@
         "height",
         "fov",
         "aspect",
-        "fps"
+        "fps",
+        "tilt",
+        "reach"
       ],
       "title": "CameraSpec",
       "type": "object"
@@ -274,7 +293,9 @@
             "height": 2.4,
             "fov": 62.0,
             "aspect": 1.3333333333333333,
-            "fps": 10.0
+            "fps": 10.0,
+            "tilt": 12.0,
+            "reach": 3.5
           }
         },
         "lighting": {
@@ -1181,6 +1202,16 @@
           "description": "Fraction of joints the camera could see last frame (0..1), before noise.",
           "title": "Visible",
           "type": "number"
+        },
+        "kind": {
+          "default": "simulated",
+          "description": "'live': a real person from a live camera feed, not simulated.",
+          "enum": [
+            "simulated",
+            "live"
+          ],
+          "title": "Kind",
+          "type": "string"
         }
       },
       "required": [
@@ -1196,7 +1227,8 @@
         "path",
         "conversation",
         "incident",
-        "visible"
+        "visible",
+        "kind"
       ],
       "title": "LivePerson",
       "type": "object"

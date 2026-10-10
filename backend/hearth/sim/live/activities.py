@@ -142,7 +142,7 @@ class Walk(Activity):
     def _plan(self, a: Actor, w: World, *, avoid: bool) -> None:
         discs = []
         if avoid:
-            for o in w.actors:
+            for o in w.bodies:
                 if o is a or not o.present or o.slots_in_use or distance(o.pos, a.pos) > 3.5:
                     continue
                 r = FALLEN_CLEARANCE_M if o.posture == "floor" else 0.6
@@ -167,7 +167,7 @@ class Walk(Activity):
             a.velocity = (0.0, 0.0)
             return True
         if remaining < 1.2 and self.stop_short_ok and any(
-            o is not a and o.present and not o.slots_in_use and distance(o.pos, self.goal) < 0.6 for o in w.actors
+            o is not a and o.present and not o.slots_in_use and distance(o.pos, self.goal) < 0.6 for o in w.bodies
         ):  # someone is standing on the spot: stop short of it
             a.velocity = (0.0, 0.0)
             return True
@@ -211,7 +211,7 @@ def make_way(a: Actor, w: World, towards: Floor) -> None:
         ux, uz = ux / n, uz / n
         for side in (1.0, -1.0):  # out of the line a is walking along
             p = (o.pos[0] - uz * side * 0.8 + ux * 0.2, o.pos[1] + ux * side * 0.8 + uz * 0.2)
-            if w.room.nav.free(p) and all(distance(p, q.pos) > 0.7 for q in w.actors if q is not o and q.present):
+            if w.room.nav.free(p) and all(distance(p, q.pos) > 0.7 for q in w.bodies if q is not o and q.present):
                 rest = max(o.activity.duration - o.activity.tau, 1.0)
                 w.replace_plan(o, [Walk(p, purpose="out of the way", pace=0.8),
                                    Hold(rest, o.activity.name, look=a.pos)], o.intent)  # fmt: skip
@@ -228,7 +228,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
     ux, uz = dx / d, dz / d
     ax = az = 0.0
     slow = 1.0
-    for o in w.actors:
+    for o in w.bodies:
         if o is a or not o.present or o.slots_in_use:
             continue
         rx, rz = o.pos[0] - px, o.pos[1] - pz
@@ -286,7 +286,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
     # Nobody walks into anybody: take away the part of the step that closes in on them,
     # so a walker slides round someone rather than stopping dead against them.
     mx, mz = new[0] - px, new[1] - pz
-    for o in w.actors:
+    for o in w.bodies:
         if o is a or not o.present or o.slots_in_use:
             continue
         limit = FALLEN_CLEARANCE_M if o.posture == "floor" else MIN_SEPARATION_M
@@ -301,7 +301,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
     cand = (px + mx, pz + mz)
     if (mx or mz) and nav.free(cand, ignore) and all(
         distance(cand, o.pos) >= min(distance(a.pos, o.pos), FALLEN_CLEARANCE_M if o.posture == "floor" else MIN_SEPARATION_M) - 1e-6
-        for o in w.actors if o is not a and o.present and not o.slots_in_use
+        for o in w.bodies if o is not a and o.present and not o.slots_in_use
     ):  # fmt: skip
         new = cand
         vx, vz = mx / dt, mz / dt
@@ -344,7 +344,7 @@ class Step(Activity):
         nxt = (a.pos[0] + dx / d * sp * dt, a.pos[1] + dz / d * sp * dt)
         if any(o is not a and o.present and not o.slots_in_use
                and distance(nxt, o.pos) < MIN_SEPARATION_M + 0.05 and distance(nxt, o.pos) < distance(a.pos, o.pos)
-               for o in w.actors):  # fmt: skip
+               for o in w.bodies):  # fmt: skip
             # Someone's in the way: wait for them, and give up if they stay.
             a.velocity = (0.0, 0.0)
             a.body = gait(a, 0.0, dt)
@@ -642,7 +642,7 @@ def choose(a: Actor, w: World) -> tuple[str, list[Activity]]:
 def _place_plan(kind: str, lo: float, hi: float):
     def plan(a: Actor, w: World) -> list[Activity] | None:
         places = [p for p in w.room.places if p.name == kind and distance(p.at, a.pos) > 0.8
-                  and not any(o is not a and o.present and distance(o.pos, p.at) < 0.9 for o in w.actors)]  # fmt: skip
+                  and not any(o is not a and o.present and distance(o.pos, p.at) < 0.9 for o in w.bodies)]  # fmt: skip
         if not places:
             return None
         place = a.rng.choice(places)

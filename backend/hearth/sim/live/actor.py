@@ -151,3 +151,29 @@ class Actor:
             return self.activity.label_for(self)
         return {"standing": "standing", "sitting": "sitting", "lying": "lying_intentional", "floor": "fall",
                 "absent": "absent"}[self.posture]  # fmt: skip
+
+
+LIVE_LOOKS = Appearance("#c9a48a", "#e5484d", "#2f3542", "#5c4a3c", 1.0)  # the LIVE avatar's colours
+
+
+@dataclass
+class ExternalActor(Actor):
+    """A real person seen by a live camera, placed in the room from their lifted keypoints.
+
+    Never driven by behaviour, never given ground truth or incidents. Kept in World.externals,
+    not World.actors: residents see the body (they steer round it, it blocks the simulated
+    camera, they come to help when it is down), and nothing else in the engine touches it."""
+
+    source: str = ""
+    joints: dict = field(default_factory=dict)  # name -> (x, y, z) metres, from hearth.sim.live.lift
+    seen_at: float = 0.0  # wall-clock seconds of the last live frame
+    live_label: str = "standing"  # what the real monitor concluded (a TruthLabel-like word)
+
+    @property
+    def label(self) -> str:
+        return self.live_label
+
+
+def external_profile(height: float) -> Profile:
+    return Profile(archetype="live", height=height, speed=0.0, sociability=0.0, dwell=1.0, mobility="normal",
+                   prefs={})  # fmt: skip

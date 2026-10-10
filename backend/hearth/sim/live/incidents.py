@@ -30,10 +30,12 @@ from pydantic import BaseModel, ConfigDict
 from hearth.sim.nav import Floor, distance
 
 from hearth.sim.live.activities import (
+    FALLEN_CLEARANCE_M,
     Activity,
     Do,
     Hold,
     PlayMotion,
+    Transition,
     Turn,
     Walk,
     get_up,
@@ -41,6 +43,7 @@ from hearth.sim.live.activities import (
     release,
 )
 from hearth.sim.live.actor import Actor
+from hearth.sim.live.animate import heading_to
 from hearth.sim.live.room import forward
 from hearth.sim.live.spec import IncidentKind, IncidentSpec
 
@@ -86,6 +89,7 @@ class IncidentManager:
         self.records: list[IncidentRecord] = []
         self.scheduled = [_Due(s) for s in sorted(w.spec.incidents, key=lambda s: s.t)]
         self.rng = random.Random(f"incidents/{w.seed}")
+        self.responders: dict[str, str] = {}  # person down -> resident coming to help
 
     def active(self) -> list[IncidentRecord]:
         return [r for r in self.records if r.t_end is None]
@@ -145,6 +149,40 @@ class IncidentManager:
             rec.posture_after = a.posture
         a.incident = None
 
+    # --- helping someone who is down ---
+
+    def respond(self, target: Actor) -> Actor | None:
+        """The nearest free standing resident walks over and kneels beside `target` until they're
+        up. For simulated falls and for a live person the monitor says is down."""
+        w = self.w
+        if target.person_id in self.responders or not target.present:
+            return None
+        free = [a for a in w.actors if a is not target and a.present and a.posture == "standing"
+                and not a.incident and a.intent != "help" and a.person_id not in self.responders.values()]
+        if not free:
+            return None
+        helper = min(free, key=lambda a: distance(a.pos, target.pos))
+        side = heading_to(target.pos, helper.pos)  # kneel on the side they arrive from
+        # Just outside the space everyone keeps round someone on the floor (FALLEN_CLEARANCE_M).
+        reach = FALLEN_CLEARANCE_M + 0.1
+        goal = (target.pos[0] + reach * math.sin(side), target.pos[1] + reach * math.cos(side))
+        down = lambda: not target.present or target.posture != "floor"  # noqa: E731
+
+        def done(a: Actor, w: World) -> None:
+            self.responders.pop(target.person_id, None)
+
+        plan: list[Activity] = [
+            Walk(goal, purpose="help", stop_short_ok=True, arrive=0.3),
+            Turn(heading_to(goal, target.pos)),
+            Transition("kneel", 1.0, name="kneeling to help", label="bending", posture="standing"),
+            Hold(math.inf, "helping", pose="kneel", label="bending", sway=0.3, until=down),
+            Transition("standing", 1.0, name="standing up", label="standing", posture="standing"),
+            Do(done),
+        ]
+        self.responders[target.person_id] = helper.person_id
+        w.replace_plan(helper, plan, "help")
+        return helper
+
     def _pick(self, kind: IncidentKind, *, in_view: bool = False) -> Actor:
         ok = [a for a in self.w.actors if a.present and not a.incident and (kind != "fall" or a.posture != "lying")]
         if not ok:
@@ -181,6 +219,7 @@ class IncidentManager:
             rec.t_floor = round(w.t, 3)
             rec.posture_after = "floor"
             release(a, w)  # out of the chair, onto the floor
+            self.respond(a)
 
         plan: list[Activity] = [
             PlayMotion(motion, name="falling", label="fall", posture="floor", end=end, heading=heading, pace=pace),

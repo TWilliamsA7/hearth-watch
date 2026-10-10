@@ -193,8 +193,10 @@ class Observer:
     def due(self, t: float) -> bool:
         return t + 1e-9 >= self.frame / self.fps
 
-    def emit(self, t: float, people: list[tuple[str, WorldPose, float, float, bool]]) -> list[Observation | Heartbeat]:
-        """people: (person_id, world pose, heading, root distance, lying) for everyone present."""
+    def emit(self, t: float, people: list[tuple[str, WorldPose, float, float, bool]],
+             silent: frozenset[str] = frozenset()) -> list[Observation | Heartbeat]:
+        """people: (person_id, world pose, heading, root distance, lying) for everyone present.
+        silent: people who block the view but aren't reported (live people: their own camera does)."""
         out: list[Observation | Heartbeat] = []
         if t + 1e-9 >= self.next_heartbeat:
             out.append(Heartbeat(timestamp=self._ts(t), source=self.source, source_type="simulation",
@@ -208,6 +210,8 @@ class Observer:
             return out
         emitted = False
         for (pid, pose, heading, _, lying), s in zip(people, seen):
+            if pid in silent:
+                continue
             in_front = [o.box for o in seen if o is not s and o.box and o.depth < s.depth - 0.3]
             obs = self._observation(n, t, s, in_front, heading, pose, lying)
             if obs is not None:
@@ -225,8 +229,8 @@ class Observer:
         if projected:
             xs, ys = [q[0] for q in projected], [q[1] for q in projected]
             box = (min(xs) - PERSON_PAD, min(ys) - PERSON_PAD, max(xs) + PERSON_PAD, max(ys) + PERSON_PAD)
-        hips = [pose[j] for j in ("left_hip", "right_hip")]
-        mid = ((hips[0][0] + hips[1][0]) / 2, (hips[0][1] + hips[1][1]) / 2, (hips[0][2] + hips[1][2]) / 2)
+        hips = [pose[j] for j in ("left_hip", "right_hip") if j in pose] or list(pose.values())[:1]
+        mid = (sum(h[0] for h in hips) / len(hips), sum(h[1] for h in hips) / len(hips), sum(h[2] for h in hips) / len(hips))
         depth = _dot(_sub(mid, cam.position), cam.forward)
         return Seen(pid, visible, box, depth)
 

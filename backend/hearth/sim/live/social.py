@@ -218,7 +218,7 @@ def _spot(a: Actor, w: World, b: Actor) -> Floor | None:
             continue
         if any(distance(p, s.stand_point(1.7)) < 0.7 for s in w.room.slots if s.piece != _seat_piece(w, b)):
             continue
-        if any(o is not a and o.present and distance(o.pos, p) < 0.7 for o in w.actors):
+        if any(o is not a and o.present and distance(o.pos, p) < 0.7 for o in w.bodies):
             continue
         return (round(p[0], 3), round(p[1], 3))
     return None

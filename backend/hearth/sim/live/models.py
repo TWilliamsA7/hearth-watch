@@ -53,6 +53,9 @@ class LivePerson(WorldPerson):
     conversation: str | None = None
     incident: str | None = None
     visible: float = Field(description="Fraction of joints the camera could see last frame (0..1), before noise.")
+    kind: Literal["simulated", "live"] = Field(
+        default="simulated", description="'live': a real person from a live camera feed, not simulated."
+    )
 
 
 class LiveConversation(_Model):

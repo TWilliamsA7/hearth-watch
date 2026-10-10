@@ -110,6 +110,9 @@ def apply(actor: Actor, st: Stance) -> None:
 
 
 def world_pose(actor: Actor) -> WorldPose:
+    joints = getattr(actor, "joints", None)
+    if joints:  # an ExternalActor: the live person's lifted joints
+        return dict(joints)
     return body(actor.body, actor.heading, actor.pos[0], actor.pos[1], actor.base, actor.size)
 
 

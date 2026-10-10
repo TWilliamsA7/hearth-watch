@@ -147,6 +147,10 @@ export interface LivePerson {
    * Fraction of joints the camera could see last frame (0..1), before noise.
    */
   visible: number;
+  /**
+   * 'live': a real person from a live camera feed, not simulated.
+   */
+  kind: "simulated" | "live";
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -203,7 +207,7 @@ export interface AlertResult {
  * via the `definition` "CameraSpec".
  */
 export interface CameraSpec {
-  preset: "corner_left" | "corner_right" | "front" | "ceiling";
+  preset: "corner_left" | "corner_right" | "front" | "ceiling" | "jetson";
   height: number;
   /**
    * Vertical field of view, degrees.
@@ -211,6 +215,14 @@ export interface CameraSpec {
   fov: number;
   aspect: number;
   fps: number;
+  /**
+   * Preset 'jetson': degrees the camera looks down (edge/DEMO.md: 10-15).
+   */
+  tilt: number;
+  /**
+   * Preset 'jetson': metres into the room where the view centre is aimed.
+   */
+  reach: number;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -274,7 +286,7 @@ export interface RoomSpec {
   window: boolean;
 }
 export interface CameraSpec1 {
-  preset: "corner_left" | "corner_right" | "front" | "ceiling";
+  preset: "corner_left" | "corner_right" | "front" | "ceiling" | "jetson";
   height: number;
   /**
    * Vertical field of view, degrees.
@@ -282,6 +294,14 @@ export interface CameraSpec1 {
   fov: number;
   aspect: number;
   fps: number;
+  /**
+   * Preset 'jetson': degrees the camera looks down (edge/DEMO.md: 10-15).
+   */
+  tilt: number;
+  /**
+   * Preset 'jetson': metres into the room where the view centre is aimed.
+   */
+  reach: number;
 }
 /**
  * One incident, at a time (scheduled) or now (manual).

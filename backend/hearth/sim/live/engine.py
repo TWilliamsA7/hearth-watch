@@ -37,10 +37,11 @@ from hearth.sim.world import (
 )
 
 from hearth.sim.live.activities import COOLDOWN_S, Activity, Away, Enter, Hold, Walk, abandon, choose, release, reserve
-from hearth.sim.live.actor import Actor, make_profile
+from hearth.sim.live.actor import LIVE_LOOKS, Actor, ExternalActor, external_profile, make_profile
 from hearth.sim.live.animate import world_pose
 from hearth.sim.live.camera import Camera, Observer
 from hearth.sim.live.incidents import IncidentManager
+from hearth.sim.live.lift import LiftedBody
 from hearth.sim.live.models import (
     ActorDetail,
     LiveActorInfo,
@@ -76,6 +77,7 @@ class World:
         self.truth = TruthRecorder(self.scenario_id, seed)
         self.actors: list[Actor] = []
         self._by_id: dict[str, Actor] = {}
+        self.externals: dict[str, ExternalActor] = {}  # live people, by person_id ("live-<source>")
         self.routes: list[WorldRoute] = []
         self._walks: dict[str, tuple[float, list]] = {}  # person -> (t_start, path) of the walk in progress
         self._spawn()
@@ -131,6 +133,33 @@ class World:
     def actor(self, person_id: str) -> Actor:
         return self._by_id[person_id]
 
+    @property
+    def bodies(self) -> list[Actor]:
+        """Everyone physically in the room, live people included: for steering and space."""
+        return [*self.actors, *self.externals.values()]
+
+    def set_external(self, source: str, lifted: LiftedBody | None, *, posture: str = "standing",
+                     label: str = "standing", seen_at: float = 0.0) -> ExternalActor:
+        """Place (or update) the live person seen by `source`; lifted=None means they're gone."""
+        pid = f"live-{source}"
+        e = self.externals.get(pid)
+        if e is None:
+            height = lifted.height if lifted else 1.7
+            e = ExternalActor(pid, external_profile(height), LIVE_LOOKS, random.Random(pid), (0.0, -1.0), 0.0,
+                              posture="absent", source=source)  # fmt: skip
+            e.intent = "live"
+            self.externals[pid] = e
+        if lifted is None:
+            e.posture, e.joints = "absent", {}
+            return e
+        e.pos, e.heading, e.joints = lifted.root, lifted.heading, dict(lifted.joints)
+        e.posture = posture if posture in ("standing", "sitting", "lying", "floor") else "standing"  # type: ignore[assignment]
+        e.live_label, e.seen_at = label, seen_at
+        return e
+
+    def remove_external(self, source: str) -> None:
+        self.externals.pop(f"live-{source}", None)
+
     def present(self) -> list[Actor]:
         return [a for a in self.actors if a.present]
 
@@ -158,9 +187,11 @@ class World:
         self.social.update(self)
         self.truth.update(self.t, {a.person_id: a.label for a in self.actors})
         if self.observer.due(self.t):
+            # Live people are in the simulated camera's view too (they hide whoever is behind
+            # them), but what it reports about them is dropped: the real camera reports them.
             people = [(a.person_id, world_pose(a), a.heading, 0.0, a.posture in ("lying", "floor"))
-                      for a in self.actors if a.present]  # fmt: skip
-            return self.observer.emit(self.t, people)
+                      for a in self.bodies if a.present]  # fmt: skip
+            return self.observer.emit(self.t, [p for p in people if p[1]], silent=frozenset(self.externals))
         return []
 
     def advance(self, seconds: float) -> list[Record]:
@@ -249,8 +280,10 @@ class World:
     def person(self, a: Actor) -> LivePerson:
         wp = world_person(a.person_id, a.heading, world_pose(a), a.size)
         act = a.activity
+        live = isinstance(a, ExternalActor)
         return LivePerson(
-            **wp.model_dump(), label=a.label, activity=act.name if act else "idle", intent=a.intent, posture=a.posture,
+            **wp.model_dump(), label=a.label, activity=f"live · {a.source}" if live else act.name if act else "idle",
+            intent=a.intent, posture=a.posture, kind="live" if live else "simulated",
             destination=_r2(a.destination) if a.destination else None, path=[_r2(p) for p in a.path[:40]],
             conversation=a.conversation, incident=a.incident, visible=round(self.observer.visible.get(a.person_id, 0.0), 3),
         )  # fmt: skip
@@ -258,7 +291,7 @@ class World:
     def frame(self, state: LiveState = "playing", speed: float = 1.0) -> LiveFrame:
         return LiveFrame(
             t=round(self.t, 3), state=state, speed=speed,
-            people=[self.person(a) for a in self.actors if a.present],
+            people=[self.person(a) for a in self.bodies if a.present],
             conversations=[LiveConversation(conv_id=c.conv_id, members=list(c.members), centre=_r2(c.centre))
                            for c in self.social.conversations.values()],
             incidents=self.incidents.active(),
