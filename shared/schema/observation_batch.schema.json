@@ -1,5 +1,132 @@
 {
   "$defs": {
+    "BoundingBox": {
+      "additionalProperties": false,
+      "properties": {
+        "x1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        },
+        "x2": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X2",
+          "type": "number"
+        },
+        "y2": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y2",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "HandGesturePrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_revision": {
+          "title": "Model Revision",
+          "type": "string"
+        },
+        "label": {
+          "enum": [
+            "like",
+            "palm",
+            "fist",
+            "peace",
+            "ok",
+            "one",
+            "three",
+            "four",
+            "call",
+            "point",
+            "grip",
+            "middle_finger",
+            "unknown"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detection_count": {
+          "minimum": 0,
+          "title": "Detection Count",
+          "type": "integer"
+        },
+        "uncertainty_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "no_detection",
+                "multiple_hands",
+                "unsupported_label"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Reason"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "label",
+        "confidence",
+        "bbox",
+        "detection_count",
+        "uncertainty_reason"
+      ],
+      "title": "HandGesturePrediction",
+      "type": "object"
+    },
     "Keypoint": {
       "additionalProperties": false,
       "description": "Coordinates are normalized to the frame: (0, 0) top-left, (1, 1) bottom-right.",
@@ -41,10 +168,19 @@
           "type": "number"
         },
         "confidence": {
-          "maximum": 1.0,
-          "minimum": 0.0,
-          "title": "Confidence",
-          "type": "number"
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Measured keypoint confidence, when available; null is unknown, not zero or certainty.",
+          "title": "Confidence"
         }
       },
       "required": [
@@ -83,7 +219,8 @@
           "enum": [
             "edge",
             "simulation",
-            "replay"
+            "replay",
+            "manual"
           ],
           "title": "Source Type",
           "type": "string"
@@ -103,6 +240,19 @@
           ],
           "default": null,
           "title": "Scenario Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique replay/run id; change on reset.",
+          "title": "Run Id"
         },
         "person_id": {
           "anyOf": [
@@ -147,6 +297,28 @@
           ],
           "default": null
         },
+        "posture_prediction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PosturePrediction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hand_gesture_prediction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HandGesturePrediction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "face_present": {
           "anyOf": [
             {
@@ -183,10 +355,13 @@
         "source_type",
         "room_id",
         "scenario_id",
+        "run_id",
         "person_id",
         "person_detected",
         "keypoints",
         "features",
+        "posture_prediction",
+        "hand_gesture_prediction",
         "face_present",
         "face_confidence"
       ],
@@ -279,6 +454,97 @@
       ],
       "title": "PostureFeatures",
       "type": "object"
+    },
+    "PosturePrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_revision": {
+          "title": "Model Revision",
+          "type": "string"
+        },
+        "input_processing": {
+          "default": "original",
+          "enum": [
+            "original",
+            "clahe"
+          ],
+          "title": "Input Processing",
+          "type": "string"
+        },
+        "label": {
+          "enum": [
+            "standing",
+            "sitting",
+            "fallen",
+            "unknown"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detection_count": {
+          "minimum": 0,
+          "title": "Detection Count",
+          "type": "integer"
+        },
+        "uncertainty_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "no_detection",
+                "multiple_people",
+                "unsupported_label"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Reason"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "input_processing",
+        "label",
+        "confidence",
+        "bbox",
+        "detection_count",
+        "uncertainty_reason"
+      ],
+      "title": "PosturePrediction",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -288,6 +554,8 @@
       "items": {
         "$ref": "#/$defs/Observation"
       },
+      "maxItems": 500,
+      "minItems": 1,
       "title": "Observations",
       "type": "array"
     }

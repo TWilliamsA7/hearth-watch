@@ -1,5 +1,240 @@
 {
   "$defs": {
+    "Alert": {
+      "additionalProperties": false,
+      "properties": {
+        "alert_id": {
+          "title": "Alert Id",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "possible_fall",
+          "enum": [
+            "possible_fall",
+            "help_requested",
+            "source_offline"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_type": {
+          "enum": [
+            "edge",
+            "simulation",
+            "replay",
+            "manual"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "acknowledged",
+            "resolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "severity": {
+          "default": "warning",
+          "enum": [
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "opened_at": {
+          "format": "date-time",
+          "title": "Opened At",
+          "type": "string"
+        },
+        "acknowledged_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acknowledged At"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved At"
+        },
+        "recovered_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recovered At"
+        },
+        "accepted_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted By"
+        },
+        "accepted_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accepted By Name"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "alert_id",
+        "event_id",
+        "kind",
+        "source",
+        "source_type",
+        "room_id",
+        "scenario_id",
+        "run_id",
+        "status",
+        "severity",
+        "opened_at",
+        "acknowledged_at",
+        "resolved_at",
+        "recovered_at",
+        "accepted_by",
+        "accepted_by_name",
+        "metadata"
+      ],
+      "title": "Alert",
+      "type": "object"
+    },
+    "AlertMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "alert",
+          "default": "alert",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/Alert"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "AlertMessage",
+      "type": "object"
+    },
+    "BoundingBox": {
+      "additionalProperties": false,
+      "properties": {
+        "x1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        },
+        "x2": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X2",
+          "type": "number"
+        },
+        "y2": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y2",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
     "Event": {
       "additionalProperties": false,
       "properties": {
@@ -26,7 +261,8 @@
           "enum": [
             "edge",
             "simulation",
-            "replay"
+            "replay",
+            "manual"
           ],
           "title": "Source Type",
           "type": "string"
@@ -46,6 +282,18 @@
           ],
           "default": null,
           "title": "Scenario Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
         },
         "person_id": {
           "anyOf": [
@@ -70,7 +318,9 @@
             "face_absent",
             "source_offline",
             "source_online",
-            "alert_acknowledged"
+            "alert_acknowledged",
+            "alert_resolved",
+            "help_requested"
           ],
           "title": "Event Type",
           "type": "string"
@@ -103,6 +353,7 @@
         "source_type",
         "room_id",
         "scenario_id",
+        "run_id",
         "person_id",
         "event_type",
         "confidence",
@@ -129,6 +380,96 @@
         "data"
       ],
       "title": "EventMessage",
+      "type": "object"
+    },
+    "HandGesturePrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_revision": {
+          "title": "Model Revision",
+          "type": "string"
+        },
+        "label": {
+          "enum": [
+            "like",
+            "palm",
+            "fist",
+            "peace",
+            "ok",
+            "one",
+            "three",
+            "four",
+            "call",
+            "point",
+            "grip",
+            "middle_finger",
+            "unknown"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detection_count": {
+          "minimum": 0,
+          "title": "Detection Count",
+          "type": "integer"
+        },
+        "uncertainty_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "no_detection",
+                "multiple_hands",
+                "unsupported_label"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Reason"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "label",
+        "confidence",
+        "bbox",
+        "detection_count",
+        "uncertainty_reason"
+      ],
+      "title": "HandGesturePrediction",
       "type": "object"
     },
     "Keypoint": {
@@ -172,10 +513,19 @@
           "type": "number"
         },
         "confidence": {
-          "maximum": 1.0,
-          "minimum": 0.0,
-          "title": "Confidence",
-          "type": "number"
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Measured keypoint confidence, when available; null is unknown, not zero or certainty.",
+          "title": "Confidence"
         }
       },
       "required": [
@@ -185,6 +535,115 @@
         "confidence"
       ],
       "title": "Keypoint",
+      "type": "object"
+    },
+    "NurseProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "room_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Room Ids",
+          "type": "array"
+        },
+        "alert_kinds": {
+          "items": {
+            "enum": [
+              "possible_fall",
+              "help_requested",
+              "source_offline"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Alert Kinds",
+          "type": "array"
+        },
+        "on_duty": {
+          "default": true,
+          "title": "On Duty",
+          "type": "boolean"
+        },
+        "nurse_id": {
+          "title": "Nurse Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "display_name",
+        "room_ids",
+        "alert_kinds",
+        "on_duty",
+        "nurse_id"
+      ],
+      "title": "NurseProfile",
+      "type": "object"
+    },
+    "NurseSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "nurse": {
+          "$ref": "#/$defs/NurseProfile"
+        },
+        "alerts": {
+          "items": {
+            "$ref": "#/$defs/Alert"
+          },
+          "title": "Alerts",
+          "type": "array"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/Event"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceStatus"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "nurse",
+        "alerts",
+        "events",
+        "sources"
+      ],
+      "title": "NurseSnapshot",
+      "type": "object"
+    },
+    "NurseSnapshotMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "nurse_snapshot",
+          "default": "nurse_snapshot",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/NurseSnapshot"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "NurseSnapshotMessage",
       "type": "object"
     },
     "Observation": {
@@ -214,7 +673,8 @@
           "enum": [
             "edge",
             "simulation",
-            "replay"
+            "replay",
+            "manual"
           ],
           "title": "Source Type",
           "type": "string"
@@ -234,6 +694,19 @@
           ],
           "default": null,
           "title": "Scenario Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique replay/run id; change on reset.",
+          "title": "Run Id"
         },
         "person_id": {
           "anyOf": [
@@ -278,6 +751,28 @@
           ],
           "default": null
         },
+        "posture_prediction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PosturePrediction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hand_gesture_prediction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HandGesturePrediction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "face_present": {
           "anyOf": [
             {
@@ -314,10 +809,13 @@
         "source_type",
         "room_id",
         "scenario_id",
+        "run_id",
         "person_id",
         "person_detected",
         "keypoints",
         "features",
+        "posture_prediction",
+        "hand_gesture_prediction",
         "face_present",
         "face_confidence"
       ],
@@ -431,6 +929,97 @@
       "title": "PostureFeatures",
       "type": "object"
     },
+    "PosturePrediction": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_revision": {
+          "title": "Model Revision",
+          "type": "string"
+        },
+        "input_processing": {
+          "default": "original",
+          "enum": [
+            "original",
+            "clahe"
+          ],
+          "title": "Input Processing",
+          "type": "string"
+        },
+        "label": {
+          "enum": [
+            "standing",
+            "sitting",
+            "fallen",
+            "unknown"
+          ],
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundingBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "detection_count": {
+          "minimum": 0,
+          "title": "Detection Count",
+          "type": "integer"
+        },
+        "uncertainty_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "no_detection",
+                "multiple_people",
+                "unsupported_label"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uncertainty Reason"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "input_processing",
+        "label",
+        "confidence",
+        "bbox",
+        "detection_count",
+        "uncertainty_reason"
+      ],
+      "title": "PosturePrediction",
+      "type": "object"
+    },
     "SourceStatus": {
       "additionalProperties": false,
       "properties": {
@@ -442,7 +1031,8 @@
           "enum": [
             "edge",
             "simulation",
-            "replay"
+            "replay",
+            "manual"
           ],
           "title": "Source Type",
           "type": "string"
@@ -450,6 +1040,30 @@
         "room_id": {
           "title": "Room Id",
           "type": "string"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
         },
         "online": {
           "title": "Online",
@@ -467,6 +1081,61 @@
           ],
           "default": null,
           "title": "Last Seen"
+        },
+        "last_observation_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Observation At"
+        },
+        "observation_stale": {
+          "default": true,
+          "title": "Observation Stale",
+          "type": "boolean"
+        },
+        "posture": {
+          "default": "unknown",
+          "enum": [
+            "standing",
+            "sitting",
+            "fallen",
+            "unknown"
+          ],
+          "title": "Posture",
+          "type": "string"
+        },
+        "posture_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posture Confidence"
+        },
+        "posture_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posture Model"
         },
         "fps": {
           "anyOf": [
@@ -509,8 +1178,15 @@
         "source",
         "source_type",
         "room_id",
+        "scenario_id",
+        "run_id",
         "online",
         "last_seen",
+        "last_observation_at",
+        "observation_stale",
+        "posture",
+        "posture_confidence",
+        "posture_model",
         "fps",
         "inference_ms",
         "mem_used_mb"
@@ -541,7 +1217,9 @@
   },
   "discriminator": {
     "mapping": {
+      "alert": "#/$defs/AlertMessage",
       "event": "#/$defs/EventMessage",
+      "nurse_snapshot": "#/$defs/NurseSnapshotMessage",
       "observation": "#/$defs/ObservationMessage",
       "source_status": "#/$defs/SourceStatusMessage"
     },
@@ -556,6 +1234,12 @@
     },
     {
       "$ref": "#/$defs/SourceStatusMessage"
+    },
+    {
+      "$ref": "#/$defs/AlertMessage"
+    },
+    {
+      "$ref": "#/$defs/NurseSnapshotMessage"
     }
   ]
 }

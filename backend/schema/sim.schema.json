@@ -758,7 +758,9 @@
                 "face_absent",
                 "source_offline",
                 "source_online",
-                "alert_acknowledged"
+                "alert_acknowledged",
+                "alert_resolved",
+                "help_requested"
               ],
               "type": "string"
             },
@@ -1142,7 +1144,9 @@
             "face_absent",
             "source_offline",
             "source_online",
-            "alert_acknowledged"
+            "alert_acknowledged",
+            "alert_resolved",
+            "help_requested"
           ],
           "title": "Event Type",
           "type": "string"
