@@ -1,7 +1,9 @@
 """Evaluation CLI.
 
   python -m hearth.eval batch [--seeds 5] [--scenarios ID ...] [--monitor module:factory]
-      Run scenarios headless through a fresh monitor per run and score them.
+                             [--monitor-config config.json] [--set floor_hold_seconds=2 ...]
+      Run scenarios headless through a fresh monitor per run and score them. The default
+      monitor is the real MonitorService with the shipped hearth/monitor/config.json.
 
   python -m hearth.eval study [--count 200] [--people 1-4] [--rooms day-room bedroom] [--fall-rate 0.6] [--sweep] [--jobs 8]
       Generate random scenarios (hearth.sim.generate), score them, and break the results
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +26,7 @@ from pathlib import Path
 from hearth_schema.models import Event, GroundTruth
 
 from hearth.eval.batch import DEFAULT_MONITOR, DEFAULT_OUT_DIR, load_monitor_factory, run_batch, summary_markdown
+from hearth.eval.real_monitor import CONFIG_ENV, OVERRIDES_ENV, load_config
 from hearth.eval.scoring import EvalConfig, evaluate, summarize
 from hearth.eval.study import DEFAULT_STUDY_DIR, build_report, plan_study, run_study, study_markdown, write_study
 from hearth.sim.generate import ROOMS, GenSpec
@@ -42,6 +46,25 @@ def read_events(path: Path) -> list[Event]:
             msg = msg["data"]
         events.append(Event.model_validate(msg))
     return events
+
+
+def _apply_monitor_config(args: argparse.Namespace) -> None:
+    """Hand --monitor-config / --set to the real monitor (and to study worker processes)."""
+    if getattr(args, "monitor_config", None):
+        os.environ[CONFIG_ENV] = str(Path(args.monitor_config).resolve())
+    overrides = {}
+    for item in getattr(args, "set", None) or []:
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise SystemExit(f"--set expects key=value, got {item!r}")
+        try:
+            overrides[key] = json.loads(value)
+        except ValueError:
+            overrides[key] = value  # a bare string, e.g. --set posture_mode=model
+    if overrides:
+        os.environ[OVERRIDES_ENV] = json.dumps(overrides)
+    if getattr(args, "monitor_config", None) or overrides:
+        load_config()  # fail now on a bad file or key, not inside a worker
 
 
 def _batch(args: argparse.Namespace) -> int:
@@ -132,7 +155,13 @@ def main(argv: list[str] | None = None) -> int:
     study.add_argument("--tolerance", type=float, default=EvalConfig.alert_tolerance)
     study.add_argument("--out", default=DEFAULT_STUDY_DIR)
 
+    for p in (batch, study):
+        p.add_argument("--monitor-config", help="monitor config JSON (default hearth/monitor/config.json)")
+        p.add_argument("--set", action="append", metavar="KEY=VALUE",
+                       help="override one monitor config field, e.g. --set floor_hold_seconds=2 (repeatable)")
+
     args = parser.parse_args(argv)
+    _apply_monitor_config(args)
     return {"batch": _batch, "study": _study, "score": _score}[args.command](args)
 
 

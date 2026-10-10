@@ -3,7 +3,8 @@
 The monitor seam
 ----------------
 The real monitor (hearth.monitor, owned by the monitoring core) is plugged in through a
-factory, by default "hearth.monitor:create_monitor". Whatever it returns must satisfy
+factory, by default "hearth.eval.real_monitor:create_monitor", which wraps the live
+MonitorService with a record-time clock. Whatever a factory returns must satisfy
 MonitorLike:
 
   * ingest(item)     - one Observation or Heartbeat, in timestamp order; returns any
@@ -36,7 +37,7 @@ from hearth.eval.scoring import SOURCE_LEVEL_EVENTS, EvalConfig, evaluate
 from hearth.sim.runner import SimRun, run_headless
 from hearth.sim.scenario import Scenario
 
-DEFAULT_MONITOR = "hearth.monitor:create_monitor"
+DEFAULT_MONITOR = "hearth.eval.real_monitor:create_monitor"
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[3] / "recordings" / "eval"
 TICK_SECONDS = 0.25
 
