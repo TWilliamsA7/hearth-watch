@@ -184,6 +184,7 @@ def main(argv=None):
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGHUP, request_stop)  # terminal/ssh closed: stop cleanly too
 
     log("source=%s room=%s camera=%s %dx%d obs=%.0f/s %s"
         % (args.source, args.room, args.camera, args.width, args.height, args.obs_hz,

@@ -72,11 +72,17 @@ def backend_lines(view, source):
     alerts = view.get("alerts") or []
     if not alerts:
         lines.append(("alerts: none open", GREY))
-    for kind, status, age, who in alerts[:2]:
-        lines.append(("ALERT %s: %s%s%s" % (kind.replace("_", " "), status,
-                                            " %.0f s" % age if age is not None else "",
-                                            " (%s)" % who if who else ""),
-                      RED if status == "open" else AMBER))
+    for kind, status, age, who, down in alerts[:2]:
+        name = kind.replace("_", " ")
+        by = " (%s)" % who if who else ""
+        if down is not None:
+            # Recovered: stop counting; the alert stays until a nurse resolves it on /nurses.
+            back = "reconnected" if kind == "source_offline" else "up again"
+            lines.append(("ALERT %s: %s%s, %s after %.0f s - review on /nurses"
+                          % (name, status, by, back, down), AMBER))
+        else:
+            lines.append(("ALERT %s: %s%s%s" % (name, status, " %.0f s" % age if age is not None else "", by),
+                          RED if status == "open" else AMBER))
     return lines
 
 

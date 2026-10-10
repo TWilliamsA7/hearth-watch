@@ -47,7 +47,7 @@ stub_pid=""
 player_pid=""
 edge_started=0
 cleanup() {
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   # Only stop a Jetson program this script started (never someone else's run).
   [ "$edge_started" = 1 ] && ssh "$JETSON" 'pkill -INT -f "^python3 -u run_edge.py"' 2>/dev/null
   [ -n "$player_pid" ] && kill "$player_pid" 2>/dev/null
@@ -55,7 +55,7 @@ cleanup() {
   wait 2>/dev/null
   say "all stopped"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 [ -x "$PY" ] || { echo "missing $PY - create it: python3 -m venv .venv && .venv/bin/pip install -e shared/python pytest"; exit 1; }
 
@@ -68,8 +68,19 @@ if [ -n "$holder" ]; then
   exit 1
 fi
 if ss -ltn 'sport = :8000' | grep -q LISTEN; then
-  echo "port 8000 on the laptop is already in use (another stub_backend.py or the real backend?)"
-  exit 1
+  pid=$(ss -ltnp 'sport = :8000' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+  args=$([ -n "$pid" ] && ps -o args= -p "$pid")
+  parent=$([ -n "$pid" ] && ps -o comm= -p "$(ps -o ppid= -p "$pid" | tr -d ' ')")
+  # A backend these tools started whose terminal went away (parent is now systemd/init): stop it.
+  if [ -n "$pid" ] && echo "$args" | grep -qE 'uvicorn hearth\.api\.app:app|stub_backend\.py' \
+     && { [ "$parent" = systemd ] || [ "$parent" = init ]; }; then
+    echo "stopping a leftover backend from an earlier run (pid $pid)"
+    kill "$pid"; sleep 2
+  else
+    echo "port 8000 on the laptop is already in use${pid:+ by pid $pid: $args}"
+    echo "stop it first${pid:+ (kill $pid)}, or use the backend that is already running"
+    exit 1
+  fi
 fi
 echo "ok"
 

@@ -61,7 +61,7 @@ log="$tmp/session.log"
 player_pid=""
 session_pid=""
 cleanup() {
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   { echo quit >&3; } 2>/dev/null
   exec 3>&- 2>/dev/null
   if [ -n "$session_pid" ]; then
@@ -73,7 +73,7 @@ cleanup() {
   [ -n "$player_pid" ] && kill "$player_pid" 2>/dev/null
   rm -rf "$tmp"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 wait_for_log() {  # pattern, minimum count, timeout seconds
   local end=$((SECONDS + $3))

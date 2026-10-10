@@ -16,6 +16,9 @@ Standard library only (works on the laptop or the Jetson). From the repo root on
     .venv/bin/python edge/tools/replay.py recordings/lie_down-20261010-031500.jsonl
     .venv/bin/python edge/tools/replay.py recordings/*.jsonl --speed 2
     .venv/bin/python edge/tools/replay.py recordings/sit-*.jsonl --loop     # Ctrl+C to stop
+    # Demo fallback: standing, lying down (alert), standing again (recovery) as ONE run:
+    .venv/bin/python edge/tools/replay.py --join recordings/stand-*.jsonl \
+        recordings/lie_down-20261010-063944.jsonl recordings/stand-*.jsonl
 """
 
 import argparse
@@ -56,6 +59,27 @@ def schedule(observations, speed=1.0):
         return []
     t0 = contract.parse_utc_iso(observations[0]["timestamp"])
     return [max(0.0, (contract.parse_utc_iso(o["timestamp"]) - t0) / speed) for o in observations]
+
+
+def join_recordings(recordings, gap_s=0.1):
+    """Several clips -> one continuous clip: each starts gap_s after the previous one ends.
+
+    Original timestamps are shifted (copies are returned), so playback, the backend's hold
+    timer and recovery all see one uninterrupted run. gap_s stays well under the backend's
+    1 s observation-gap limit.
+    """
+    joined, end = [], None
+    for observations in recordings:
+        if not observations:
+            continue
+        first = contract.parse_utc_iso(observations[0]["timestamp"])
+        shift = 0.0 if end is None else (end + gap_s) - first
+        for o in observations:
+            o = dict(o)
+            o["timestamp"] = contract.utc_iso(contract.parse_utc_iso(o["timestamp"]) + shift)
+            joined.append(o)
+        end = contract.parse_utc_iso(joined[-1]["timestamp"])
+    return joined
 
 
 def new_run_id(source, n=1, clock=time.time):
@@ -119,6 +143,9 @@ def main(argv=None):
     ap.add_argument("--source", default=REPLAY_SOURCE)
     ap.add_argument("--speed", type=float, default=1.0, help="2 = twice as fast")
     ap.add_argument("--loop", action="store_true", help="repeat until Ctrl+C")
+    ap.add_argument("--join", action="store_true",
+                    help="play all files back to back as ONE run (one run_id), e.g. stand, "
+                         "lie_down, stand: needed for the backend to link a recovery to its alert")
     args = ap.parse_args(argv)
     if args.speed <= 0:
         ap.error("--speed must be positive")
@@ -128,6 +155,9 @@ def main(argv=None):
     if not recordings:
         sys.stderr.write("nothing to replay\n")
         return 1
+    if args.join and len(recordings) > 1:
+        recordings = [(" + ".join(os.path.basename(p) for p, _ in recordings),
+                       join_recordings([obs for _, obs in recordings]))]
 
     room = recordings[0][1][0].get("room_id", "room-01")
     stats = PlaybackStats()
