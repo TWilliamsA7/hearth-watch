@@ -9,7 +9,8 @@
       "enum": [
         "edge",
         "simulation",
-        "replay"
+        "replay",
+        "manual"
       ],
       "title": "Source Type",
       "type": "string"
@@ -17,6 +18,30 @@
     "room_id": {
       "title": "Room Id",
       "type": "string"
+    },
+    "scenario_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Id"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
     },
     "online": {
       "title": "Online",
@@ -34,6 +59,61 @@
       ],
       "default": null,
       "title": "Last Seen"
+    },
+    "last_observation_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Observation At"
+    },
+    "observation_stale": {
+      "default": true,
+      "title": "Observation Stale",
+      "type": "boolean"
+    },
+    "posture": {
+      "default": "unknown",
+      "enum": [
+        "standing",
+        "sitting",
+        "fallen",
+        "unknown"
+      ],
+      "title": "Posture",
+      "type": "string"
+    },
+    "posture_confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Posture Confidence"
+    },
+    "posture_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Posture Model"
     },
     "fps": {
       "anyOf": [
@@ -76,8 +156,15 @@
     "source",
     "source_type",
     "room_id",
+    "scenario_id",
+    "run_id",
     "online",
     "last_seen",
+    "last_observation_at",
+    "observation_stale",
+    "posture",
+    "posture_confidence",
+    "posture_model",
     "fps",
     "inference_ms",
     "mem_used_mb"

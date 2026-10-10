@@ -1,0 +1,46 @@
+scenario_id: day-room-01
+title: Day room, one resident falls while others carry on
+description: >
+  Four residents in a shared day room. One reads in a chair, one walks along the back
+  wall (passing behind the others), one walks in and falls near the middle of the room,
+  and one gets up from the couch and bends down beside the fallen resident to help.
+  Exactly one possible-fall alert is expected, for p3. The helper's bend is a
+  false-alarm risk.
+seed: 101
+scene:
+  objects:
+    - {kind: couch, x: 0.62, y: 0.64, w: 0.30, h: 0.182}
+    - {kind: chair, x: 0.10, y: 0.66, w: 0.12, h: 0.218}
+residents:
+  - resident_id: p1
+    start_x: 0.16
+    start_depth: 0.3
+    segments:
+      - {label: sitting, duration: 32.0, transition: 0.0, facing: camera}
+  - resident_id: p2
+    height: 0.95
+    start_x: -0.1
+    start_depth: 0.85
+    segments:
+      - {label: walking, duration: 12.0, transition: 0.0, x: 1.1}
+      - {label: absent, duration: 4.0, transition: 0.0}
+      - {label: walking, duration: 12.0, transition: 0.0, x: -0.1}
+      - {label: absent, duration: 4.0, transition: 0.0}
+  - resident_id: p3
+    height: 1.02
+    start_x: 1.12
+    start_depth: 0.15
+    segments:
+      - {label: walking, duration: 6.0, transition: 0.0, x: 0.52}
+      - {label: standing, duration: 4.0, transition: 0.5, facing: left}
+      - {label: fall, duration: 22.0, transition: 0.8}
+  - resident_id: p4
+    height: 0.97
+    start_x: 0.74
+    start_depth: 0.7
+    segments:
+      - {label: sitting, duration: 13.0, transition: 0.0, facing: camera}
+      - {label: standing, duration: 2.0, transition: 1.4}
+      - {label: walking, duration: 5.0, transition: 0.3, x: 0.66, depth: 0.25}
+      - {label: bending, duration: 4.0, transition: 1.0, facing: left}
+      - {label: standing, duration: 8.0, transition: 1.0}

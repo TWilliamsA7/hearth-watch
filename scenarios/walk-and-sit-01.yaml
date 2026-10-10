@@ -1,0 +1,17 @@
+scenario_id: walk-and-sit-01
+title: Walk to the chair, sit, get up, leave
+description: >
+  Ordinary activity. The resident enters from the left, sits in the chair for a while,
+  stands up and walks out. No alert expected.
+seed: 7
+start_x: -0.15
+scene:
+  objects:
+    - {kind: chair, x: 0.66, y: 0.66, w: 0.14, h: 0.26}
+segments:
+  - {label: walking, duration: 5.0, transition: 0.0, x: 0.73}
+  - {label: standing, duration: 1.5, transition: 0.6, facing: camera}
+  - {label: sitting, duration: 15.0, transition: 1.4}
+  - {label: standing, duration: 3.0, transition: 1.6}
+  - {label: walking, duration: 4.0, transition: 0.4, x: 1.15}
+  - {label: absent, duration: 2.0, transition: 0.0}

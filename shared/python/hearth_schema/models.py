@@ -16,11 +16,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 SCHEMA_VERSION = "1"
 
-SourceType = Literal["edge", "simulation", "replay"]
+SourceType = Literal["edge", "simulation", "replay", "manual"]
 """edge = live Jetson; simulation = simulator; replay = recorded trace played back."""
 
 # poseNet resnet18-body / COCO-18 keypoint names.
@@ -55,7 +55,11 @@ EventType = Literal[
     "source_offline",
     "source_online",
     "alert_acknowledged",
+    "alert_resolved",
+    "help_requested",
 ]
+
+AlertKind = Literal["possible_fall", "help_requested", "source_offline"]
 
 TruthLabel = Literal[
     "walking",
@@ -74,7 +78,8 @@ Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 
 class _Model(BaseModel):
     # Serialization schema marks defaulted fields required: the server always sends them.
-    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False,
+                              json_schema_serialization_defaults_required=True)
 
 
 class Keypoint(_Model):
@@ -83,7 +88,7 @@ class Keypoint(_Model):
     name: KeypointName
     x: Unit
     y: Unit
-    confidence: Unit
+    confidence: Unit | None = Field(default=None, description="Measured keypoint confidence, when available; null is unknown, not zero or certainty.")
 
 
 class PostureFeatures(_Model):
@@ -102,17 +107,75 @@ class PostureFeatures(_Model):
     )
 
 
+class BoundingBox(_Model):
+    x1: Unit
+    y1: Unit
+    x2: Unit
+    y2: Unit
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.x2 <= self.x1 or self.y2 <= self.y1:
+            raise ValueError("Bounding box must have positive width and height")
+        return self
+
+
+class PosturePrediction(_Model):
+    model_id: str
+    model_revision: str
+    input_processing: Literal["original", "clahe"] = "original"
+    label: Literal["standing", "sitting", "fallen", "unknown"]
+    confidence: Unit | None = None
+    bbox: BoundingBox | None = None
+    detection_count: int = Field(ge=0)
+    uncertainty_reason: Literal["no_detection", "multiple_people", "unsupported_label"] | None = None
+
+    @model_validator(mode="after")
+    def require_single_detection(self):
+        if self.label != "unknown" and (self.detection_count != 1 or self.confidence is None or self.bbox is None):
+            raise ValueError("A posture label requires one detection, a confidence and a bounding box")
+        if self.label != "unknown" and self.uncertainty_reason is not None:
+            raise ValueError("An uncertain detection must use the unknown label")
+        return self
+
+
+class HandGesturePrediction(_Model):
+    model_id: str
+    model_revision: str
+    label: Literal["like", "palm", "fist", "peace", "ok", "one", "three", "four",
+                   "call", "point", "grip", "middle_finger", "unknown"]
+    confidence: Unit | None = None
+    bbox: BoundingBox | None = None
+    detection_count: int = Field(ge=0)
+    uncertainty_reason: Literal["no_detection", "multiple_hands", "unsupported_label"] | None = None
+
+    @model_validator(mode="after")
+    def require_single_hand(self):
+        if self.label != "unknown" and (self.detection_count != 1 or self.confidence is None
+                                      or self.bbox is None or self.uncertainty_reason is not None):
+            raise ValueError("A gesture label requires one hand, score and box without uncertainty")
+        return self
+
+
 class Observation(_Model):
     schema_version: Literal["1"] = SCHEMA_VERSION
     obs_id: str
-    timestamp: datetime
+    timestamp: AwareDatetime
     source: str = Field(description="Device or generator id, e.g. 'jetson-01' or 'sim'.")
     source_type: SourceType
     room_id: str
     scenario_id: str | None = None
+    run_id: str | None = Field(default=None, description="Unique replay/run id; change on reset.")
+    person_id: str | None = Field(
+        default=None,
+        description="Anonymous per-session track id when a source reports several people "
+        "(e.g. 'p1'). Not an identity. None = single-person source.",
+    )
     person_detected: bool
     keypoints: list[Keypoint] | None = None
     features: PostureFeatures | None = None
+    posture_prediction: PosturePrediction | None = None
+    hand_gesture_prediction: HandGesturePrediction | None = None
     face_present: bool | None = Field(
         default=None, description="None = face detection did not run on this frame."
     )
@@ -122,11 +185,17 @@ class Observation(_Model):
 class Event(_Model):
     schema_version: Literal["1"] = SCHEMA_VERSION
     event_id: str
-    timestamp: datetime
+    timestamp: AwareDatetime
     source: str
     source_type: SourceType
     room_id: str
     scenario_id: str | None = None
+    run_id: str | None = None
+    person_id: str | None = Field(
+        default=None,
+        description="Anonymous per-session track id of the person the event concerns "
+        "(e.g. 'p1'). Not an identity. None = single-person source.",
+    )
     event_type: EventType
     confidence: Unit | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -139,6 +208,9 @@ class GroundTruth(_Model):
     scenario_id: str
     seed: int
     segment_id: str
+    person_id: str | None = Field(
+        default=None, description="Which simulated resident this segment describes. None = single-resident scenario."
+    )
     t_start: Annotated[float, Field(ge=0.0)]
     t_end: Annotated[float, Field(ge=0.0)]
     truth_label: TruthLabel
@@ -149,10 +221,12 @@ class Heartbeat(_Model):
     """Sent by every source about once per second; also carries edge performance metrics."""
 
     schema_version: Literal["1"] = SCHEMA_VERSION
-    timestamp: datetime
+    timestamp: AwareDatetime
     source: str
     source_type: SourceType
     room_id: str
+    scenario_id: str | None = None
+    run_id: str | None = None
     fps: Annotated[float, Field(ge=0.0)] | None = None
     inference_ms: Annotated[float, Field(ge=0.0)] | None = None
     mem_used_mb: Annotated[float, Field(ge=0.0)] | None = None
@@ -161,18 +235,80 @@ class Heartbeat(_Model):
 class ObservationBatch(_Model):
     """Body of POST /ingest/observations."""
 
-    observations: list[Observation]
+    observations: list[Observation] = Field(min_length=1, max_length=500)
 
 
 class SourceStatus(_Model):
     source: str
     source_type: SourceType
     room_id: str
+    scenario_id: str | None = None
+    run_id: str | None = None
     online: bool
     last_seen: datetime | None = None
+    last_observation_at: datetime | None = None
+    observation_stale: bool = True
+    posture: Literal["standing", "sitting", "fallen", "unknown"] = "unknown"
+    posture_confidence: Unit | None = None
+    posture_model: str | None = None
     fps: float | None = None
     inference_ms: float | None = None
     mem_used_mb: float | None = None
+
+
+class Alert(_Model):
+    alert_id: str
+    event_id: str
+    kind: AlertKind = "possible_fall"
+    source: str
+    source_type: SourceType
+    room_id: str
+    scenario_id: str | None = None
+    run_id: str | None = None
+    status: Literal["open", "acknowledged", "resolved"] = "open"
+    severity: Literal["warning", "info"] = "warning"
+    opened_at: AwareDatetime
+    acknowledged_at: AwareDatetime | None = None
+    resolved_at: AwareDatetime | None = None
+    recovered_at: AwareDatetime | None = None
+    accepted_by: str | None = None
+    accepted_by_name: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NursePreferences(_Model):
+    display_name: str = Field(min_length=1, max_length=80)
+    room_ids: list[str] = Field(min_length=1, max_length=100)
+    alert_kinds: list[AlertKind] = Field(min_length=1, max_length=3)
+    on_duty: bool = True
+
+
+class NurseProfile(NursePreferences):
+    nurse_id: str
+
+
+class NurseAction(_Model):
+    nurse_id: str
+
+
+class HelpRequest(_Model):
+    request_id: str = Field(min_length=1, max_length=128)
+    room_id: str
+
+
+class NurseSnapshot(_Model):
+    nurse: NurseProfile
+    alerts: list[Alert]
+    events: list[Event]
+    sources: list[SourceStatus]
+
+
+class RoomSnapshot(_Model):
+    room_id: str
+    observations: list[Observation]
+    events: list[Event]
+    alerts: list[Alert]
+    sources: list[SourceStatus]
 
 
 # --- WebSocket messages, server -> dashboard (WS /ws/room/{room_id}) ---
@@ -193,7 +329,17 @@ class SourceStatusMessage(_Model):
     data: SourceStatus
 
 
+class AlertMessage(_Model):
+    type: Literal["alert"] = "alert"
+    data: Alert
+
+
+class NurseSnapshotMessage(_Model):
+    type: Literal["nurse_snapshot"] = "nurse_snapshot"
+    data: NurseSnapshot
+
+
 ServerMessage = Annotated[
-    Union[ObservationMessage, EventMessage, SourceStatusMessage],
+    Union[ObservationMessage, EventMessage, SourceStatusMessage, AlertMessage, NurseSnapshotMessage],
     Field(discriminator="type"),
 ]

@@ -1,0 +1,11 @@
+{
+  "repo_id": "melihuzunoglu/human-fall-detection",
+  "revision": "97261b03632a9715a27481b2cfdac6a78e26d2d9",
+  "filename": "best.pt",
+  "sha256": "3f56ad30358d5c63bf8dbc0c1299cf68818c3d291dfb10c94107b94110aadd4c",
+  "image_size": 640,
+  "detection_confidence_min": 0.25,
+  "device": "cpu",
+  "max_fps": 5.0,
+  "torch_threads": 2
+}

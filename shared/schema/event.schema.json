@@ -24,7 +24,8 @@
       "enum": [
         "edge",
         "simulation",
-        "replay"
+        "replay",
+        "manual"
       ],
       "title": "Source Type",
       "type": "string"
@@ -45,6 +46,31 @@
       "default": null,
       "title": "Scenario Id"
     },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "person_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Anonymous per-session track id of the person the event concerns (e.g. 'p1'). Not an identity. None = single-person source.",
+      "title": "Person Id"
+    },
     "event_type": {
       "enum": [
         "possible_fall",
@@ -55,7 +81,9 @@
         "face_absent",
         "source_offline",
         "source_online",
-        "alert_acknowledged"
+        "alert_acknowledged",
+        "alert_resolved",
+        "help_requested"
       ],
       "title": "Event Type",
       "type": "string"
@@ -88,6 +116,8 @@
     "source_type",
     "room_id",
     "scenario_id",
+    "run_id",
+    "person_id",
     "event_type",
     "confidence",
     "metadata"

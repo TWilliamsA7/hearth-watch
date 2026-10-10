@@ -1,6 +1,6 @@
 # Hearth
 
-Single-room resident safety monitoring and simulation, built for Knight Hacks IX (October 9–11, 2026, 36 hours, team of 4).
+Resident safety monitoring, help requests, and care-team response simulation, built for Knight Hacks IX (October 9–11, 2026, 36 hours, team of 4).
 
 Hearth shows how local edge computer vision could help caregivers in assisted-living and memory-care settings notice possible safety incidents involving older adults. A Jetson Nano processes one USB camera and sends structured posture and face-presence observations to a laptop. The laptop runs the monitoring pipeline, a deterministic room simulator, and a dashboard. Live and simulated observations go through the same pipeline, and simulated scenarios are scored against their ground truth.
 
@@ -8,11 +8,134 @@ Hearth shows how local edge computer vision could help caregivers in assisted-li
 
 ## Status
 
-Repository scaffold and shared contract (`shared/`) only. The backend, edge, simulator and dashboard folders are empty placeholders. Everything under "Planned design" below is agreed but not yet implemented.
+The Person 2 monitoring core is implemented: shared schemas and generated TypeScript types, FastAPI ingestion and WebSocket, possible-fall rules, alert lifecycle, source health, an in-memory event log with JSONL export, a fake-observation producer, and automated tests. It now includes held-arm help requests, a manual help button, nurse subscriptions, exclusive nurse acceptance, and built-in nurse/room pages. Bed/chair zone downgrading is available but disabled until zones are configured. Edge inference and the simulator/evaluator remain separate integrations; Person 4 can reuse these APIs in the planned React dashboard.
+
+Detection thresholds are initial demo parameters, not tuned or validated on real camera traces. Synthetic tests exercise software behavior; they are not measured clinical accuracy.
+
+## Standing / fallen model
+
+The optional local vision runner integrates [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection). It sends **Standing / Sitting / Fallen** predictions through the same backend, with confidence, bounding boxes and model provenance. The monitor requires sustained Fallen predictions before opening a possible-fall alert and sustained Standing predictions before recovery. Uncertain/multiple-person results stay unknown.
+
+See [`edge/README.md`](edge/README.md) for dependency setup, camera/video commands, and Jetson compatibility limits. The camera command, after installing the optional vision dependencies and downloading the weights, is:
+
+```powershell
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --backend http://127.0.0.1:8000
+```
+
+Restart the backend after pulling this schema update. Nurse and room pages display model posture in the source-health section. The model provides no pose keypoints or face detections, so the existing gesture feature still needs a pose source.
+
+## Nurse desk and help requests
+
+Start or restart the server with the command below, then open:
+
+- `http://127.0.0.1:8000/nurses` — nurse coverage preferences, live alert queue, named acceptance, resolution, source health and timeline.
+- `http://127.0.0.1:8000/room` — room help button and visible request/acknowledgement confirmation.
+
+These pages are served by FastAPI from `backend/hearth/api/static/`, with no Node install, CDN or frontend build. They use the same APIs available to the React frontend.
+
+**Minimum demo:**
+
+1. Open `/nurses`, enter a display name, choose `room-01` and **Help requests**, keep **On duty** checked, and start the session. Click **Enable alert sound** if desired.
+2. Open `/room` in a separate tab and press **Request help**. A labelled **BUTTON REQUEST** alert appears at the care desk.
+3. Accept the request in the nurse tab. The room panel shows the nurse's acknowledgement. Resolve it to allow a fresh request.
+4. Open a second nurse tab with a different name and the same coverage. Both see matching alerts and who accepted them; only the first accepting nurse owns the alert and can resolve it.
+5. Change the second nurse's coverage to **Camera / source offline** only and save. Help requests will no longer be routed there. Off-duty sessions receive no new matching requests; their already accepted work remains visible.
+6. To test a gesture without hardware, run the synthetic trace below. A brief wave or an interrupted gesture should not produce a help request.
+
+```powershell
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario wave
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture_occlusion
+# Optional second logical room for subscription routing:
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture --room room-02
+```
+
+The second logical room has no camera data until a source sends it. The default config permits `room-01` and `room-02`; change `additional_room_ids` to configure coverage. Room WebSocket streams and snapshots are isolated by room.
+
+**Gesture contract:** Person 1 sends the existing normalized pose keypoints. A wrist must be above both the nose and same-side shoulder by `gesture_raise_margin`, with all three confidence values at least `gesture_keypoint_confidence_min`. The same arm must satisfy that condition continuously for `gesture_hold_seconds` (default 2 seconds). Missing frames, low-confidence keypoints, or occlusion clear pending evidence. One held gesture creates one `help_requested` event/alert. Re-arming requires observing the triggering arm lowered for `gesture_release_seconds` and respecting `gesture_cooldown_seconds`. Occlusion never counts as release. These rules do not identify the person or prove their intent; validate them against reaching, waving and stretching on the actual camera.
+
+The room panel provides visual confirmation for camera gestures and button requests. It does not control a Jetson speaker. Nurse alert sound requires enabling audio in that browser tab. These are live **open-page notifications**, not SMS, mobile push, or delivery while a browser is closed. Connection interruptions are displayed; reconnect restores current matching alerts without sounding every historical request again.
+
+Profiles, subscriptions, ownership, and events are in memory and clear when the backend restarts. Nurse profiles are local demo sessions, **not authenticated staff accounts**; nurse IDs are identifiers, not security credentials. Exclusive acceptance prevents accidental competing claims through the workflow; authentication and durable delivery would be separate deployment work.
+
+## Run the monitoring core
+
+From the repository root, with Python 3.11+ (PowerShell):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev]'
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
+```
+
+For Jetson access over the local network, use `--host 0.0.0.0` and the laptop's LAN address. Run **one worker**: state is in memory. Interactive API documentation is at `http://127.0.0.1:8000/docs`. Once dependencies are installed, the backend and scripts work without internet.
+
+In a second terminal, run the stub (no Jetson or frontend needed):
+
+```powershell
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario fall
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario normal
+.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario occlusion
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+```
+
+`fall` produces one possible-fall alert and then a recovery observation; the alert remains open for human review. `normal` and `occlusion` should produce no **possible-fall** alerts. Every stopped source can subsequently produce a **source-offline** alert, routed to nurses subscribed to that situation. Each invocation uses a new `run_id`. Use `--fast` for accelerated transport with the same observation-time intervals. The stub is explicitly labelled `simulation` (or `--source-type replay`); it is not Person 3's scenario/evaluation system.
+
+## Person 2 integration contract
+
+| Route | Behavior |
+| --- | --- |
+| `POST /ingest/observations` | `ObservationBatch`, 1–500 observations; returns accepted, duplicates, out_of_order, stale and future counts |
+| `GET /ingest/status` | Cumulative ingestion counts since startup and live edge timestamp limits |
+| `POST /ingest/heartbeat` | `Heartbeat`; returns current `SourceStatus` |
+| `WS /ws/room/room-01` | Typed observation, event, source-status and alert messages; reconnect gets current state and retained events |
+| `GET /rooms/room-01/snapshot` | Latest observations per source/run, retained events, alerts and source statuses |
+| `GET /alerts` | Alerts; optional `source` and `run_id` filters |
+| `POST /alerts/{alert_id}/ack` | Open → acknowledged; repeated requests are idempotent |
+| `POST /alerts/{alert_id}/resolve` | Acknowledged → resolved; resolving an open alert returns 409 |
+| `GET /events` | Retained events; optional `source` and `run_id` filters |
+| `GET /events/export` | Same filtered events as downloadable JSONL |
+| `GET /sources` | Connection health and observation staleness |
+| `GET /health` | Backend process health, not a declaration that the room is safe |
+| `GET /rooms` | Configured room IDs and gesture hold duration |
+| `POST /help-requests` | `{request_id, room_id}`; manual help request with retry/double-click deduplication |
+| `POST /nurse-sessions` | Create `{display_name, room_ids, alert_kinds, on_duty}` preferences |
+| `PUT /nurse-sessions/{nurse_id}` | Update coverage/duty; connected nurse streams receive a replacement snapshot |
+| `GET /nurse-sessions/{nurse_id}/snapshot` | Current matching alerts, events and source statuses |
+| `WS /ws/nurse/{nurse_id}` | Initial `nurse_snapshot`, then filtered alert/event/source-status updates; no observation stream |
+| `POST /alerts/{alert_id}/accept` | `{nurse_id}`; atomically assign to an eligible on-duty nurse, or 409 if already owned |
+
+For nurse-owned alerts, `POST /alerts/{alert_id}/resolve` requires the owning `{nurse_id}`. The original `/ack` flow remains available for unassigned alerts. Each alert has a `kind`: `possible_fall`, `help_requested`, or `source_offline`. Human acceptance is not proof that assistance has physically arrived. Source reconnection records recovery on an offline alert but does not resolve it automatically.
+
+- **Person 1:** Existing observation fields remain valid. Send heartbeat context (`source`, `source_type`, `room_id`, and any scenario/run IDs) matching observations. Features must follow the normalized conventions below; missing features remain `null`. Frames with no person still send `person_detected: false`.
+- **Person 3:** Send observations through the same ingest API, or use `app.state.monitor.ingest(observations)` on the backend event loop. Mount scenario-control routes onto the same FastAPI app. Keep ground truth in `hearth.sim`/`hearth.eval`; retrieve monitor events with `run_id` for scoring. Assign a new run ID for every reset/replay, even with the same scenario and seed. A run's timestamps must advance strictly; duplicate/equal/older samples do not advance detection.
+- **Person 4:** Import generated server types from `shared/types/hearth.ts`. Use the `type` discriminator on `ServerMessage`. Upsert events by `event_id`, alerts by `alert_id`, and source/latest-observation records by `(room_id, source_type, source, scenario_id, run_id)`. Reconnect repeats retained history, so deduplicate it. The optional HTTP snapshot provides the same current state. Display `observation_stale` separately from `online`, and always preserve source labels. Recovery is shown with `recovered_at`; it does not automatically acknowledge or resolve an alert.
+
+WebSocket clients that fall behind are closed with code 1013 and should reconnect to refresh state. CORS permits localhost Vite on port 5173 by default; other origins can be configured.
+
+### Detection, timing and configuration
+
+All tunable rules are in `backend/hearth/monitor/config.json`. Set `HEARTH_CONFIG` to a different JSON path to override it, then restart the server.
+
+- Floor evidence requires a near-horizontal torso and low head/hip positions. Bounding-box aspect is checked when available. Upright recovery requires an upright torso and a head above the hip away from floor level.
+- Descending is tracked from downward velocity. Sustained floor-level evidence can still alert if the descent was not observed; the event reason is `sustained_floor_level`, not a confirmed fall. Intentional lying down can therefore also alert.
+- A default 3-second floor hold uses **observation timestamps**, so transport batching and replay speed do not change detection time. The default maximum observation gap is 1 second. A gap, missing pose evidence, or person occlusion resets a pending hold; missing information never emits recovery.
+- Source health uses **backend monotonic receipt time**, with UTC receipt timestamps in health events. After 3 seconds without observations, posture becomes unknown/stale. Heartbeats can keep a source connected but cannot make old observations fresh. After 3 seconds without either observations or heartbeats, emit `source_offline`; fresh traffic emits `source_online` once.
+- During simulator pause, keep heartbeats flowing if connected status is desired. Paused observations become stale and pending floor evidence is reset after the timeout. Resume with advancing scenario time; do not count wall-clock pause time as observed posture.
+- Alert opening/recovery times use the observation clock. Human acknowledgement/resolution and source-health events use backend receipt time (`metadata.clock`). Evaluators should score `possible_fall` events by run, not health or acknowledgement timestamps.
+- Zones use **normalized observation-frame coordinates**, not room meters. A confident hip location inside a configured bed/chair polygon downgrades an alert to `info` and records the reason; it never removes the event. Without hip location there is no downgrade. The simulator must project its room positions into the same frame before sharing zones.
+
+Example `zones` configuration (replace with calibrated geometry):
+
+```json
+[{"name": "bed", "kind": "bed", "polygon": [[0.1, 0.7], [0.6, 0.7], [0.6, 1.0], [0.1, 1.0]]}]
+```
+
+The event log retains the latest 10,000 events by default; JSONL export includes only those retained events. Export before the capacity is exceeded or the backend restarts. Alerts and source/run state stay in memory until restart; this is a single-session hackathon backend, not durable storage. Old simulation runs remain visible by ID and can be filtered by the dashboard/evaluator.
 
 ## Scope
 
-**One room only.** This is a deliberate decision, not a limitation to fix.
+The initial demo uses one camera and one person at a time. The backend now supports configured logical rooms for nurse subscription routing, without a building map or cross-camera identity tracking.
 
 In scope:
 
@@ -21,14 +144,15 @@ In scope:
 - A possible-fall state machine built from interpretable rules (torso angle, head/hip height, vertical motion, bounding-box aspect, time near floor). No custom model training.
 - Face **detection** (is a face visible?) used to mark how well the person is observed.
 - Evaluation: detection delay, true/false positives, missed events, test count.
+- Held-arm/manual help requests, live nurse coverage subscriptions, named acceptance and resolution.
 
 Out of scope — do not add these:
 
-- Multiple rooms, hallways, building maps, pathfinding, resident navigation.
+- Hallways, building maps, pathfinding, resident navigation.
 - Multiple cameras or cross-camera tracking.
 - Face **recognition**, identity assignment, biometric databases.
 - Gait analysis, fall-risk scores, clinical predictions, custom fall-model training.
-- Cloud services, internet dependencies, staff dispatch, physical props, robots.
+- Cloud services, runtime internet dependencies, physical props, robots.
 
 ## Architecture
 
@@ -64,7 +188,7 @@ These are the rules the project's credibility depends on. Do not break them.
 
 1. **Ground truth never reaches the monitor.** `GroundTruth` records exist only in the simulator and evaluator. Code in `backend/hearth/monitor/` must never import `hearth.sim`, `hearth.eval`, or `GroundTruth`. Add a test that enforces this.
 2. **One pipeline for every source.** Jetson, simulator and replay observations all go through the same monitor code. The Jetson sends observations, not alerts. The possible-fall decision is made once, in the backend.
-3. **Every record says where it came from.** `source_type` is `edge`, `simulation` or `replay`, and the dashboard always labels live versus simulated data visibly.
+3. **Every record says where it came from.** `source_type` is `edge`, `simulation`, `replay`, or `manual` (a help-button request). The dashboard labels these visibly; manual requests never imply camera observations.
 4. **Silence is not safety.** If a source stops sending, the room is shown as offline / unknown, never as fine.
 5. **No raw video leaves the Jetson.** Only structured observations and keypoints are sent. Nothing records or uploads video by default.
 
@@ -84,6 +208,7 @@ shared/             the contract every component speaks
   schema/             generated JSON Schema (do not edit by hand)
   fixtures/           example messages, placeholder values only
   scripts/            schema export
+  types/              generated TypeScript server types
 scenarios/          scripted simulator scenarios
 recordings/         local keypoint traces (git-ignored; never raw video)
 ```
@@ -96,37 +221,43 @@ Everything that crosses a component boundary is defined in `shared/python/hearth
 | --- | --- | --- |
 | `Observation` | What a sensor could see: keypoints, posture features, face presence | Jetson, simulator, replay |
 | `Event` | What the monitor concluded | Backend monitor |
+| `Alert` | Human review lifecycle for a possible-fall incident | Backend |
 | `GroundTruth` | What actually happened in a simulated scenario segment | Simulator only |
 | `Heartbeat` | Source liveness plus FPS, inference latency, memory | Every source, ~1 per second |
 | `SourceStatus` | Backend's view of whether a source is online | Backend |
-| `ServerMessage` | WebSocket envelope to the dashboard: `observation`, `event` or `source_status` | Backend |
+| `ServerMessage` | WebSocket envelope: `observation`, `event`, `source_status`, `alert`, or `nurse_snapshot` | Backend |
+| `RoomSnapshot` | Current observations, events, alerts and source statuses | Backend |
+| `NursePreferences` / `NurseProfile` | Coverage choices, duty status and demo session ID | Nurse desk / backend |
+| `HelpRequest` | Idempotent manual room assistance request | Room panel |
 
 Conventions:
 
-- Timestamps are ISO 8601 UTC.
+- Timestamps are ISO 8601 with a timezone (producers should use UTC); naive input timestamps are rejected.
+- `run_id` is optional for backwards compatibility; simulator/replay integrations should always supply a new ID for each run. Include it on heartbeats too.
 - Keypoints use the 18 COCO names from poseNet `resnet18-body` and are normalized to the frame: `(0, 0)` top-left, `(1, 1)` bottom-right.
 - Posture features: `torso_angle_deg` (0 = upright, 90 = horizontal), `head_y` and `hip_y` (normalized, 0 = top of frame), `bbox_aspect` (width / height), `vertical_velocity` (change in `hip_y` per second, positive = moving down). All optional; omit what can't be measured.
 - `face_present: null` means face detection did not run on that frame, which is different from `false`.
-- Event types: `possible_fall`, `recovered`, `person_visible`, `person_not_visible`, `face_present`, `face_absent`, `source_offline`, `source_online`, `alert_acknowledged`.
+- Event types: `possible_fall`, `help_requested`, `recovered`, `person_visible`, `person_not_visible`, `face_present`, `face_absent`, `source_offline`, `source_online`, `alert_acknowledged`, `alert_resolved`.
 - Ground-truth labels: `walking`, `standing`, `sitting`, `bending`, `lying_intentional`, `fall`, `occluded`, `camera_outage`, `absent`. Times are seconds from scenario start.
 - Models reject unknown fields (`extra="forbid"`).
 
-To change the contract: edit `models.py`, then regenerate the JSON Schema files and commit both.
+To change the contract: edit `models.py`, regenerate JSON Schema and TypeScript, and commit all three. Generated TypeScript describes server output: defaulted fields are always serialized. Input producers may omit fields with model defaults.
 
 ```sh
 pip install -e shared/python
 python shared/scripts/export_schema.py
+python shared/scripts/export_types.py
 ```
 
-## Planned design (not yet implemented)
+## Design and remaining integration
 
 - **Transport:** the Jetson POSTs batches to `POST /ingest/observations` (body: `ObservationBatch`) at roughly 5–10 Hz, and a `Heartbeat` to `POST /ingest/heartbeat` every second. The backend marks a source offline after 3 seconds of silence. The dashboard subscribes to `WS /ws/room/{room_id}` and receives `ServerMessage`s.
-- **Room ID:** `room-01`. Backend on port 8000, Vite dev server on 5173.
+- **Room IDs:** `room-01` plus configured `additional_room_ids` (`room-02` by default for routing demos). Backend on port 8000, optional Vite dev server on 5173.
 - **Possible-fall state machine:** roughly `upright → descending → floor_level → possible_fall` after a configurable hold time, with `recovered` on return to upright. All thresholds in one config file. Tune on real recorded keypoint traces.
 - **Alerts:** open → acknowledged → resolved, with an acknowledge action in the dashboard.
 - **Simulator:** deterministic clock and seed; play, pause, reset, replay, time scaling. The same seed must reproduce the same run.
 - **Zones (stretch):** bed/chair regions may downgrade an alert but must not hide uncertainty.
-- **Frontend types:** generate TypeScript types from `shared/schema/hearth.schema.json` rather than writing them by hand.
+- **Frontend types:** generated from `shared/schema/hearth.schema.json` into `shared/types/hearth.ts`; do not edit them by hand.
 
 ## Hardware and environment constraints
 
@@ -169,3 +300,11 @@ Never ask a judge to fall. Never imply lying down proves a fall.
 | 4 — Dashboard + demo | Room view, skeleton, alerts, timeline, scenario controls, evaluation view, demo script | `frontend/` |
 
 Changes to `shared/` affect everyone; coordinate them through the monitoring-core owner.
+
+### Posture determination
+
+Model-only mode (`posture_mode: "model") is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. `pose_fallback` is an explicit legacy test option. A sustained lying classification still requires the configured hold before a possible-fall alert.
+
+### Live edge/model integration
+
+The live config now uses `pose_fallback`: supplied Hugging Face posture predictions remain authoritative, while rotated-poseNet observations without predictions use calibrated pose thresholds. Floor head/hips are 0.40/0.45 for the reported mid-frame mat camera; upright uses its independent `upright_hip_y_max` of 0.65 so standing at hip_y 0.60 can recover incidents. Separate sources are not implicitly fused. See `docs/gaston-edge-integration.md` and `edge/tools/check_rules.py` for clip validation.

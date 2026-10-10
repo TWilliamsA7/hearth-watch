@@ -20,6 +20,19 @@
       "title": "Segment Id",
       "type": "string"
     },
+    "person_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Which simulated resident this segment describes. None = single-resident scenario.",
+      "title": "Person Id"
+    },
     "t_start": {
       "minimum": 0.0,
       "title": "T Start",
@@ -55,6 +68,7 @@
     "scenario_id",
     "seed",
     "segment_id",
+    "person_id",
     "t_start",
     "t_end",
     "truth_label",

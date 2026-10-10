@@ -1,0 +1,18 @@
+scenario_id: bend-pickup-01
+title: Bend down to pick something up
+description: >
+  Ordinary activity with a deep forward bend, a common false-positive risk for
+  torso-angle rules. No alert expected.
+seed: 11
+start_x: 1.15
+scene:
+  objects:
+    - {kind: chair, x: 0.12, y: 0.66, w: 0.14, h: 0.26}
+segments:
+  - {label: walking, duration: 4.5, transition: 0.0, x: 0.5}
+  - {label: standing, duration: 2.0, transition: 0.5}
+  - {label: bending, duration: 3.0, transition: 1.0}
+  - {label: standing, duration: 3.0, transition: 1.0}
+  - {label: bending, duration: 2.5, transition: 0.7}
+  - {label: standing, duration: 2.0, transition: 0.8}
+  - {label: walking, duration: 4.5, transition: 0.3, x: -0.15}
