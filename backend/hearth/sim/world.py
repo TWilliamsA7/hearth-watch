@@ -1,0 +1,172 @@
+"""World track: where every simulated body really is, in 3D, for the dashboard's 3D view.
+
+The camera stream carries 2D keypoints only. The world track carries the same bodies,
+noise-free, as metres in a room, built from the same key poses (hearth.sim.pose) and the
+same motion (generator.ResidentTrack), so the two views always agree. Like ground truth,
+it is simulator-only: it never travels in the Observation stream and the monitor never
+sees it. Every resident is in it, including people the camera cannot see and during a
+camera outage; the world goes on while the camera is dark.
+
+Coordinates follow three.js: metres, y up. The camera stands at the front of the room
+looking into it along -z, so image right is +x and room depth d (0 = front, 1 = back
+wall) is z = -d * ROOM_DEPTH_M. The 2D sim fakes perspective with Scene.depth_shrink;
+the world inverts it, so a frame x at depth d lands where that camera would have seen it:
+    world_x = (x - 0.5) * front_width / (1 - d * depth_shrink)
+"""
+
+from __future__ import annotations
+
+import math
+
+from hearth_schema.models import KeypointName
+from pydantic import BaseModel, ConfigDict, Field
+
+from hearth.sim.pose import LATERAL, BodyPose
+from hearth.sim.scenario import Facing, ObjectKind, Scene, SceneObject
+
+PERSON_HEIGHT_M = 1.7  # a resident with height 1.0
+ROOM_DEPTH_M = 4.0  # front of the room (depth 0) to the back wall (depth 1)
+ROOM_HEIGHT_M = 2.6
+
+# Front-to-back size of furniture, which the 2D scene doesn't record.
+OBJECT_DEPTH_M: dict[str, float] = {"bed": 1.0, "chair": 0.5, "couch": 0.9, "mat": 1.0, "occluder": 0.35}
+MAT_HEIGHT_M = 0.02
+OCCLUDER_GAP_M = 0.5  # an occluder stands this far in front of the depth it hides
+
+HEADING: dict[str, float] = {"camera": 0.0, "right": math.pi / 2, "left": -math.pi / 2}
+"""Radians about +y. 0 faces the camera (+z)."""
+
+Vec3 = tuple[float, float, float]
+WorldPose = dict[str, Vec3]
+"""joint name -> (x, y, z) in metres."""
+
+
+class _Model(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
+
+
+class WorldPerson(_Model):
+    person_id: str | None = Field(description="Matches Observation.person_id; None in a single-person run.")
+    heading: float = Field(description="Radians about +y; 0 faces the camera, +pi/2 faces image right.")
+    joints: dict[KeypointName, Vec3] = Field(description="Metres; every joint, visible to the camera or not.")
+
+
+class WorldFrame(_Model):
+    t: float = Field(description="Scenario seconds.")
+    people: list[WorldPerson]
+
+
+class WorldObject(_Model):
+    kind: ObjectKind
+    center: Vec3
+    size: Vec3 = Field(description="Width (x), height (y), depth (z) in metres.")
+
+
+class WorldRoom(_Model):
+    width_front: float = Field(description="Metres the camera sees across at depth 0.")
+    width_back: float = Field(description="Metres the camera sees across at the back wall.")
+    depth: float
+    height: float
+    camera_position: Vec3 = Field(description="Approximate; for display only.")
+    camera_target: Vec3
+    camera_fov: float = Field(description="Vertical field of view, degrees.")
+    objects: list[WorldObject]
+
+
+class WorldTrack(_Model):
+    """A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only."""
+
+    scenario_id: str
+    seed: int
+    fps: float
+    duration: float
+    room: WorldRoom
+    frames: list[WorldFrame] = Field(description="One per frame slot, in time order.")
+
+
+def metres_per_y(scene: Scene, depth: float) -> float:
+    """Metres per unit of frame height for something at this depth."""
+    return PERSON_HEIGHT_M / scene.person_height / (1.0 - depth * scene.depth_shrink)
+
+
+def metres_per_x(scene: Scene, depth: float) -> float:
+    return metres_per_y(scene, depth) * scene.frame_aspect
+
+
+def world_x(scene: Scene, x: float, depth: float) -> float:
+    return (x - 0.5) * metres_per_x(scene, depth)
+
+
+def world_z(depth: float) -> float:
+    return -depth * ROOM_DEPTH_M
+
+
+def place(
+    pose: BodyPose, facing: Facing, root_x: float, base_y: float, depth: float, scene: Scene, height: float
+) -> WorldPose:
+    """The 3D counterpart of pose.project: same arguments, plus depth, and metres out.
+
+    height and base_y are in frame units, as project() takes them, and are converted at
+    the person's depth, so the world body is exactly the one the camera view shows.
+    """
+    my = metres_per_y(scene, depth)
+    size = height * my  # standing height in metres
+    base = (scene.floor_at(depth) - base_y) * my  # 0 on the floor, the surface height on a bed
+    h = HEADING[facing]
+    fx, fz = math.sin(h), math.cos(h)  # forward
+    lx, lz = math.cos(h), -math.sin(h)  # the person's left
+    rx, rz = world_x(scene, root_x, depth), world_z(depth)
+    out: WorldPose = {}
+    for joint, (f, v) in pose.items():
+        lat = LATERAL[joint]
+        out[joint] = (rx + size * (f * fx + lat * lx), base + v * size, rz + size * (f * fz + lat * lz))
+    return out
+
+
+def blend_world(a: WorldPose, b: WorldPose, alpha: float) -> WorldPose:
+    if alpha <= 0.0:
+        return dict(a)
+    if alpha >= 1.0:
+        return dict(b)
+    return {j: tuple(p + (q - p) * alpha for p, q in zip(pa, b[j])) for j, pa in a.items()}  # type: ignore[misc]
+
+
+def _round(v: Vec3) -> Vec3:
+    return (round(v[0], 3), round(v[1], 3), round(v[2], 3))
+
+
+def world_person(person_id: str | None, heading: float, pose: WorldPose) -> WorldPerson:
+    joints = {j: _round(p) for j, p in pose.items()}
+    return WorldPerson(person_id=person_id, heading=round(heading, 4), joints=joints)  # type: ignore[arg-type]
+
+
+def _object(scene: Scene, o: SceneObject) -> WorldObject:
+    bottom = o.y + o.h
+    depth = min(max((scene.floor_y - bottom) / scene.depth_rise, 0.0), 1.0) if scene.depth_rise else 0.0
+    mx, my = metres_per_x(scene, depth), metres_per_y(scene, depth)
+    extent = OBJECT_DEPTH_M[o.kind]
+    lift = max((scene.floor_at(depth) - bottom) * my, 0.0)
+    height = MAT_HEIGHT_M if o.kind == "mat" else o.h * my
+    z = world_z(depth) + (OCCLUDER_GAP_M if o.kind == "occluder" else 0.0)
+    center = (world_x(scene, o.x + o.w / 2, depth), lift + height / 2, z)
+    return WorldObject(kind=o.kind, center=_round(center), size=_round((o.w * mx, height, extent)))
+
+
+def room_geometry(scene: Scene) -> WorldRoom:
+    front_h = metres_per_y(scene, 0.0)
+    # A pinhole camera that shrinks the back wall by depth_shrink stands this far in front
+    # of depth 0. Clamped to something a room could hold; the 3D camera is only a marker.
+    dist = ROOM_DEPTH_M * (1.0 - scene.depth_shrink) / scene.depth_shrink if scene.depth_shrink else 3.0
+    dist = min(max(dist, 1.0), 3.0)
+    eye_y = (scene.floor_y - 0.5) * front_h
+    fov = math.degrees(2.0 * math.atan(front_h / 2.0 / dist))
+    return WorldRoom(
+        width_front=round(metres_per_x(scene, 0.0), 3),
+        width_back=round(metres_per_x(scene, 1.0), 3),
+        depth=ROOM_DEPTH_M,
+        height=ROOM_HEIGHT_M,
+        camera_position=_round((0.0, eye_y, dist)),
+        camera_target=_round((0.0, eye_y, -ROOM_DEPTH_M / 2)),
+        camera_fov=round(fov, 2),
+        objects=[_object(scene, o) for o in scene.objects],
+    )

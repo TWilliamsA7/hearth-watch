@@ -28,6 +28,7 @@ Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 
 Facing = Literal["camera", "left", "right"]
 PoseName = Literal["standing", "sitting", "bending", "lying", "fallen"]
+ObjectKind = Literal["bed", "chair", "couch", "mat", "occluder"]
 
 # Labels whose segments alert by default. A segment can override this explicitly.
 ALERT_LABELS: frozenset[str] = frozenset({"fall"})
@@ -44,7 +45,7 @@ class _Model(BaseModel):
 class SceneObject(_Model):
     """A piece of furniture drawn in the room view. Rectangle in frame coordinates."""
 
-    kind: Literal["bed", "chair", "couch", "mat", "occluder"]
+    kind: ObjectKind
     x: Unit
     y: Unit
     w: Unit

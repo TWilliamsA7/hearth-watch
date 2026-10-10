@@ -18,7 +18,7 @@ from __future__ import annotations
 import bisect
 import math
 import random
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -29,6 +29,7 @@ from hearth.sim.pose import (
     JOINTS,
     SIDE_ONLY_POSES,
     STEP_HZ,
+    BodyPose,
     ImagePose,
     blend,
     body_pose,
@@ -37,6 +38,17 @@ from hearth.sim.pose import (
     smoothstep,
 )
 from hearth.sim.scenario import Facing, PoseName, Resident, Scenario, Scene, Segment
+from hearth.sim.world import (
+    HEADING,
+    WorldFrame,
+    WorldPerson,
+    WorldPose,
+    WorldTrack,
+    blend_world,
+    place,
+    room_geometry,
+    world_person,
+)
 
 SIM_EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 """Default virtual start time for headless runs, so output doesn't depend on the wall clock."""
@@ -96,6 +108,31 @@ class _Plan:
 
 
 @dataclass(frozen=True)
+class _Placement:
+    """Everything needed to put a body in either space: key pose, facing and position."""
+
+    body: BodyPose
+    facing: Facing
+    x: float
+    base_y: float
+    depth: float
+    height: float
+
+
+@dataclass(frozen=True)
+class _Space:
+    """A way of turning a placement into joint positions: the camera frame or the room."""
+
+    name: str
+    project: Callable[[_Placement, Scene], dict]
+    blend: Callable[[dict, dict, float], dict]
+
+
+_IMAGE = _Space("image", lambda p, sc: project(p.body, p.facing, p.x, p.base_y, sc, p.height), blend)
+_WORLD = _Space("world", lambda p, sc: place(p.body, p.facing, p.x, p.base_y, p.depth, sc, p.height), blend_world)
+
+
+@dataclass(frozen=True)
 class PersonState:
     """One resident at one instant: the noise-free truth of where their body is."""
 
@@ -117,7 +154,7 @@ class ResidentTrack:
         self.scene = scene
         self.plans = self._plan_segments()
         self._starts = [p.t_start for p in self.plans]
-        self._start_poses: dict[int, ImagePose] = {}
+        self._start_poses: dict[tuple[str, int], dict] = {}
 
     @property
     def person_id(self) -> str | None:
@@ -157,7 +194,7 @@ class ResidentTrack:
         p = self.plans[i]
         return p.depth_start + (p.depth_end - p.depth_start) * self._progress(i, tau)
 
-    def _target_pose(self, i: int, tau: float) -> ImagePose:
+    def _placement(self, i: int, tau: float) -> _Placement:
         """Where segment i's motion puts the body at local time tau, before blending in."""
         p = self.plans[i]
         seg = p.segment
@@ -167,30 +204,56 @@ class ResidentTrack:
         gait = 2.0 * math.pi * STEP_HZ * tau if seg.label == "walking" else None
         base_y = self.scene.floor_at(depth) if seg.surface_y is None else seg.surface_y
         height = self.scene.height_at(depth, self.resident.height)
-        return project(body_pose(p.pose, gait), p.facing, x, base_y, self.scene, height)
+        return _Placement(body_pose(p.pose, gait), p.facing, x, base_y, depth, height)
 
-    def _start_pose(self, i: int) -> ImagePose:
-        if i not in self._start_poses:
+    def _start_pose(self, i: int, space: _Space) -> dict:
+        key = (space.name, i)
+        if key not in self._start_poses:
             if i == 0:
-                self._start_poses[i] = self._target_pose(0, 0.0)
+                self._start_poses[key] = space.project(self._placement(0, 0.0), self.scene)
             else:
-                self._start_poses[i] = self.pose_at(i - 1, self.plans[i - 1].segment.duration)
-        return self._start_poses[i]
+                self._start_poses[key] = self._pose_in(i - 1, self.plans[i - 1].segment.duration, space)
+        return self._start_poses[key]
 
-    def pose_at(self, i: int, tau: float) -> ImagePose:
-        """Ideal (noise-free) pose during segment i at local time tau."""
+    def _pose_in(self, i: int, tau: float, space: _Space) -> dict:
         seg = self.plans[i].segment
         tau = min(tau, seg.duration)  # after their script ends, a resident holds their last pose
-        target = self._target_pose(i, tau)
+        target = space.project(self._placement(i, tau), self.scene)
         if i == 0 or seg.transition == 0.0 or tau >= seg.transition:
             return target
-        ease = ease_in if seg.label == "fall" else smoothstep
-        return blend(self._start_pose(i), target, ease(tau / seg.transition))
+        return space.blend(self._start_pose(i, space), target, self._ease(i, tau))
+
+    def _ease(self, i: int, tau: float) -> float:
+        seg = self.plans[i].segment
+        return (ease_in if seg.label == "fall" else smoothstep)(tau / seg.transition)
+
+    def pose_at(self, i: int, tau: float) -> ImagePose:
+        """Ideal (noise-free) pose during segment i at local time tau, in the camera frame."""
+        return self._pose_in(i, tau, _IMAGE)
+
+    def world_pose_at(self, i: int, tau: float) -> WorldPose:
+        """The same body as pose_at, in metres in the room (see hearth.sim.world)."""
+        return self._pose_in(i, tau, _WORLD)
+
+    def heading_at(self, i: int, tau: float) -> float:
+        """Which way the body faces (radians), turning through each transition with the pose."""
+        seg = self.plans[i].segment
+        target = HEADING[self.plans[i].facing]
+        if i == 0 or seg.transition == 0.0 or tau >= seg.transition:
+            return target
+        start = self.heading_at(i - 1, self.plans[i - 1].segment.duration)
+        turn = (target - start + math.pi) % (2.0 * math.pi) - math.pi  # the short way round
+        return start + turn * self._ease(i, tau)
 
     def state_at(self, t: float) -> PersonState:
         i = self.segment_index(t)
         tau = t - self.plans[i].t_start
         return PersonState(self, self.plans[i], self.pose_at(i, tau), self.depth_at(i, min(tau, self.plans[i].segment.duration)))
+
+    def world_at(self, t: float) -> WorldPerson:
+        i = self.segment_index(t)
+        tau = min(t - self.plans[i].t_start, self.plans[i].segment.duration)
+        return world_person(self.person_id, self.heading_at(i, tau), self.world_pose_at(i, tau))
 
 
 class ObservationGenerator:
@@ -221,6 +284,19 @@ class ObservationGenerator:
     def people_at(self, t: float) -> list[PersonState]:
         """Every resident's noise-free state at scenario time t (truth, not observation)."""
         return [track.state_at(t) for track in self.tracks]
+
+    def world_track(self) -> WorldTrack:
+        """Every resident's true body in 3D at every frame slot (simulator-only, see hearth.sim.world).
+
+        Absent residents are left out. Everyone else stays in, seen by the camera or not.
+        """
+        sc = self.scenario
+        frames = []
+        for _, t in self.frame_times():
+            people = [track.world_at(t) for track in self.tracks if track.state_at(t).label != "absent"]
+            frames.append(WorldFrame(t=round(t, 6), people=people))
+        return WorldTrack(scenario_id=sc.scenario_id, seed=self.seed, fps=sc.fps, duration=sc.duration,
+                          room=room_geometry(sc.scene), frames=frames)  # fmt: skip
 
     def stream(self) -> Iterator[Observation | Heartbeat]:
         """Every Observation and Heartbeat in timestamp order."""
