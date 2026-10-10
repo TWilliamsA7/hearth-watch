@@ -5,7 +5,8 @@
     app.include_router(create_eval_router(controller), prefix="/eval")
 
 See docs/interfaces.md section 3.3. These routes never expose ground truth beyond
-SimStatus.truth, which is for people watching the dashboard, not for the monitor.
+SimStatus.truth and the 3D world track (GET /world), which are for people watching the
+dashboard, not for the monitor.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from hearth.sim.controller import ScenarioInfo, SimController, SimStatus
+from hearth.sim.world import WorldTrack
 
 
 class LoadRequest(BaseModel):
@@ -37,6 +39,14 @@ def create_sim_router(controller: SimController) -> APIRouter:
     @router.get("/status", response_model=SimStatus)
     async def status() -> SimStatus:
         return controller.status()
+
+    @router.get("/world", response_model=WorldTrack)
+    async def world() -> WorldTrack:
+        """The loaded run's bodies in 3D. Fetch once per load; sample at SimStatus.t."""
+        track = controller.world()
+        if track is None:
+            raise HTTPException(404, "no scenario loaded")
+        return track
 
     @router.post("/load", response_model=SimStatus)
     async def load(body: LoadRequest) -> SimStatus:

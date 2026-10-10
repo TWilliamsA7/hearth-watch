@@ -42,6 +42,7 @@ from hearth.eval.scoring import EvalConfig, evaluate, segment_at
 from hearth.sim.generator import SIM_EPOCH, SOURCE
 from hearth.sim.runner import RunInfo, SimRun, run_headless
 from hearth.sim.scenario import Scenario, Scene, load_all
+from hearth.sim.world import WorldTrack
 
 Record = Observation | Heartbeat
 IngestFn = Callable[[Sequence[Record]], Awaitable[Iterable[Event]]]
@@ -122,6 +123,7 @@ class _LiveRun:
     events: list[Event] = field(default_factory=list)
     last_stamp: datetime | None = None
     last_heartbeat: datetime | None = None  # wall time of the last pause heartbeat
+    world: WorldTrack | None = None  # built on first request
 
     def scenario_t(self, ts: datetime) -> float:
         """Map a stamped time back onto the scenario clock."""
@@ -175,6 +177,15 @@ class SimController:
         return SimStatus(state=self.state, scenario_id=sc.scenario_id, seed=live.run.seed, run_id=live.run_id,
                          t=round(live.t, 3), duration=round(sc.duration, 3), speed=self.speed, scene=sc.scene,
                          truth=sorted(truth, key=lambda x: x.person_id or ""))  # fmt: skip
+
+    def world(self) -> WorldTrack | None:
+        """The loaded run's bodies in 3D, for the dashboard's 3D view; sample it at status().t."""
+        live = self._live
+        if live is None:
+            return None
+        if live.world is None:
+            live.world = live.run.world()
+        return live.world
 
     def runs(self) -> list[RunInfo]:
         return [info for info, _ in self._finished.values()]

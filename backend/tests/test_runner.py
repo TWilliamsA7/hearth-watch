@@ -3,6 +3,7 @@ import json
 from hearth.sim.__main__ import main
 from hearth.sim.runner import run_headless, write_run
 from hearth.sim.scenario import load_all
+from hearth.sim.world import WorldTrack
 from hearth_schema.models import GroundTruth, Heartbeat, Observation
 
 
@@ -19,6 +20,9 @@ def test_written_run_round_trips_through_the_contract(tmp_path):
 
     meta = json.loads(paths["run"].read_text())
     assert meta["seed"] == 42 and meta["start"] == "2026-01-01T00:00:00Z" and meta["run_id"] == "possible-fall-01-s42"
+
+    world = WorldTrack.model_validate_json(paths["world"].read_text())
+    assert world == run.world() and world.scenario_id == "possible-fall-01"
 
 
 def test_cli_runs_every_scenario(tmp_path, capsys):

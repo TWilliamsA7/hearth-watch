@@ -45,6 +45,14 @@ def test_idle_until_loaded(client):
     assert client.post("/sim/load", json={"scenario_id": "nope"}).status_code == 404
 
 
+def test_world_track_for_the_loaded_run(client):
+    assert client.get("/sim/world").status_code == 404
+    client.post("/sim/load", json={"scenario_id": "day-room-02"})
+    world = client.get("/sim/world").json()
+    assert world["scenario_id"] == "day-room-02" and world["room"]["objects"]
+    assert {p["person_id"] for p in world["frames"][0]["people"]} == {"p1", "p2", "p3"}
+
+
 def test_full_live_run_produces_an_after_action_report(client):
     loaded = client.post("/sim/load", json={"scenario_id": "possible-fall-01"}).json()
     assert loaded["state"] == "loaded" and loaded["scene"]["floor_y"] == 0.92
