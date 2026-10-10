@@ -18,15 +18,23 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            SourceStatus, SourceStatusMessage)
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+from hearth.sim.mount import mount_simulation
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
 
+    simulation = None
+
     async def check_health():
         while True:
             await asyncio.sleep(monitor.config.health_poll_seconds)
-            monitor.check_health()
+            if simulation is not None:
+                with simulation.watch() as raised:
+                    monitor.check_health()
+                simulation.observe(raised)
+            else:
+                monitor.check_health()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -37,9 +45,11 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+            await simulation.close()
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
-    # Person 3 can include a scenario router here and use the same service.
+    # The simulator and evaluator (Person 3) feed this same service through ingest().
+    simulation = mount_simulation(app, monitor)
     app.state.monitor = monitor
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
