@@ -9,10 +9,12 @@ the videos in gmdcsa24\\, le2i\\, occu\\, caucafall\\ and of-syn\\ (download_dat
 whose folder isn't there is skipped with a note; OF-Synthetic labels count only for the clips
 that were downloaded (the care-room filter leaves most of them out on purpose).
 
-1. Reads OmniFall's timed labels and keeps only what we train on:
+1. Reads OmniFall's timed labels and keeps every labelled segment, with its original label:
        walk, standing -> upright | sitting -> sitting | fallen, lying -> floor
-   Transitions (fall, sit_down, lie_down, stand_up) and "other" are skipped: a frame halfway
-   down is neither, and would only teach the network to be unsure.
+       everything else (falling, sitting down, lying down, getting up, kneeling, squatting,
+       crawling, jumping, "other" activities) -> other = "none of these"
+   06_train.py decides the final mapping from the original label, so changing it never needs
+   a new extraction.
 2. Matches every label to its real video file. OmniFall writes "Subject_1/ADL/01" and
    "Coffee_room_01/video_14"; the files are "Subject 1\\ADL\\01.mp4" and
    "FallDataset\\Coffee_room_01\\Coffee_room_01\\Videos\\video (14).avi". Both sides are reduced to
@@ -42,11 +44,13 @@ from pathlib import Path
 
 import numpy as np
 
-# OmniFall class ids (labels/LABELS.md) -> our three classes.
+# OmniFall class ids (labels/LABELS.md) -> our four classes ("other" = none of the three).
 OMNIFALL_NAMES = {0: "walk", 1: "fall", 2: "fallen", 3: "sit_down", 4: "sitting", 5: "lie_down",
-                  6: "lying", 7: "stand_up", 8: "standing", 9: "other"}
-CLASSES = ["upright", "sitting", "floor"]
-TO_OURS = {0: 0, 8: 0, 4: 1, 2: 2, 6: 2}       # everything else is skipped
+                  6: "lying", 7: "stand_up", 8: "standing", 9: "other", 10: "kneel_down",
+                  11: "kneeling", 12: "squat_down", 13: "squatting", 14: "crawl", 15: "jump"}
+CLASSES = ["upright", "sitting", "floor", "other"]
+TO_OURS = dict((k, 3) for k in OMNIFALL_NAMES)
+TO_OURS.update({0: 0, 8: 0, 4: 1, 2: 2, 6: 2})
 # Dataset name (as in OmniFall's labels) -> its folder under --data. The index in this list is
 # what keypoints.npz stores per frame.
 DATASETS = ["GMDCSA24", "le2i", "occu", "caucafall", "of-syn"]
@@ -145,7 +149,7 @@ def load_segments(labels_dir, roots):
         for m in sorted(set(missing))[:30]:
             print("  NO VIDEO FOR LABEL %s" % m)
         raise SystemExit("%d labels have no matching video (first ones listed above)" % len(set(missing)))
-    print("skipped segments (transitions / other): %s" % dict(skipped))
+    print("segments with an unrecognised label id (skipped): %s" % dict(skipped))
     return by_video
 
 

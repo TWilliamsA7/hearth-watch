@@ -284,9 +284,18 @@ about an hour for all videos).
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py --final-test  # the locked 20% test: once, at the end
 ```
 
-**"Unknown"**: the model may decline to answer, when the torso isn't visible (no shoulder or no
-hip: the edge's `torso_visible` rule; with only a head nobody can tell standing from lying) or
-when its top probability (softmax) is under the cut-off (`--min-conf`, default 0.70, saved in
+**Four classes: upright / sitting / floor / other.** "Other" means none of the three: falling
+(mid-fall), sitting down, lying down, getting up, kneeling, squatting, crawling, jumping and
+miscellaneous activity (bending, picking things up, hopping): ~7,100 s of OmniFall-labelled
+footage. `05` stores every frame's original OmniFall label and `06` maps it (`FROM_OMNIFALL`), so
+changing the mapping needs no new extraction. Mid-fall is "other" on purpose: the model should
+say floor once the person is down, and the backend waits for 3 s of floor anyway. Because a
+missed fall is the worst error, reports show **floor caught** (of all floor frames, how many
+were called floor) on its own.
+
+**"Unknown"**: the system declines to answer when the network says "other", when the torso isn't
+visible (no shoulder or no hip: the edge's `torso_visible` rule; with only a head nobody can tell
+standing from lying), or when its top probability (softmax) is under the cut-off (`--min-conf`, default 0.70, saved in
 the model file). After training, and with `--test-only`, a table on **validation** shows each
 cut-off's trade-off: how often it decides vs how often it's right then. Pick the cut-off there,
 never on the test. Field-test timelines show `?` for unknown; reports give "decided on X%,
@@ -354,8 +363,8 @@ From the repo folder (`cd C:\Users\Gaston\hearth-watch`):
 ```
 
 1. `--check`: all five datasets should be listed and matched.
-2. Extraction: about 2,600 videos this time, so maybe 15-30 minutes, mostly the 2,203 synthetic
-   clips at 1280x720.
+2. Extraction: about 2,600 videos, and every labelled segment now (including "other"), so maybe
+   30-45 minutes, mostly the 2,203 synthetic clips at 1280x720.
 3. `--show-data`: shows which people landed in validation and test, and the frames per part.
 4. Training: this retrains from scratch on the new split. The old `posture_mlp.pt` gets replaced.
 
