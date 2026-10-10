@@ -163,10 +163,9 @@ class IncidentManager:
         if not free:
             return None
         helper = min(free, key=lambda a: (a.posture != "standing", distance(a.pos, target.pos)))
-        side = heading_to(target.pos, helper.pos)  # kneel on the side they arrive from
-        # Just outside the space everyone keeps round someone on the floor (FALLEN_CLEARANCE_M).
-        reach = FALLEN_CLEARANCE_M + 0.1
-        goal = (target.pos[0] + reach * math.sin(side), target.pos[1] + reach * math.cos(side))
+        goal = self._beside(target, helper)
+        if goal is None:
+            return None
         down = lambda: not target.present or target.posture != "floor"  # noqa: E731
 
         def done(a: Actor, w: World) -> None:
@@ -184,6 +183,25 @@ class IncidentManager:
         self.responders[target.person_id] = helper.person_id
         w.replace_plan(helper, plan, "help")
         return helper
+
+    def _beside(self, target: Actor, helper: Actor) -> Floor | None:
+        """Where to kneel: just outside the space kept round someone on the floor, on open floor,
+        preferably beyond them as the camera sees it (so the helper doesn't hide them), then
+        nearest the helper."""
+        w = self.w
+        nav = w.room.nav
+        reach = FALLEN_CLEARANCE_M + 0.1
+        cam = w.camera.position
+        away = (target.pos[0] - cam[0], target.pos[1] - cam[2])  # camera -> target, on the floor
+        spots = []
+        for k in range(12):
+            angle = k * math.pi / 6
+            p = (target.pos[0] + reach * math.sin(angle), target.pos[1] + reach * math.cos(angle))
+            if not nav.free(p) or nav.clearance(p) < 0.25:
+                continue
+            beyond = (p[0] - target.pos[0]) * away[0] + (p[1] - target.pos[1]) * away[1] > 0
+            spots.append((not beyond, distance(p, helper.pos), p))
+        return min(spots)[2] if spots else None
 
     def _pick(self, kind: IncidentKind, *, in_view: bool = False) -> Actor:
         ok = [a for a in self.w.actors if a.present and not a.incident and (kind != "fall" or a.posture != "lying")]
