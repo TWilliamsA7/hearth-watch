@@ -183,3 +183,8 @@ button.on { border-color: var(--accent-2); color: var(--accent-2); background: r
 .hint { color: var(--muted); font-size: 12px; }
 .err { color: #ffb3b3; font-size: 12px; margin-top: 6px; }
 kbd { background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-size: 11px; }
+
+/* The live camera link: a real person, not simulated. */
+.pill.live { background: #e5484d; color: #fff; }
+.pill.live.stale, .pill.live.waiting { background: #7a3b3e; }
+.person.live .pid { color: #ff8a8f; font-weight: 700; }

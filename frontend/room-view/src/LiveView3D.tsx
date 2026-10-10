@@ -46,6 +46,9 @@ export interface LiveView3DProps {
 
 const defaultRig = createMannequinRig();
 
+/** A real person from a live camera (LivePerson.kind "live"): one look, so they stand out. */
+export const LIVE_APPEARANCE = { skin: "#c9a48a", top: "#e5484d", bottom: "#2f3542", hair: "#5c4a3c", build: 1 };
+
 /**
  * The live simulated room in 3D, for the Sim Studio: everyone's true body, what they're
  * doing and where they're going, with toggleable overlays. Click a person to select them.
@@ -225,13 +228,15 @@ export function LiveView3D(props: LiveView3DProps) {
           rigs.set(id, rig);
           scene.add(rig.object);
         }
+        const live = person.kind === "live";
         const tag = !ov.ids ? null
+          : live ? `LIVE · ${person.label}`
           : ov.activity && !p.hideTruth ? `${id.toUpperCase()} · ${person.incident ? person.incident.replace("_", " ") : person.activity}`
           : id.toUpperCase();
         rig.update(person, {
           alert: alerts.has(id) || (ov.incidents && !p.hideTruth && !!person.incident && person.posture === "floor"),
           theme,
-          appearance: looks.get(id),
+          appearance: looks.get(id) ?? (live ? LIVE_APPEARANCE : undefined),
           selected: p.selected === id,
           dimmed: ov.visibility && person.visible < 0.25,
           label: tag,

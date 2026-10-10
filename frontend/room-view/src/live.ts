@@ -101,10 +101,15 @@ export class LiveClient {
     while (k > 0 && frames[k].t > t) k--;
     const meta = new Map(frames[k].people.map((p) => [p.person_id, p]));
     const later = new Map(frames[Math.min(k + 1, frames.length - 1)].people.map((p) => [p.person_id, p]));
-    const people = blended.people.map((p) => {
-      const m = meta.get(p.person_id) ?? later.get(p.person_id);
-      return { ...(m as LivePerson), ...p } as LivePerson;
-    });
+    const people = blended.people
+      .map((p) => {
+        const m = meta.get(p.person_id) ?? later.get(p.person_id);
+        return { ...(m as LivePerson), ...p } as LivePerson;
+      })
+      .filter((p) => p.kind !== "live");
+    // Live people (a real camera) are shown as they are now, not on the simulation's clock:
+    // they keep moving while it is paused and aren't drawn behind it while it plays.
+    people.push(...frames[frames.length - 1].people.filter((p) => p.kind === "live"));
     return { t, people, frame: frames[k] };
   }
 

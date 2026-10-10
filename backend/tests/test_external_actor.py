@@ -86,3 +86,19 @@ def test_simulated_falls_get_a_helper_too():
     w = World(EngineSpec(actors=3, noise=False, incidents=[IncidentSpec(kind="fall", t=2.0, recover=False)]), 4)
     w.advance(15.0)
     assert w.incidents.responders
+
+
+def test_a_seated_resident_gets_up_to_help_when_nobody_is_standing():
+    w = World(SPEC.model_copy(update={"actors": 3}), 7)
+    w.advance(1.0)
+    seated = [a for a in w.actors if a.posture == "sitting"]
+    for a in w.actors:
+        if a.posture == "standing":
+            a.posture = "absent"  # out of the room: only seated people are left
+    e = w.set_external("jetson-01", live_body(w, 0.5, -3.0, "side_lying", "floor"), posture="floor", label="fall")
+    helper = w.incidents.respond(e)
+    assert seated and helper in seated
+    for _ in range(int(25 / w.dt)):
+        w.step()
+    assert helper.posture == "standing" or helper.intent == "help"
+    assert distance(helper.pos, e.pos) < 1.6

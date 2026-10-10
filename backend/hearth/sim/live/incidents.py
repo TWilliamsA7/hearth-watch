@@ -152,16 +152,17 @@ class IncidentManager:
     # --- helping someone who is down ---
 
     def respond(self, target: Actor) -> Actor | None:
-        """The nearest free standing resident walks over and kneels beside `target` until they're
-        up. For simulated falls and for a live person the monitor says is down."""
+        """The nearest free resident (standing ones first; someone seated gets up) walks over and
+        kneels beside `target` until they're up. For simulated falls and for a live person the
+        monitor says is down."""
         w = self.w
         if target.person_id in self.responders or not target.present:
             return None
-        free = [a for a in w.actors if a is not target and a.present and a.posture == "standing"
+        free = [a for a in w.actors if a is not target and a.present and a.posture in ("standing", "sitting")
                 and not a.incident and a.intent != "help" and a.person_id not in self.responders.values()]
         if not free:
             return None
-        helper = min(free, key=lambda a: distance(a.pos, target.pos))
+        helper = min(free, key=lambda a: (a.posture != "standing", distance(a.pos, target.pos)))
         side = heading_to(target.pos, helper.pos)  # kneel on the side they arrive from
         # Just outside the space everyone keeps round someone on the floor (FALLEN_CLEARANCE_M).
         reach = FALLEN_CLEARANCE_M + 0.1
@@ -172,6 +173,7 @@ class IncidentManager:
             self.responders.pop(target.person_id, None)
 
         plan: list[Activity] = [
+            *get_up(helper, w),  # out of the chair first, if seated
             Walk(goal, purpose="help", stop_short_ok=True, arrive=0.3),
             Turn(heading_to(goal, target.pos)),
             Transition("kneel", 1.0, name="kneeling to help", label="bending", posture="standing"),

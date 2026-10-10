@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import {
   DEFAULT_OVERLAYS,
   LiveClient,
+  LIVE_APPEARANCE,
   LiveView3D,
   RoomView,
   websocketFeed,
@@ -71,9 +72,24 @@ interface LogLine {
   person: string | null;
   text: string;
   alert: boolean;
+  live: boolean;
 }
 
-function useMonitorFeed() {
+interface LinkStatus {
+  enabled: boolean;
+  source: string;
+  state: "off" | "waiting" | "live" | "stale";
+  person_id: string;
+  last_seen: string | null;
+  posture: string | null;
+  label: string | null;
+  alert_open: boolean;
+}
+
+// Sources that send keypoints (the fall model sends none, so it can't be placed in the room).
+const LIVE_SOURCES = ["jetson-01", "replay-01"];
+
+function useMonitorFeed(liveSource: string | null) {
   const feed = useMemo(() => websocketFeed(wsUrl(`/ws/room/${ROOM_ID}`)), []);
   const [log, setLog] = useState<LogLine[]>([]);
   const [alerts, setAlerts] = useState<Record<string, { person: string | null; open: boolean }>>({});
@@ -82,15 +98,18 @@ function useMonitorFeed() {
     const off = feed.subscribe((msg: ServerMessage) => {
       if (msg.type === "event") {
         const e = msg.data;
-        if (e.source !== "sim") return;
-        eventsById.current.set(e.event_id, e.person_id);
+        const live = e.source === liveSource;
+        if (e.source !== "sim" && !live) return;
+        // The live camera tracks one unnamed person: they're the live avatar in the room.
+        const person = live ? `live-${e.source}` : e.person_id;
+        eventsById.current.set(e.event_id, person);
         if (e.event_type === "face_present" || e.event_type === "face_absent" || e.event_type === "person_visible") return;
-        setLog((l) => [{ key: e.event_id, at: e.timestamp, kind: e.event_type, person: e.person_id, text: "",
+        setLog((l) => [{ key: e.event_id, at: e.timestamp, kind: e.event_type, person, text: "", live,
           alert: e.event_type === "possible_fall" }, ...l].slice(0, 80));  // prettier-ignore
       } else if (msg.type === "alert") {
         const a = msg.data;
-        if (a.source !== "sim") return;
-        const person = eventsById.current.get(a.event_id) ?? null;
+        if (a.source !== "sim" && a.source !== liveSource) return;
+        const person = eventsById.current.get(a.event_id) ?? (a.source === liveSource ? `live-${a.source}` : null);
         setAlerts((m) => ({ ...m, [a.alert_id]: { person, open: a.status !== "resolved" && !a.recovered_at } }));
       }
     });
@@ -98,7 +117,7 @@ function useMonitorFeed() {
       off();
       feed.close();
     };
-  }, [feed]);
+  }, [feed, liveSource]);
   const alertPersonIds = Object.values(alerts).filter((a) => a.open && a.person).map((a) => a.person!);
   return { feed, log, alertPersonIds };
 }
@@ -115,7 +134,11 @@ function Slider(props: { label: string; value: number; min: number; max: number;
 
 function Studio() {
   const client = useLive(useMemo(() => new LiveClient(wsUrl("/sim/live/ws")), []));
-  const { feed, log, alertPersonIds } = useMonitorFeed();
+  const [link, setLink] = useState<LinkStatus | null>(null);
+  const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
+  const [liveHeight, setLiveHeight] = useState(1.7);
+  const [showReal, setShowReal] = useState(false);
+  const { feed, log, alertPersonIds } = useMonitorFeed(link?.enabled ? link.source : null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [overlays, setOverlays] = useState<Overlays>(DEFAULT_OVERLAYS);
@@ -134,6 +157,8 @@ function Studio() {
   const [density, setDensity] = useState(0.6);
   const [preset, setPreset] = useState<EngineSpec["camera"]["preset"]>("corner_left");
   const [camHeight, setCamHeight] = useState(2.4);
+  const [camTilt, setCamTilt] = useState(12);
+  const [camFov, setCamFov] = useState(62);
   const [activity, setActivity] = useState(1);
   const [social, setSocial] = useState(1);
 
@@ -158,7 +183,7 @@ function Studio() {
         spec: {
           actors,
           room: { width, depth, furniture_density: density },
-          camera: { preset, height: camHeight },
+          camera: { preset, height: camHeight, tilt: camTilt, fov: camFov },
           lighting,
           activity_frequency: activity,
           social_frequency: social,
@@ -171,9 +196,36 @@ function Studio() {
   const incident = (kind: string, extra: Record<string, unknown> = {}) =>
     run(() => api("/sim/live/incidents", { kind, actor: selected, ...extra }));
 
+  // Live camera link: poll its state.
+  useEffect(() => {
+    let alive = true;
+    const poll = () => api<LinkStatus>("/sim/live/link").then((l) => alive && setLink(l)).catch(() => alive && setLink(null));
+    poll();
+    const id = setInterval(poll, 1000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+  // Follow the backend: the link may already be on (another tab, or set up before this page).
+  useEffect(() => {
+    if (link?.enabled) setLinkSource(link.source);
+  }, [link?.enabled, link?.source]);
+  const setLinkEnabled = (enabled: boolean, source = linkSource, height = liveHeight) =>
+    run(() => api<LinkStatus>("/sim/live/link", { enabled, source, height }).then(setLink));
+  const liveOnly = () =>
+    run(async () => {
+      await api("/sim/live/new", {
+        seed, play: true,
+        spec: { actors: 0, room: { width, depth, furniture_density: density }, camera: { preset: "jetson", height: camHeight, tilt: camTilt, fov: camFov }, lighting },
+      });  // prettier-ignore
+      setPreset("jetson");
+      setLink(await api<LinkStatus>("/sim/live/link", { enabled: true, source: linkSource, height: liveHeight }));
+    });
+
   // Inspector: poll the selected person's details.
   useEffect(() => {
-    if (!selected) {
+    if (!selected || selected.startsWith("live-")) {
       setDetail(null);
       return;
     }
@@ -204,7 +256,8 @@ function Studio() {
   });
 
   const looks = new Map((world?.actors ?? []).map((a) => [a.person_id, a]));
-  const people: LivePerson[] = [...(frame?.people ?? [])].sort((a, b) => (a.person_id ?? "").localeCompare(b.person_id ?? "", undefined, { numeric: true }));
+  const people: LivePerson[] = [...(frame?.people ?? [])].sort((a, b) =>
+    a.kind !== b.kind ? (a.kind === "live" ? -1 : 1) : (a.person_id ?? "").localeCompare(b.person_id ?? "", undefined, { numeric: true }));
   const away = (world?.actors ?? []).filter((a) => !people.some((p) => p.person_id === a.person_id));
   const me = people.find((p) => p.person_id === selected) ?? null;
   const t = frame?.t ?? 0;
@@ -214,6 +267,7 @@ function Studio() {
       <header className="topbar">
         <div className="brand">Hearth <span>Sim Studio</span></div>
         <span className="pill sim">SIMULATED</span>
+        {link?.enabled && <span className={`pill live ${link.state}`}>LIVE · {link.source} · {link.state.toUpperCase()}</span>}
         <span className={`pill ${state === "playing" ? "playing" : ""} ${client.connected ? "" : "off"}`}>
           {client.connected ? state.toUpperCase() : "DISCONNECTED"}
         </span>
@@ -248,9 +302,14 @@ function Studio() {
               <option value="corner_right">Corner (right)</option>
               <option value="front">Front wall</option>
               <option value="ceiling">Ceiling</option>
+              <option value="jetson">Jetson mount</option>
             </select>
           </div>
-          <Slider label="Camera height" value={camHeight} min={1.2} max={3.2} step={0.1} onChange={setCamHeight} fmt={(v) => `${v.toFixed(1)} m`} />
+          <Slider label="Camera height" value={camHeight} min={1.0} max={3.2} step={0.05} onChange={setCamHeight} fmt={(v) => `${v.toFixed(2)} m`} />
+          {preset === "jetson" && (
+            <Slider label="Tilt down" value={camTilt} min={0} max={45} step={1} onChange={setCamTilt} fmt={(v) => `${v}°`} />
+          )}
+          <Slider label="Field of view" value={camFov} min={30} max={110} step={1} onChange={setCamFov} fmt={(v) => `${v}°`} />
           <div className="row">
             <label>Lighting</label>
             <div className="seg">
@@ -264,6 +323,34 @@ function Studio() {
             <button onClick={() => generate(false)}>Generate paused</button>
           </div>
           {error && <div className="err">{error}</div>}
+        </section>
+
+        <section>
+          <h3>Live camera</h3>
+          <div className="row">
+            <label>Source</label>
+            <select value={linkSource} onChange={(e) => { setLinkSource(e.target.value); if (link?.enabled) setLinkEnabled(true, e.target.value); }}>
+              {LIVE_SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <Slider label="Their height" value={liveHeight} min={1.4} max={2.0} step={0.01} fmt={(v) => `${v.toFixed(2)} m`}
+            onChange={(v) => { setLiveHeight(v); if (link?.enabled) setLinkEnabled(true, linkSource, v); }} />
+          <div className="btns">
+            <button className={link?.enabled ? "on" : "primary"} disabled={!world} onClick={() => setLinkEnabled(!link?.enabled)}>
+              {link?.enabled ? "Unlink" : "Link into this room"}
+            </button>
+            <button onClick={liveOnly}>Live only (empty room)</button>
+          </div>
+          {link?.enabled && (
+            <p className="hint">
+              {link.state === "live" ? `In the room: ${link.label ?? link.posture}${link.alert_open ? " · ALERT OPEN" : ""}`
+                : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
+                : `No fresh frames from ${link.source}`}
+            </p>
+          )}
+          <p className="hint">The real person is placed from the camera's keypoints. Depth comes from the floor, so set the camera
+            (Jetson mount, height, tilt, field of view) to match the real one and regenerate. Residents walk round them and come
+            to help if the monitor says they have fallen.</p>
         </section>
 
         <section>
@@ -308,10 +395,11 @@ function Studio() {
           <div className="roster">
             {people.map((p) => {
               const info = looks.get(p.person_id ?? "");
+              const live = p.kind === "live";
               return (
-                <div key={p.person_id} className={`person ${selected === p.person_id ? "sel" : ""}`} onClick={() => setSelected(selected === p.person_id ? null : p.person_id)}>
-                  <span className="swatch" style={{ background: info?.appearance.top }} />
-                  <span className="pid">{p.person_id?.toUpperCase()}</span>
+                <div key={p.person_id} className={`person ${live ? "live" : ""} ${selected === p.person_id ? "sel" : ""}`} onClick={() => setSelected(selected === p.person_id ? null : p.person_id)}>
+                  <span className="swatch" style={{ background: live ? LIVE_APPEARANCE.top : info?.appearance.top }} />
+                  <span className="pid">{live ? "LIVE" : p.person_id?.toUpperCase()}</span>
                   <span className="doing">{p.incident ? `⚠ ${p.incident}` : p.activity}</span>
                   {!hideTruth && <span className={`tag ${p.label}`}>{p.label.replace("_intentional", "")}</span>}
                 </div>
@@ -363,7 +451,21 @@ function Studio() {
         <section>
           <h3>Inspector</h3>
           {!me && <p className="hint">Click a person in the room or the list to inspect them.</p>}
-          {me && (
+          {me && me.kind === "live" && (
+            <dl className="kv">
+              <dt>Live person</dt>
+              <dd><b>{link?.source ?? me.person_id}</b> · a real camera, not simulated</dd>
+              <dt>Monitor says</dt>
+              <dd>{me.label} ({me.posture})</dd>
+              <dt>Feed</dt>
+              <dd>{link ? `${link.state}${link.last_seen ? ` · last frame ${new Date(link.last_seen).toLocaleTimeString()}` : ""}` : "…"}</dd>
+              <dt>Alert</dt>
+              <dd>{link?.alert_open ? <span style={{ color: "var(--alert)" }}>possible fall open</span> : "—"}</dd>
+              <dt>Helper</dt>
+              <dd>{people.find((q) => q.intent === "help")?.person_id?.toUpperCase() ?? "—"}</dd>
+            </dl>
+          )}
+          {me && me.kind !== "live" && (
             <dl className="kv">
               <dt>Resident</dt>
               <dd><b>{me.person_id?.toUpperCase()}</b> · {detail?.info.archetype ?? looks.get(me.person_id ?? "")?.archetype}</dd>
@@ -433,21 +535,31 @@ function Studio() {
 
       <footer className="bottom">
         <div className="cam">
-          <h3 style={{ margin: "0 0 6px", fontSize: 11, color: "var(--muted)", letterSpacing: 0.8 }}>WHAT THE CAMERA REPORTS (MONITOR INPUT)</h3>
+          <h3 style={{ margin: "0 0 6px", fontSize: 11, color: "var(--muted)", letterSpacing: 0.8 }}>
+            WHAT THE {showReal && link?.enabled ? `REAL CAMERA (${link.source.toUpperCase()})` : "SIMULATED CAMERA"} REPORTS (MONITOR INPUT)
+            {link?.enabled && (
+              <span className={`chip ${showReal ? "on" : ""}`} style={{ marginLeft: 8 }} onClick={() => setShowReal(!showReal)}>Real camera</span>
+            )}
+          </h3>
           <div className="cam-inner">
-            <RoomView feed={feed} scene={world?.scene ?? null} roomId={ROOM_ID} source="sim" alertPersonIds={alertPersonIds} alertActive={alertPersonIds.length > 0}
-              style={{ height: "100%", width: "auto", maxWidth: "100%" }} />
+            {showReal && link?.enabled ? (
+              <RoomView key={link.source} feed={feed} scene={null} roomId={ROOM_ID} source={link.source}
+                alertActive={link.alert_open} style={{ height: "100%", width: "auto", maxWidth: "100%" }} />
+            ) : (
+              <RoomView feed={feed} scene={world?.scene ?? null} roomId={ROOM_ID} source="sim" alertPersonIds={alertPersonIds} alertActive={alertPersonIds.length > 0}
+                style={{ height: "100%", width: "auto", maxWidth: "100%" }} />
+            )}
           </div>
         </div>
         <div className="log">
-          <h3 style={{ margin: "0 0 6px", fontSize: 11, color: "var(--muted)", letterSpacing: 0.8 }}>MONITOR EVENTS (SIMULATED SOURCE)</h3>
+          <h3 style={{ margin: "0 0 6px", fontSize: 11, color: "var(--muted)", letterSpacing: 0.8 }}>MONITOR EVENTS (SIMULATED{link?.enabled ? " + LIVE" : ""})</h3>
           <ul>
             {log.length === 0 && <li><span /><span className="hint">No events yet.</span></li>}
             {log.map((l) => (
               <li key={l.key} className={l.alert ? "alert" : ""}>
                 <span className="when">{new Date(l.at).toLocaleTimeString()}</span>
                 <span>{l.kind.replace(/_/g, " ")}</span>
-                <span>{l.person?.toUpperCase() ?? ""}</span>
+                <span>{l.live ? "LIVE" : l.person?.toUpperCase() ?? ""}</span>
                 <span className="hint">{l.text}</span>
               </li>
             ))}

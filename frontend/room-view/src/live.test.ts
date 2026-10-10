@@ -50,4 +50,14 @@ describe("LiveClient", () => {
     expect(c.revision).toBe(rev + 1);
     expect(c.frames).toHaveLength(0);
   });
+
+  it("shows a live person as of the newest frame, even while paused", () => {
+    const c = new LiveClient("ws://unused");
+    c.close();
+    const live = (x: number): LivePerson => ({ ...person("live-jetson-01", x, "standing"), kind: "live" });
+    c.receive({ type: "frame", data: frame(5, [person("p1", 0), live(1)], "paused") });
+    c.receive({ type: "frame", data: frame(5, [person("p1", 0), live(2)], "paused") });
+    const at = c.sample(4.5).people.find((p) => p.person_id === "live-jetson-01")!;
+    expect(at.joints.nose![0]).toBe(2);
+  });
 });
