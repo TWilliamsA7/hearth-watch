@@ -21,6 +21,7 @@ from hearth.eval.api import create_eval_router
 from hearth.sim.api import create_sim_router
 from hearth.sim.controller import SimController
 from hearth.sim.live.controller import LiveController
+from hearth.sim.live.link import LiveLink, create_link_router
 
 
 class Simulation:
@@ -28,6 +29,7 @@ class Simulation:
         self.monitor = monitor
         self.scripted = SimController(self.ingest)
         self.live = LiveController(self.ingest)
+        self.link = LiveLink(monitor, self.live)  # a live camera's person, played out in the live room
 
     @contextmanager
     def watch(self) -> Iterator[list[Event]]:
@@ -68,6 +70,7 @@ class Simulation:
 def mount_simulation(app: FastAPI, monitor) -> Simulation:
     sim = Simulation(monitor)
     app.include_router(create_sim_router(sim.scripted, sim.live), prefix="/sim")
+    app.include_router(create_link_router(sim.link), prefix="/sim")
     app.include_router(create_eval_router(sim.scripted), prefix="/eval")
     app.state.simulation = sim
     return sim

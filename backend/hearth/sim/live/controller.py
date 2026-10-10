@@ -64,6 +64,9 @@ class LiveController:
         self._subscribers: set[asyncio.Queue[str]] = set()
         self._since_frame = 0.0
         self._task: asyncio.Task | None = None
+        # Called every tick, playing or paused (the live camera link: a real person keeps
+        # moving while the simulation is paused).
+        self.tick_hooks: list[Callable[[], None]] = []
 
     # --- queries ---
 
@@ -107,7 +110,14 @@ class LiveController:
         world = self.world.live_world(self.run_id)
         self._broadcast("world", world.model_dump_json())
         self._broadcast_frame()
+        if self.tick_hooks:
+            self._ensure_task()  # keep ticking while paused, for the live link
         return world
+
+    def keep_running(self) -> None:
+        """Tick even before play(), so tick hooks run and frames go out (the live link)."""
+        if self.world is not None:
+            self._ensure_task()
 
     async def reset(self) -> LiveWorld:
         if self.world is None:
@@ -205,6 +215,8 @@ class LiveController:
         w = self.world
         if w is None:
             return
+        for hook in self.tick_hooks:
+            hook()
         if self.state == "paused":
             await self._pause_heartbeat()
         elif self.state == "playing":

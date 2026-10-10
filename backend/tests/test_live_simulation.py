@@ -36,12 +36,14 @@ def test_several_people_in_one_frame_all_reach_the_live_monitor():
     """Three residents share each frame's timestamp; none may be dropped as out_of_order."""
     service = shipped_service()
     run = run_headless(SCENARIOS["day-room-01"])  # p3 falls
-    events = asyncio.run(Simulation(service).ingest(run.items))
+    sim = Simulation(service)
+    listeners = list(service.event_listeners)
+    events = asyncio.run(sim.ingest(run.items))
     assert service.ingest_totals["out_of_order"] == 0
     assert service.ingest_totals["accepted"] == len(run.observations)
     falls = [e for e in events if e.event_type == "possible_fall"]
     assert [e.person_id for e in falls] == ["p3"]
-    assert not service.event_listeners  # the hook is removed afterwards
+    assert service.event_listeners == listeners  # ingest's own hook is removed afterwards
 
 
 def test_a_loaded_scenario_plays_into_the_live_alert_queue():
