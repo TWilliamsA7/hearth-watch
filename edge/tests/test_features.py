@@ -68,6 +68,27 @@ def test_missing_hips_omits_hip_features():
     assert out["head_y"] == pytest.approx(60 / 480.0, abs=1e-3)
 
 
+def test_face_only_pose_omits_bbox_aspect():
+    # Measured on the Jetson: a face-only pose has a wide, short box (aspect 2.4-4.6),
+    # which would look like lying down. It must not be reported.
+    face = {
+        "keypoints": {"nose": (320, 240), "left_eye": (305, 230), "right_eye": (335, 230),
+                      "left_ear": (285, 240), "right_ear": (355, 240)},
+        "bbox": (285, 228, 355, 246),
+    }
+    out = f.compute_features(face, W, H, f.VerticalVelocity(), t=0.0)
+    assert "bbox_aspect" not in out
+    assert out["head_y"] == pytest.approx(0.49, abs=0.01)
+
+
+def test_torso_visible_needs_upper_and_lower_body():
+    assert f.torso_visible({"neck": (0, 0), "left_hip": (0, 1)})
+    assert f.torso_visible({"right_shoulder": (0, 0), "right_hip": (0, 1)})
+    assert not f.torso_visible({"neck": (0, 0), "left_shoulder": (0, 0)})
+    assert not f.torso_visible({"left_hip": (0, 1), "left_knee": (0, 2)})
+    assert f.compute_features(LYING, W, H, f.VerticalVelocity(), 0.0)["bbox_aspect"] > 2.0
+
+
 def test_heights_are_normalized_and_clamped():
     assert f.hip_y(STANDING["keypoints"], H) == pytest.approx(250 / 480.0)
     assert f.head_y({"nose": (10, -5)}, H) == 0.0

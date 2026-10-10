@@ -37,6 +37,18 @@ def hip_point(kps):
     return _mean_point(kps, ("left_hip", "right_hip"))
 
 
+def torso_visible(kps):
+    """At least one shoulder (or the neck) and at least one hip were detected.
+
+    poseNet's bounding box only wraps the keypoints it found. With just the face visible the
+    box is ear-to-ear wide and eye-to-chin short, so its aspect looks like someone lying down.
+    Box-based features are only meaningful when part of the torso is in view.
+    """
+    upper = "neck" in kps or "left_shoulder" in kps or "right_shoulder" in kps
+    lower = "left_hip" in kps or "right_hip" in kps
+    return upper and lower
+
+
 def torso_angle_deg(kps):
     """Angle of the hip->neck line from vertical: 0 upright, 90 horizontal, 180 inverted."""
     neck = neck_point(kps)
@@ -109,7 +121,7 @@ def compute_features(pose, width, height, velocity, t):
         "torso_angle_deg": torso_angle_deg(kps),
         "head_y": head_y(kps, height),
         "hip_y": hy,
-        "bbox_aspect": bbox_aspect(pose["bbox"]),
+        "bbox_aspect": bbox_aspect(pose["bbox"]) if torso_visible(kps) else None,
         "vertical_velocity": velocity.update(hy, t),
     }
     return dict((k, round(v, 4)) for k, v in out.items() if v is not None)
