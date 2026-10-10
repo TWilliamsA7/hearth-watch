@@ -56,7 +56,7 @@ def test_body_on_the_floor_lies_on_the_floor(camera):
     truth = body(KEY_POSES["side_lying"], 0.4, 0.5, -3.0, 0.0, HEIGHT)
     got = lift(seen(camera, truth), camera, ROOM, height=HEIGHT, posture="floor")
     assert got is not None
-    assert all(p[1] < 0.25 for p in got.joints.values())
+    assert all(p[1] < 0.5 for p in got.joints.values())
     # One camera can't tell how high off the floor each joint is (a side-lying hip is ~0.4 m up),
     # so from a low, grazing camera the body lands up to ~0.3 m off. Fine for an avatar.
     assert got.root == pytest.approx(mid_hip(truth), abs=0.3)
@@ -87,3 +87,14 @@ def test_lifts_the_real_edge_wire_fixture():
 def test_nothing_usable_gives_none(camera):
     assert lift([], camera, ROOM) is None
     assert lift([("left_eye", 0.5, 0.01)], camera, ROOM) is None
+
+
+def test_unseen_joints_are_filled_in_so_the_avatar_is_a_whole_person():
+    """What the Jetson sent today: shoulders, elbows, wrists, maybe hips; no head, no legs."""
+    camera = Camera(ROOM, CameraSpec(preset="jetson"))
+    truth = body(KEY_POSES["standing"], 0.0, 0.2, -2.5, 0.0, HEIGHT)
+    upper = {"neck", "left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist"}
+    got = lift([k for k in seen(camera, truth) if k[0] in upper], camera, ROOM, height=HEIGHT)
+    assert got is not None
+    assert {"left_hip", "right_hip", "nose", "left_ankle", "right_ankle"} <= set(got.joints)
+    assert got.joints["left_ankle"][1] < 0.2 and got.joints["nose"][1] > 1.4  # feet down, head up

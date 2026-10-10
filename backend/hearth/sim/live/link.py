@@ -27,7 +27,9 @@ from hearth.monitor.detector import track_key
 from hearth.sim.live.controller import LiveController
 from hearth.sim.live.lift import LiftedBody, lift
 
-STALE_S = 1.5  # no fresh frame for this long: the person is shown as gone
+# No fresh frame for this long: the person is shown as gone. The Jetson pauses for a few
+# seconds now and then (camera stalls); holding the last pose that long avoids flicker.
+STALE_S = 4.0
 SMOOTH = 0.35  # EMA weight of each new frame on position and heading
 
 # The monitor's internal posture state -> (avatar posture, what to call it).
