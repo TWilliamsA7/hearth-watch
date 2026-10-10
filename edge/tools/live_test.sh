@@ -3,6 +3,8 @@
 #     edge/tools/live_test.sh              # backend + video window + edge on the Jetson
 #     edge/tools/live_test.sh --no-video   # skip the video stream/window
 #     edge/tools/live_test.sh --real       # Person 2's real backend (backend/) instead of the stub
+#     edge/tools/live_test.sh --real --config recordings/config_framing.json
+#                                          # ...with another monitor config (HEARTH_CONFIG)
 #     edge/tools/live_test.sh -- --obs-hz 5   # anything after -- goes to run_edge.py
 #
 # It does, in order:
@@ -25,13 +27,15 @@ STREAM_URL="rtp://192.168.55.100:1234"
 
 video=1
 real=0
+monitor_config=""
 edge_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-video) video=0 ;;
     --real) real=1 ;;
+    --config) monitor_config="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
     --) shift; edge_args=("$@"); break ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)"; exit 2 ;;
   esac
   shift
@@ -43,7 +47,7 @@ stub_pid=""
 player_pid=""
 edge_started=0
 cleanup() {
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   # Only stop a Jetson program this script started (never someone else's run).
   [ "$edge_started" = 1 ] && ssh "$JETSON" 'pkill -INT -f "^python3 -u run_edge.py"' 2>/dev/null
   [ -n "$player_pid" ] && kill "$player_pid" 2>/dev/null
@@ -51,7 +55,7 @@ cleanup() {
   wait 2>/dev/null
   say "all stopped"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 [ -x "$PY" ] || { echo "missing $PY - create it: python3 -m venv .venv && .venv/bin/pip install -e shared/python pytest"; exit 1; }
 
@@ -64,8 +68,19 @@ if [ -n "$holder" ]; then
   exit 1
 fi
 if ss -ltn 'sport = :8000' | grep -q LISTEN; then
-  echo "port 8000 on the laptop is already in use (another stub_backend.py or the real backend?)"
-  exit 1
+  pid=$(ss -ltnp 'sport = :8000' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+  args=$([ -n "$pid" ] && ps -o args= -p "$pid")
+  parent=$([ -n "$pid" ] && ps -o comm= -p "$(ps -o ppid= -p "$pid" | tr -d ' ')")
+  # A backend these tools started whose terminal went away (parent is now systemd/init): stop it.
+  if [ -n "$pid" ] && echo "$args" | grep -qE 'uvicorn hearth\.api\.app:app|stub_backend\.py' \
+     && { [ "$parent" = systemd ] || [ "$parent" = init ]; }; then
+    echo "stopping a leftover backend from an earlier run (pid $pid)"
+    kill "$pid"; sleep 2
+  else
+    echo "port 8000 on the laptop is already in use${pid:+ by pid $pid: $args}"
+    echo "stop it first${pid:+ (kill $pid)}, or use the backend that is already running"
+    exit 1
+  fi
 fi
 echo "ok"
 
@@ -77,6 +92,11 @@ if [ "$real" = 1 ]; then
   "$PY" -c "import fastapi, uvicorn, hearth.api.app" 2>/dev/null \
     || { echo "team backend not installed: $PY -m pip install -e '$REPO/backend[dev]'"; exit 1; }
   say "3/5 starting the TEAM backend on the laptop (uvicorn, port 8000)"
+  if [ -n "$monitor_config" ]; then
+    [ -f "$monitor_config" ] || { echo "config not found: $monitor_config"; exit 1; }
+    export HEARTH_CONFIG="$monitor_config"
+    echo "monitor config: $monitor_config"
+  fi
   # setsid: keep it out of the terminal's Ctrl+C; it is stopped in cleanup.
   setsid "$PY" -m uvicorn hearth.api.app:app --app-dir "$REPO/backend" --host 0.0.0.0 \
     --port 8000 --log-level warning --no-access-log &

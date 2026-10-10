@@ -52,6 +52,13 @@ BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/al
 # upright pose looks lying or incomplete; standing costs nothing extra.
 POSE_ROTATION = True
 
+# Follow one person (features.PersonTrack): prefer the pose nearest where the person was within
+# TRACK_KEEP_S, up to TRACK_MAX_DIST of the frame width away; and if they go missing for at most
+# TRACK_DROPOUT_S, skip sending that frame instead of reporting "no person".
+TRACK_KEEP_S = 1.0
+TRACK_MAX_DIST = 0.25
+TRACK_DROPOUT_S = 0.3
+
 # Bridge brief keypoint dropouts (features.KeypointHold): a joint missing for up to this long
 # is filled in from its last position, moved with the body, for the posture numbers only.
 # Observations still carry only the keypoints poseNet actually reported. 0 = off.

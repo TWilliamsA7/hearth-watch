@@ -53,7 +53,8 @@ def test_backend_lines_for_each_state():
 
     fallen = {"reachable": True,
               "source": {"online": True, "posture": "fallen", "stale": False},
-              "alerts": [("possible_fall", "open", 4.2, None), ("possible_fall", "acknowledged", 30.0, "Sam")]}
+              "alerts": [("possible_fall", "open", 4.2, None, None),
+                         ("possible_fall", "acknowledged", 30.0, "Sam", None)]}
     lines = ov.backend_lines(fallen, "jetson-01")
     assert lines[0] == ("backend: online | posture fallen", ov.RED)
     assert lines[1] == ("ALERT possible fall: open 4 s", ov.RED)
@@ -80,6 +81,15 @@ def test_source_summary_picks_this_source():
     assert bv.source_summary(sources, "jetson-02") is None
 
 
+def test_recovered_alert_stops_counting_and_says_review():
+    view = {"reachable": True, "source": {"online": True, "posture": "standing", "stale": False},
+            "alerts": [("possible_fall", "open", 120.0, None, 45.0)]}
+    assert ov.backend_lines(view, "jetson-01")[1] == \
+        ("ALERT possible fall: open, up again after 45 s - review on /nurses", ov.AMBER)
+    off = dict(view, alerts=[("source_offline", "open", 60.0, None, 8.0)])
+    assert "reconnected after 8 s" in ov.backend_lines(off, "jetson-01")[1][0]
+
+
 def test_alert_summary_skips_resolved_and_sorts_newest_first():
     alerts = [
         {"kind": "possible_fall", "status": "resolved", "opened_at": c.utc_iso(NOW - 5)},
@@ -88,8 +98,15 @@ def test_alert_summary_skips_resolved_and_sorts_newest_first():
         {"kind": "help_requested", "status": "open", "opened_at": c.utc_iso(NOW - 3)},
     ]
     out = bv.alert_summary(alerts, NOW)
-    assert [(k, s) for k, s, _, _ in out] == [("help_requested", "open"), ("possible_fall", "acknowledged")]
+    assert [(k, s) for k, s, _, _, _ in out] == [("help_requested", "open"), ("possible_fall", "acknowledged")]
     assert out[0][2] == pytest.approx(3.0, abs=0.01) and out[1][3] == "Sam"
+    assert out[0][4] is None  # not recovered yet
+
+
+def test_alert_summary_reports_time_down_once_recovered():
+    a = {"kind": "possible_fall", "status": "open", "opened_at": c.utc_iso(NOW - 120),
+         "recovered_at": c.utc_iso(NOW - 75)}
+    assert bv.alert_summary([a], NOW)[0][4] == pytest.approx(45.0, abs=0.01)
 
 
 # --- polling a backend over HTTP ----------------------------------------------------------

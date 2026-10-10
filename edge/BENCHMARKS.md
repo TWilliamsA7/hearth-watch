@@ -5,6 +5,26 @@ Jetson with someone in view and paste the output below:
 
     cd ~/hearth-watch/edge && python3 tools/bench.py --seconds 20
 
+## 2026-10-10 06:40 — end to end: the backend's real FallDetector alerts on a live clip
+
+recordings/lie_down-20261010-063944.jsonl (lying across the mat, camera ~3.5 m away), recorded
+with the full edge pipeline (rotated poseNet passes, keypoint hold, one-person tracking), checked
+with `tools/check_rules.py --config recordings/config_framing.json`: Person 2's config with only
+`floor_head_y_min` 0.40 and `floor_hip_y_min` 0.45 (the change requested for this camera).
+
+| Measure | Result |
+|---|---|
+| Verdict (real FallDetector) | possible_fall at 3.2 s |
+| Frames at floor level | 83 of 83 |
+| Head / shoulders / hips / legs found | 100% / 100% / 100% / 99% |
+| Torso deg | 69-76 |
+| Head / hip height (median) | 0.62 / 0.75 |
+| Observations per second | 8.3 |
+
+With the unchanged config (0.65 line) the same clip does not alert: head height 0.59-0.65.
+Caveat of the lowered config: the backend's upright rule shares `floor_hip_y_min`, so standing
+(hips ~0.60 here) reads unknown and recovery can't be recorded until that rule gets its own bound.
+
 ## 2026-10-10 06:18 — lying across, camera ~3.5 m away: rotation fixes it (adopted)
 
 edge/tools/pose_test.sh across, 39 frames, whole body visible in the camera image (confirmed by a
@@ -24,6 +44,12 @@ upright pose looks lying or incomplete, head side first, accepted only with >= 8
 including a torso and more keypoints than the upright pose. Cost on the Nano: ~95 ms per rotated
 pass. Measured dry run with nobody in view: 13.0-13.1 FPS, ~10 observations/s (one alternating
 try per second); standing costs nothing extra.
+
+Speed-up (06:40): a lying-down frame was capture+upright 71 ms + CPU rotate 27 ms + rotated
+poseNet 68 ms = ~5.1 FPS (recordings then held ~4.2 observations/s). Now the frame is shrunk to
+half size on the GPU (cudaResize) before the CPU rotation (poseNet resizes to 224x224 anyway),
+and while a rotated pose keeps being accepted the upright pass runs on 1 frame in 3. Measured:
+rotated pass 75 ms, lying-down pattern **10.3 FPS** (was 5.1).
 
 ## 2026-10-10 05:52 — does rotating the frame help poseNet on lying poses? (not here; see 06:18)
 

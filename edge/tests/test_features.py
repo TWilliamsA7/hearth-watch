@@ -166,3 +166,32 @@ def test_hold_keeps_torso_features_through_a_hip_dropout():
     feats = f.compute_features({"keypoints": merged, "bbox": (90, 380, 530, 430)}, W, H, vel, 0.1)
     assert feats["torso_angle_deg"] == pytest.approx(88.2, abs=0.5)
     assert "hip_y" in feats
+
+
+# --- following one person ----------------------------------------------------------------
+
+LYING_HERE = {"keypoints": {"neck": (500, 320)}, "bbox": (300, 290, 700, 350)}   # centre (500, 320)
+BACKGROUND = {"keypoints": {"neck": (300, 60)}, "bbox": (270, 20, 330, 110)}     # centre (300, 65)
+
+
+def test_select_pose_follows_the_tracked_person_not_the_biggest():
+    big_background = dict(BACKGROUND, bbox=(0, 0, 640, 200))  # bigger box, wrong person
+    assert f.select_pose([big_background, LYING_HERE]) is big_background        # no track: largest
+    assert f.select_pose([big_background, LYING_HERE], near=(505, 318), max_dist=160) is LYING_HERE
+
+
+def test_select_pose_returns_none_when_only_someone_else_is_visible():
+    # The tracked person wasn't found upright this frame: don't switch to the background person
+    # (the caller then tries a rotated pass to find the tracked one).
+    assert f.select_pose([BACKGROUND], near=(500, 320), max_dist=160) is None
+
+
+def test_person_track_keeps_position_briefly_and_flags_short_dropouts():
+    tr = f.PersonTrack(keep_s=1.0, dropout_s=0.3)
+    assert tr.near(0.0) is None and not tr.brief_dropout(0.0)
+    tr.update(LYING_HERE, 0.0)
+    assert tr.near(0.5) == (500.0, 320.0)
+    assert tr.near(1.2) is None                       # stale: pick the largest again
+    tr.update(None, 0.1)                              # missing frames don't move the track
+    assert tr.brief_dropout(0.2)                      # 0.2 s after last seen: skip, don't say "no person"
+    assert not tr.brief_dropout(0.4)                  # 0.4 s: really gone, report it

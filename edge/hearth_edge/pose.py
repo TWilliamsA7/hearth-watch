@@ -18,13 +18,13 @@ import time
 try:  # jetson-inference renamed its Python modules; support both spellings.
     from jetson_inference import poseNet
     from jetson_utils import (videoSource, videoOutput, cudaAllocMapped, cudaToNumpy,
-                              cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine)
+                              cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine, cudaResize)
 except ImportError:  # pragma: no cover - older installs
     from jetson.inference import poseNet
     from jetson.utils import (videoSource, videoOutput, cudaAllocMapped, cudaToNumpy,
-                              cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine)
+                              cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine, cudaResize)
 
-from hearth_edge.pose_rotate import unrotate_pose
+from hearth_edge.pose_rotate import scale_pose, unrotate_pose
 
 AMBER = (255, 190, 0, 255)
 # COCO-18 bones, for drawing a pose found on a rotated frame (poseNet's own overlay can't).
@@ -46,10 +46,13 @@ class PoseCamera(object):
             argv.append("--input-rate=%d" % fps)
         self.camera = videoSource(camera, argv=argv)
         self.output = videoOutput(stream, argv=["--headless"]) if stream else None
-        self._rot_buf = self._rot_view = None  # reused buffer for rotated passes
+        self._small = self._rot_buf = self._rot_view = None  # reused buffers for rotated passes
 
-    def read(self):
-        """Capture and run poseNet on one frame. Returns None if no frame arrived (timeout)."""
+    def read(self, run_pose=True):
+        """Capture and run poseNet on one frame. Returns None if no frame arrived (timeout).
+
+        run_pose=False captures only (no upright poseNet pass): used while someone stays lying
+        down and the rotated pass is doing the work."""
         try:
             img = self.camera.Capture()
         except Exception:  # some jetson_utils versions raise on capture timeout
@@ -57,6 +60,9 @@ class PoseCamera(object):
         if img is None:
             return None
         t = time.time()
+        if not run_pose:
+            return {"t": t, "img": img, "width": img.width, "height": img.height,
+                    "poses": [], "raw_poses": [], "inference_ms": 0.0, "pose_skipped": True}
         raw_poses = self.net.Process(img, overlay="none")  # drawing happens later, in render()
         poses = []
         for p in raw_poses:
@@ -90,11 +96,16 @@ class PoseCamera(object):
         import numpy as np
         start = time.time()
         img = frame["img"]
-        if self._rot_buf is None:
-            self._rot_buf = cudaAllocMapped(width=img.height, height=img.width, format="rgb8")
+        # poseNet shrinks its input to 224x224 anyway, so shrink to half size on the GPU first
+        # and rotate that: a quarter of the pixels for the CPU to move (~27 ms -> a few ms).
+        w2, h2 = img.width // 2, img.height // 2
+        if self._small is None:
+            self._small = cudaAllocMapped(width=w2, height=h2, format="rgb8")
+            self._rot_buf = cudaAllocMapped(width=h2, height=w2, format="rgb8")
             self._rot_view = cudaToNumpy(self._rot_buf)
-        cudaDeviceSynchronize()  # the camera/GPU must have finished writing the frame
-        np.copyto(self._rot_view, np.rot90(cudaToNumpy(img)[..., :3], k))
+        cudaResize(img, self._small)
+        cudaDeviceSynchronize()  # the GPU must have finished before the CPU reads the result
+        np.copyto(self._rot_view, np.rot90(cudaToNumpy(self._small), k))
         poses = self._plain(self.net.Process(self._rot_buf, overlay="none"))
         best, best_area = None, -1.0
         for p in poses:
@@ -102,7 +113,8 @@ class PoseCamera(object):
             area = max(0.0, r - l) * max(0.0, b - t)
             if area > best_area:
                 best, best_area = p, area
-        pose = unrotate_pose(best, k, img.width, img.height) if best is not None else None
+        pose = (scale_pose(unrotate_pose(best, k, w2, h2), img.width / float(w2))
+                if best is not None else None)
         return pose, (time.time() - start) * 1000.0
 
     def render(self, frame):

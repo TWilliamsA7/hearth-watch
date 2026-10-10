@@ -185,3 +185,44 @@ def test_read_control_never_blocks_and_reports_end_of_input():
         assert run_edge.read_control(reader) == ""             # sender went away
     finally:
         reader.close()
+
+
+def test_join_makes_one_continuous_clip():
+    a = recorded_observations(5, hz=10.0)                       # 0.0 .. 0.4 s
+    b = recorded_observations(3, hz=10.0)                       # also starts at T0
+    joined = replay.join_recordings([a, b], gap_s=0.1)
+    offsets = replay.schedule(joined)
+    assert offsets == pytest.approx([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+    assert a[0]["timestamp"] == c.utc_iso(T0)                   # originals untouched
+
+
+def test_joined_stand_lie_stand_gives_alert_then_recovery_in_one_run(tmp_path):
+    stand = c.normalize_keypoints({"nose": (320, 40), "neck": (320, 80), "left_hip": (320, 280)}, 640, 480, None)
+    lie = c.normalize_keypoints({"nose": (100, 380), "neck": (160, 385), "left_hip": (330, 390)}, 640, 480, None)
+
+    def clip(n, kps, feats):
+        ids = c.ObservationIds("jetson-01", start=int(T0))
+        return [c.build_observation(ids.next(), T0 + i / 10.0, "jetson-01", "room-01", True,
+                                    keypoints=kps, features=feats) for i in range(n)]
+    up = {"torso_angle_deg": 2.0, "head_y": 0.08, "hip_y": 0.58, "bbox_aspect": 0.3}
+    down = {"torso_angle_deg": 85.0, "head_y": 0.79, "hip_y": 0.81, "bbox_aspect": 3.0}
+    paths = []
+    for name, obs in (("stand", clip(10, stand, up)), ("lie", clip(45, lie, down)), ("stand2", clip(15, stand, up))):
+        p = tmp_path / (name + ".jsonl")
+        p.write_text("\n".join(json.dumps(o) for o in obs) + "\n")
+        paths.append(str(p))
+    pytest.importorskip("hearth.api.app")
+    from fastapi.testclient import TestClient
+    from hearth.api.app import create_app
+    from hearth.monitor.config import MonitorConfig
+    app = create_app(MonitorConfig.load())
+    joined = replay.join_recordings([replay.load_recording(p) for p in paths])
+    run_id = replay.new_run_id("replay-01", 1)
+    ids = c.ObservationIds("replay-01", start=int(T0))
+    rewritten = [replay.rewrite_for_replay(o, ids.next(), c.parse_utc_iso(o["timestamp"]),
+                                           run_id=run_id) for o in joined]
+    with TestClient(app) as http:
+        assert http.post("/ingest/observations", json={"observations": rewritten}).status_code == 200
+        alerts = http.get("/alerts", params={"source": "replay-01"}).json()
+    assert [a["kind"] for a in alerts] == ["possible_fall"]
+    assert alerts[0]["recovered_at"] is not None and alerts[0]["run_id"] == run_id

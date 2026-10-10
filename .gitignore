@@ -24,7 +24,7 @@ frontend/dist/
 *.mp4
 *.avi
 *.mkv
-recordings/*
+scenarios/generated/
 !recordings/.gitkeep
 
 # Editors / OS
@@ -40,3 +40,5 @@ HEARTH_AGENT_HANDOFF.md
 models/
 .hearth-runtime/
 runs/
+interfaces.md
+planning.md

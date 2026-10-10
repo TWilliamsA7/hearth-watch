@@ -70,7 +70,7 @@ Most of the time, use the one-command laptop tools below instead.
 | `tools/sync_clock.sh` | Copy the laptop's clock to the Jetson (needed when it is offline) |
 | `tools/record_clips.sh stand sit lie_down` | Guided clip recording with a live camera view |
 | `tools/check_rules.py <clip>.jsonl` | Runs the backend's real FallDetector on a clip and explains each failed condition |
-| `tools/replay.py <clip>.jsonl` | Re-sends a clip as `source_type: replay`, `source: replay-01`, a new `run_id` per pass |
+| `tools/replay.py <clip>.jsonl` | Re-sends clips as `source_type: replay`, `source: replay-01`, new `run_id` per pass; `--join` plays several as one run (demo fallback) |
 | `tools/face_test.sh`, `tools/pose_test.sh` | Guided probes (face detector; poseNet rotation) |
 | `tools/bench.py` (Jetson) | Speed/memory table for BENCHMARKS.md |
 
@@ -82,15 +82,18 @@ Most of the time, use the one-command laptop tools below instead.
 
 ## Known limits
 
-- Fall alerts need the camera high (about 1.5-2 m), ~3.5 m from the mat, tilted down, so a
-  standing person fits head to feet and a lying person lands below the backend's 0.65 line.
+- Works live end to end (2026-10-10): lying across the mat raises a possible-fall alert after
+  ~3 s and standing up records recovery (see DEMO.md, BENCHMARKS.md).
+- The team backend's floor thresholds are calibrated for one camera position (about 1.5-2 m high,
+  ~3.5 m from the mat, tilted down): floor head/hip lines 0.40/0.45, upright hips above 0.65.
+  If the camera moves, re-check with `tools/record_clips.sh` and `tools/check_rules.py`.
 - People lying down: plain poseNet often finds only the head and shoulders, so when the upright
   pose looks lying or incomplete a rotated poseNet pass is added (`pose_rotate.py`; lying
-  across went from 0% to 100% head+shoulders+hips, see BENCHMARKS.md). `--no-rotation` turns it
-  off. Lying with the feet **toward** the camera still hides the hips and foreshortens the body
-  (torso reads ~19 degrees): a single-camera limit rotation cannot fix.
-- The backend's floor rule uses fixed frame heights and a 60 degree minimum; lying across
-  measured a median of 62 degrees, so thresholds need tuning for the final camera position.
+  across went from 0% to 100% head+shoulders+hips). `--no-rotation` turns it off. Lying with the
+  feet **toward** the camera still hides the hips and foreshortens the body (torso ~19 degrees):
+  a single-camera limit rotation cannot fix.
+- One person per room: the edge follows the person it tracked a moment ago, so a passer-by in
+  the background can't take over; a second person lying down at the same time is not handled.
 - Face detection at 3 m and with a covered mouth is not yet measured.
 
 ## Optional: laptop standing / fallen model (YOLO11, Person 2)

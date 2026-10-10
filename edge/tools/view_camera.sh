@@ -38,13 +38,13 @@ rsync -a --delete --exclude __pycache__ --exclude tests "$REPO/edge/" "$JETSON:h
 
 edge_pid=""
 cleanup() {
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   echo "stopping the Jetson side..."
   ssh "$JETSON" "pkill -INT -f '$EDGE_MATCH'; sleep 2; pkill -KILL -f '$EDGE_MATCH'" 2>/dev/null
   [ -n "$edge_pid" ] && kill "$edge_pid" 2>/dev/null
   wait 2>/dev/null
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 ssh "$JETSON" "cd ~/hearth-watch/edge && python3 -u run_edge.py --dry-run --stream $STREAM_URL \
   2>&1 >/dev/null | grep --line-buffered -aE '\[edge'" &

@@ -107,3 +107,26 @@ def test_rotated_pose_must_clearly_beat_the_plain_one():
     assert not pr.better_rotated(None, no_torso)            # many points but no torso
     elsewhere = dict(full_lying, bbox=(2000, 2000, 2100, 2100))
     assert not pr.better_rotated(HEAD_ONLY_LYING, elsewhere)  # a different person
+
+
+def test_scale_pose_doubles_coordinates():
+    p = pr.scale_pose({"keypoints": {"neck": (10, 20)}, "bbox": (1, 2, 3, 4)}, 2.0)
+    assert p == {"keypoints": {"neck": (20.0, 40.0)}, "bbox": (2.0, 4.0, 6.0, 8.0)}
+
+
+def test_half_size_rotation_maps_back_to_full_frame():
+    # A point at full-frame (400, 300) is at (200, 150) in the half-size frame; rotated there
+    # and mapped back with the half-size dimensions, then scaled x2, it must return to (400, 300).
+    xr, yr = pr.rotate_point(200, 150, 1, W // 2, H // 2)
+    back = pr.scale_pose(pr.unrotate_pose({"keypoints": {"a": (xr, yr)}, "bbox": (xr, yr, xr, yr)},
+                                          1, W // 2, H // 2), 2.0)
+    assert back["keypoints"]["a"] == (400.0, 300.0)
+
+
+def test_upright_pass_skipped_on_most_frames_only_while_lying():
+    pol = pr.RotationPolicy()
+    assert not pol.skip_upright(0.0)               # nobody lying: always run it
+    pol.accepted(1, 0.0)
+    pattern = [pol.skip_upright(0.1 * i) for i in range(1, 7)]
+    assert pattern == [True, True, False, True, True, False]  # upright on 1 frame in 3
+    assert not pol.skip_upright(2.0)               # rotated pose no longer accepted: run it

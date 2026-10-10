@@ -1,0 +1,40 @@
+scenario_id: day-room-02
+title: Day room, ordinary activity that looks like a fall
+description: >
+  Three residents and no falls. One lies down on the couch for a rest, one bends twice
+  to pick things up, and one sits down quickly in a chair. Each is a false-alarm risk
+  for posture rules; no possible-fall alert is expected.
+seed: 202
+scene:
+  objects:
+    - {kind: couch, x: 0.62, y: 0.64, w: 0.30, h: 0.182}
+    - {kind: chair, x: 0.10, y: 0.66, w: 0.12, h: 0.218}
+residents:
+  - resident_id: p1
+    start_x: 0.77
+    start_depth: 0.7
+    segments:
+      - {label: sitting, duration: 8.0, transition: 0.0, facing: camera}
+      - {label: lying_intentional, duration: 14.0, transition: 2.5, surface_y: 0.68}
+      - {label: sitting, duration: 8.0, transition: 2.5, facing: camera}
+  - resident_id: p2
+    height: 0.96
+    start_x: -0.12
+    start_depth: 0.35
+    segments:
+      - {label: walking, duration: 5.0, transition: 0.0, x: 0.42}
+      - {label: bending, duration: 3.0, transition: 0.9}
+      - {label: standing, duration: 3.0, transition: 0.9}
+      - {label: bending, duration: 3.0, transition: 0.8}
+      - {label: walking, duration: 6.0, transition: 0.4, x: 0.5, depth: 0.5}
+      - {label: standing, duration: 10.0, transition: 0.4, facing: camera}
+  - resident_id: p3
+    height: 1.04
+    start_x: -0.15
+    start_depth: 0.3
+    segments:
+      - {label: walking, duration: 4.0, transition: 0.0, x: 0.16}
+      - {label: standing, duration: 1.0, transition: 0.4, facing: camera}
+      - {label: sitting, duration: 18.0, transition: 0.5}
+      - {label: standing, duration: 3.0, transition: 1.2}
+      - {label: walking, duration: 4.0, transition: 0.3, x: -0.15}

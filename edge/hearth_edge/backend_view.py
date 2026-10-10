@@ -29,16 +29,29 @@ def source_summary(sources, source):
 
 
 def alert_summary(alerts, now):
-    """Unresolved alerts, newest first, as [(kind, status, age_s or None, accepted_by or None)]."""
+    """Unresolved alerts, newest first, as
+    [(kind, status, age_s or None, accepted_by or None, down_s or None)].
+
+    down_s is set once the backend recorded recovery (recovered_at): how long after the alert
+    opened the person was seen upright again. The alert itself stays open until a nurse
+    acknowledges/resolves it (the person may still be hurt); the panel just stops counting.
+    """
     out = []
     for a in alerts or []:
         if a.get("status") == "resolved":
             continue
         try:
-            age = now - parse_utc_iso(a["opened_at"])
+            opened = parse_utc_iso(a["opened_at"])
+            age = now - opened
         except (KeyError, TypeError, ValueError):
-            age = None
-        out.append((a.get("kind", "alert"), a.get("status", "?"), age, a.get("accepted_by_name")))
+            opened = age = None
+        down = None
+        if a.get("recovered_at") and opened is not None:
+            try:
+                down = parse_utc_iso(a["recovered_at"]) - opened
+            except (TypeError, ValueError):
+                down = None
+        out.append((a.get("kind", "alert"), a.get("status", "?"), age, a.get("accepted_by_name"), down))
     out.sort(key=lambda x: float("inf") if x[2] is None else x[2])
     return out
 

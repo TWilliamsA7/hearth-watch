@@ -174,8 +174,27 @@ def compute_features(pose, width, height, velocity, t):
     return dict((k, round(v, 4)) for k, v in out.items() if v is not None)
 
 
-def select_pose(poses):
-    """The largest pose by bounding-box area (one person per room in the MVP), or None."""
+def bbox_center(bbox):
+    left, top, right, bottom = bbox
+    return ((left + right) / 2.0, (top + bottom) / 2.0)
+
+
+def select_pose(poses, near=None, max_dist=None):
+    """The pose to follow this frame (one person per room in the MVP), or None.
+
+    Without `near`: the largest pose by bounding-box area. With `near` (where the tracked person
+    was a moment ago, pixels): the pose whose box centre is closest to it, if within `max_dist`;
+    otherwise None, so a person in the background can't take over for a frame (the caller then
+    tries harder, e.g. a rotated pass, to find the tracked person).
+    """
+    if near is not None:
+        best, best_d = None, None
+        for p in poses:
+            cx, cy = bbox_center(p["bbox"])
+            d = math.hypot(cx - near[0], cy - near[1])
+            if (max_dist is None or d <= max_dist) and (best_d is None or d < best_d):
+                best, best_d = p, d
+        return best
     best, best_area = None, -1.0
     for p in poses:
         left, top, right, bottom = p["bbox"]
@@ -183,3 +202,33 @@ def select_pose(poses):
         if area > best_area:
             best, best_area = p, area
     return best
+
+
+class PersonTrack(object):
+    """Where the followed person was, so the next frame picks the same person.
+
+    `near(t)` gives the last position while it is recent (`keep_s`), else None (then the
+    largest pose is picked, e.g. when someone new walks in). `brief_dropout(t)` is True when the
+    person went missing only moments ago (`dropout_s`): the edge then skips sending that frame
+    rather than reporting "no person", because the backend resets its floor timer on an explicit
+    "no person" but tolerates short gaps between observations.
+    """
+
+    def __init__(self, keep_s=1.0, dropout_s=0.3):
+        self.keep_s = keep_s
+        self.dropout_s = dropout_s
+        self.center = None
+        self.t = None
+
+    def update(self, pose, t):
+        if pose is not None:
+            self.center = bbox_center(pose["bbox"])
+            self.t = t
+
+    def near(self, t):
+        if self.t is None or t - self.t > self.keep_s:
+            return None
+        return self.center
+
+    def brief_dropout(self, t):
+        return self.t is not None and 0 < t - self.t <= self.dropout_s
