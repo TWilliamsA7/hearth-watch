@@ -24,6 +24,7 @@ with `tools/check_rules.py --config recordings/config_framing.json`: Person 2's 
 With the unchanged config (0.65 line) the same clip does not alert: head height 0.59-0.65.
 Caveat of the lowered config: the backend's upright rule shares `floor_hip_y_min`, so standing
 (hips ~0.60 here) reads unknown and recovery can't be recorded until that rule gets its own bound.
+(Since fixed: the upright rule has its own `upright_hip_y_max`, 0.65.)
 
 ## 2026-10-10 06:18 — lying across, camera ~3.5 m away: rotation fixes it (adopted)
 

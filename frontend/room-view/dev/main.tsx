@@ -77,13 +77,20 @@ function App() {
     };
   }, [loaded]);
 
-  if (!runs.length) return <p>No runs found. Generate some with <code>python -m hearth.sim run --all</code>.</p>;
+  if (!runs.length)
+    return (
+      <p>
+        No runs found. Generate some with <code>python -m hearth.sim run --all</code>, or open the{" "}
+        <a href="./studio.html" style={{ color: "#b9aaff" }}>Sim Studio</a> to run the live engine.
+      </p>
+    );
   const t = state?.t ?? 0;
   const now = loaded?.truth.filter((g) => g.t_start <= t && t < g.t_end) ?? [];
 
   return (
     <>
       <div className="bar">
+        <a href="./studio.html" style={{ color: "#b9aaff" }}>Sim Studio (live) →</a>
         <select value={run?.run_id} onChange={(e) => setRunId(e.target.value)}>
           {runs.map((r) => (
             <option key={r.run_id} value={r.run_id}>

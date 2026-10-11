@@ -5,7 +5,7 @@ from datetime import datetime
 from hearth_schema import Event, Observation
 
 from .config import MonitorConfig
-from .detector import SourceKey, make_event, source_key
+from .detector import SourceKey, TrackKey, make_event, track_key
 
 
 @dataclass
@@ -23,10 +23,13 @@ class GestureState:
 class HelpGestureDetector:
     def __init__(self, config: MonitorConfig):
         self.config = config
-        self.states: dict[SourceKey, GestureState] = {}
+        self.states: dict[TrackKey, GestureState] = {}
 
-    def invalidate(self, key: SourceKey):
-        if state := self.states.get(key):
+    def invalidate(self, key: SourceKey | TrackKey):
+        """A SourceKey invalidates every person tracked on that source."""
+        for track, state in self.states.items():
+            if track[:len(key)] != key:
+                continue
             state.since = state.released_since = None
             # Missing frames cannot re-arm an already sent request.
             if not state.latched:
@@ -51,7 +54,7 @@ class HelpGestureDetector:
         return result
 
     def process(self, obs: Observation) -> list[Event]:
-        key = source_key(obs)
+        key = track_key(obs)
         state = self.states.setdefault(key, GestureState())
         if state.last_timestamp is not None:
             gap = (obs.timestamp - state.last_timestamp).total_seconds()

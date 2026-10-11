@@ -41,3 +41,17 @@ def test_type_generator_rejects_unsupported_shapes():
     types = load_script("export_types")
     with pytest.raises(ValueError):
         types.ts_type({"allOf": [{"type": "string"}]})
+
+
+def test_frontend_types_match_the_schemas():
+    """frontend/room-view/src/generated/*.ts come from the schema files; regenerate after changing them."""
+    import shutil
+    import subprocess
+
+    room_view = ROOT / "frontend" / "room-view"
+    node = shutil.which("node")
+    if node is None or not (room_view / "node_modules" / "json-schema-to-typescript").exists():
+        pytest.skip("node or frontend/room-view node_modules not installed")
+    result = subprocess.run([node, "scripts/gen-types.mjs", "--check"], cwd=room_view,
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr + "\nrun: cd frontend/room-view && npm run gen:types"

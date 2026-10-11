@@ -18,6 +18,7 @@ the world inverts it, so a frame x at depth d lands where that camera would have
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 from hearth_schema.models import KeypointName
 from pydantic import BaseModel, ConfigDict, Field
@@ -64,6 +65,26 @@ class WorldObject(_Model):
     kind: ObjectKind
     center: Vec3
     size: Vec3 = Field(description="Width (x), height (y), depth (z) in metres.")
+    rotation: float = Field(default=0.0, description="Radians about +y: the heading its front faces (as WorldPerson.heading).")
+    variant: str | None = Field(
+        default=None, description="The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind."
+    )
+
+
+class WorldDoor(_Model):
+    door_id: str
+    wall: Literal["back", "left", "right", "front"]
+    center: tuple[float, float] = Field(description="Floor point (x, z) at the middle of the opening.")
+    width: float
+    heading_in: float = Field(description="Radians: the way into the room.")
+
+
+class WorldWindow(_Model):
+    wall: Literal["back", "left", "right", "front"]
+    center: tuple[float, float]
+    width: float
+    sill: float
+    height: float
 
 
 class WorldRoom(_Model):
@@ -75,6 +96,13 @@ class WorldRoom(_Model):
     camera_target: Vec3
     camera_fov: float = Field(description="Vertical field of view, degrees.")
     objects: list[WorldObject]
+    bounds: tuple[float, float, float, float] | None = Field(
+        default=None, description="Live rooms: the walls as (x0, z0, x1, z1). None = the scripted room (width_back x depth)."
+    )
+    doors: list[WorldDoor] = Field(default_factory=list)
+    windows: list[WorldWindow] = Field(default_factory=list)
+    camera_aspect: float | None = Field(default=None, description="Width / height of the camera image.")
+    lighting: str | None = Field(default=None, description="Live rooms: day, evening or dim.")
 
 
 class WorldRoute(_Model):

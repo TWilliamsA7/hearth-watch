@@ -39,8 +39,7 @@
   "required": [
     "display_name",
     "room_ids",
-    "alert_kinds",
-    "on_duty"
+    "alert_kinds"
   ],
   "title": "NursePreferences",
   "type": "object"

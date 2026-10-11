@@ -42,15 +42,54 @@ def test_low_confidence_points_are_ignored():
     assert "torso_angle_deg" not in f and "hip_y" not in f
 
 
-def test_vertical_velocity_positive_when_moving_down():
-    f = compute_features(UPRIGHT, frame_aspect=1.0, prev_hip_y=0.5, dt=0.5)
-    assert f["vertical_velocity"] == pytest.approx(0.2)
+def test_vertical_velocity_is_smoothed_like_the_edge():
+    v = features.VerticalVelocity()
+    down = [dict(k, y=k["y"] + 0.1) if "hip" in k["name"] else k for k in UPRIGHT]
+    assert "vertical_velocity" not in compute_features(UPRIGHT, 1.0, v, 0.0)  # first sample
+    # EMA (alpha 0.5): 0.6 -> 0.7 moves the average by 0.05 in 0.5 s.
+    assert compute_features(down, 1.0, v, 0.5)["vertical_velocity"] == pytest.approx(0.1)
     assert "vertical_velocity" not in compute_features(UPRIGHT, frame_aspect=1.0)
 
 
+def test_vertical_velocity_resets_after_a_gap():
+    v = features.VerticalVelocity()
+    compute_features(UPRIGHT, 1.0, v, 0.0)
+    assert "vertical_velocity" not in compute_features(UPRIGHT, 1.0, v, 2.0)
+
+
 def test_bbox_aspect_in_pixels():
-    pts = [kp("nose", 0.4, 0.2), kp("left_ankle", 0.55, 0.8), kp("right_ankle", 0.45, 0.8)]
+    pts = [kp("nose", 0.4, 0.2), kp("neck", 0.5, 0.3), kp("left_ankle", 0.55, 0.8), kp("right_hip", 0.45, 0.6)]
     assert compute_features(pts, frame_aspect=2.0)["bbox_aspect"] == pytest.approx(0.15 * 2.0 / 0.6)
+
+
+def test_bbox_aspect_needs_part_of_the_torso():
+    """A face-only box is wide and short, like someone lying down; the edge ignores it."""
+    pts = [kp("nose", 0.5, 0.2), kp("left_ear", 0.45, 0.2), kp("right_ear", 0.55, 0.21)]
+    assert "bbox_aspect" not in compute_features(pts, frame_aspect=4 / 3)
+
+
+def test_neck_needs_both_shoulders():
+    pts = [kp("left_shoulder", 0.55, 0.3), kp("left_hip", 0.5, 0.6)]
+    assert "torso_angle_deg" not in compute_features(pts, frame_aspect=1.0)
+
+
+def test_head_is_the_mean_of_visible_head_points():
+    pts = [kp("nose", 0.5, 0.2), kp("left_eye", 0.48, 0.18), kp("right_eye", 0.52, 0.16)]
+    assert compute_features(pts, frame_aspect=1.0)["head_y"] == pytest.approx(0.18)
+
+
+def test_keypoints_without_confidence_count_as_detected():
+    """Edge keypoints carry no confidence (poseNet reports none)."""
+    pts = [dict(k, confidence=None) for k in UPRIGHT]
+    assert compute_features(pts, frame_aspect=4 / 3)["hip_y"] == 0.6
+
+
+def test_a_briefly_missing_hip_is_held():
+    tracker = features.FeatureTracker(1.0)
+    tracker.update(UPRIGHT, 0.0)
+    no_hips = [k for k in UPRIGHT if "hip" not in k["name"]]
+    assert tracker.update(no_hips, 0.1)["hip_y"] == pytest.approx(0.6)
+    assert "hip_y" not in tracker.update(no_hips, 0.5)  # held 0.3 s at most
 
 
 def test_nothing_measurable_returns_empty():

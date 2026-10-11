@@ -41,6 +41,7 @@ from hearth.eval.report import (
 from hearth.eval.scoring import ALERT_EVENT, EvalConfig
 from hearth.sim.behavior import FALL_KINDS
 from hearth.sim.generate import GenSpec, generate
+from hearth.sim.generator import NoiseConfig
 from hearth.sim.scenario import Scenario, save_scenario
 
 DEFAULT_STUDY_DIR = DEFAULT_OUT_DIR / "study"
@@ -97,20 +98,22 @@ def _init_worker(path: list[str]) -> None:
     sys.path[:] = path  # so the monitor module resolves in workers as it does here (spawned on Windows)
 
 
-def run_one(spec: GenSpec, seed: int, monitor: str, config: EvalConfig = EvalConfig()) -> Outcome:
+def run_one(spec: GenSpec, seed: int, monitor: str, config: EvalConfig = EvalConfig(),
+            noise: NoiseConfig | None = None) -> Outcome:
     scenario = generate(spec, seed)
-    report, _ = evaluate_run(scenario, seed, load_monitor_factory(monitor), config)
+    report, _ = evaluate_run(scenario, seed, load_monitor_factory(monitor), config, noise=noise)
     return Outcome(spec, scenario, report)
 
 
 def run_study(
-    plan: list[tuple[GenSpec, int]], monitor: str, config: EvalConfig = EvalConfig(), *, jobs: int = 1
+    plan: list[tuple[GenSpec, int]], monitor: str, config: EvalConfig = EvalConfig(), *, jobs: int = 1,
+    noise: NoiseConfig | None = None,
 ) -> list[Outcome]:
     load_monitor_factory(monitor)  # fail here, clearly, rather than once per worker
     if jobs <= 1:
-        return [run_one(spec, seed, monitor, config) for spec, seed in plan]
+        return [run_one(spec, seed, monitor, config, noise) for spec, seed in plan]
     with ProcessPoolExecutor(max_workers=jobs, initializer=_init_worker, initargs=(list(sys.path),)) as pool:
-        futures = [pool.submit(run_one, spec, seed, monitor, config) for spec, seed in plan]
+        futures = [pool.submit(run_one, spec, seed, monitor, config, noise) for spec, seed in plan]
         return [f.result() for f in futures]
 
 

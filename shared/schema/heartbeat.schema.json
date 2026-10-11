@@ -96,16 +96,10 @@
     }
   },
   "required": [
-    "schema_version",
     "timestamp",
     "source",
     "source_type",
-    "room_id",
-    "scenario_id",
-    "run_id",
-    "fps",
-    "inference_ms",
-    "mem_used_mb"
+    "room_id"
   ],
   "title": "Heartbeat",
   "type": "object"
