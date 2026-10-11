@@ -9,11 +9,16 @@ when the person is LYING (lie_down-...061342: hips hidden, still clearly on the 
 
 How:
 1. Close-up examples are made from the training frames themselves (no new data, and our Jetson
-   recordings stay out of training, so they remain a fair field test): hide the hips, knees and
-   ankles (sometimes the wrists and elbows too), as if the camera were too close.
-     upright or sitting crop -> "other" (with no body below the shoulders, a guess)
-     floor crop              -> still "floor" (lying with the legs hidden is still lying)
-   So the network has to learn the difference from the head-and-shoulders ORIENTATION.
+   recordings stay out of training, so they remain a fair field test). Three kinds, as the
+   camera sees people who are too close or half out of frame:
+     upper body (hips, knees, ankles hidden; sometimes the arms too)
+         upright / sitting -> "other"   floor -> still "floor" (lying with legs hidden is lying)
+     head only (just the face keypoints)
+         everyone -> "other" (a face alone can't tell standing from lying)
+     legs only (no head, shoulders or arms)
+         upright / sitting -> "other"   floor -> still "floor" (horizontal legs are lying, e.g.
+         a fall that ends with the upper body behind a bed)
+   So the network has to learn from the ORIENTATION of what is left.
 2. Fine-tune, don't retrain: start from model_3class.pt, add a 4th output for "other" (the three
    old outputs keep their weights; the new one starts almost never firing), train a few epochs
    at a very low learning rate (1e-4, a tenth of normal) so it shifts instead of forgetting.
@@ -26,6 +31,9 @@ How:
    and saved only if floor caught on REAL frames stays at or above the starting model's (minus
    --floor-tolerance points, default 0).
 
+Run 2 (--floor-penalty 5, upper-body crops only): kept epoch 6, floor caught 93.2%, close-ups ->
+unknown 85%, our lying clips 97% floor; but head-only (stand-...053107) stayed "floor" and
+legs-only (walk-...034202) became "floor", so head-only and legs-only crops were added.
 First run (2026-10-10, penalty 3, no floor extra): close-ups -> unknown 4% -> 95% in 6 epochs,
 lying close-ups still floor 87%, real accuracy 94.4 -> 94.8%, but floor caught 93.1 -> 92.2%, so
 nothing was kept under the zero-tolerance rule.
@@ -51,21 +59,34 @@ _spec = importlib.util.spec_from_file_location("train06", Path(__file__).with_na
 t6 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(t6)
 
-LOWER = [11, 12, 13, 14, 15, 16]   # hips, knees, ankles (COCO indices)
+HEAD = [0, 1, 2, 3, 4]             # nose, eyes, ears (COCO indices)
+SHOULDERS = [5, 6]
 ARMS = [7, 8, 9, 10]               # elbows, wrists
+LOWER = [11, 12, 13, 14, 15, 16]   # hips, knees, ankles
+CROP_KINDS = ["upper body", "head only", "legs only"]
+CROP_SHARES = [0.6, 0.2, 0.2]
 UPRIGHT, SITTING, FLOOR, OTHER = 0, 1, 2, 3
 
 
 def close_up(xy, found, label, rng):
-    """One frame as a close-up: lower body hidden (arms half the time). Returns (found, label),
-    or None if too little would be left to judge."""
+    """One frame as a close-up of a random kind (see the top of the file). Returns
+    (found, label), or None if too little would be left to judge."""
     found = found.copy()
-    found[LOWER] = False
-    if rng.random() < 0.5:
-        found[ARMS] = False
+    kind = rng.choice(len(CROP_KINDS), p=CROP_SHARES)
+    if kind == 0:                                    # upper body
+        found[LOWER] = False
+        if rng.random() < 0.5:
+            found[ARMS] = False
+        label = FLOOR if label == FLOOR else OTHER
+    elif kind == 1:                                  # head only
+        found[SHOULDERS + ARMS + LOWER] = False
+        label = OTHER
+    else:                                            # legs only
+        found[HEAD + SHOULDERS + ARMS] = False
+        label = FLOOR if label == FLOOR else OTHER
     if found.sum() < t6.MIN_FOUND:
         return None
-    return found, (FLOOR if label == FLOOR else OTHER)
+    return found, label
 
 
 class WithCloseups(Dataset):
@@ -91,16 +112,15 @@ class WithCloseups(Dataset):
 
 
 class Crops(Dataset):
-    """Fixed close-ups of every validation frame that can be cropped (same every run)."""
+    """Fixed close-ups of the validation frames (same every run), keeping only those whose
+    close-up label is `want`: OTHER (should come out unknown) or FLOOR (lying, should stay floor)."""
 
     def __init__(self, base, want):
         rng = np.random.default_rng(1)
         self.items = []
         for i in range(len(base)):
-            if (int(base.labels[i]) == FLOOR) != (want == FLOOR):
-                continue
             crop = close_up(base.xy[i], base.found[i], int(base.labels[i]), rng)
-            if crop is not None:
+            if crop is not None and crop[1] == want:
                 self.items.append(torch.from_numpy(t6.features(base.xy[i], crop[0], base.aspect[i])))
         self.label = want
 
@@ -142,7 +162,7 @@ def measure(model, loaders, device, min_conf):
 
 
 def line(m):
-    return ("real: answers %.1f%% right %.1f%% floor caught %.1f%% | close-ups: upright/sitting -> "
+    return ("real: answers %.1f%% right %.1f%% floor caught %.1f%% | close-ups: should-be-unsure -> "
             "unknown %.0f%%, lying -> floor %.0f%%"
             % (100 * m["answers"], 100 * m["right"], 100 * m["floor"], 100 * m["up_crops"],
                100 * m["floor_crops"]))
@@ -178,7 +198,7 @@ def main():
     loaders = {"real": DataLoader(sets["val"], batch_size=1024),
                "up_crops": DataLoader(Crops(sets["val"], OTHER), batch_size=1024),
                "floor_crops": DataLoader(Crops(sets["val"], FLOOR), batch_size=1024)}
-    print("validation: %d real frames, %d upright/sitting close-ups, %d lying close-ups"
+    print("validation: %d real frames, %d should-be-unsure close-ups, %d lying close-ups"
           % (len(sets["val"]), len(loaders["up_crops"].dataset), len(loaders["floor_crops"].dataset)))
 
     saved = torch.load(args.start, map_location="cpu")

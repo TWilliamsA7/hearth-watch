@@ -378,8 +378,18 @@ the zero-tolerance rule kept nothing. Options:
 .\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-tolerance 1      # or accept up to 1 point less floor caught
 ```
 
-Then: pick `model_3class.pt` or `model_closeup.pt`, freeze it, and run `06_train.py --final-test`
-on it once.
+Run 2 (`--floor-penalty 5`, upper-body crops only): kept epoch 6, `model_closeup.pt`: validation
+floor caught 93.2%, right 94.8%, close-ups -> unknown 85%, lying close-ups -> floor 93%; our
+recordings floor caught 97%. But head-only (stand-...053107) still said floor and legs-only
+(walk-...034202) newly said floor, because the crops only ever hid the legs. Now three crop
+kinds: upper body (lying stays floor), head only (always "other"), legs only (lying stays floor).
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-penalty 5 --out D:\hearth-data\model_closeup2.pt
+```
+
+Then: pick `model_3class.pt`, `model_closeup.pt` or `model_closeup2.pt`, freeze it, and run
+`06_train.py --final-test --out <that file> --min-conf 0.5` on it once.
 
 ### Step 6c onward
 - Export to ONNX; a network this small runs on the Jetson with plain numpy in under 1 ms.
