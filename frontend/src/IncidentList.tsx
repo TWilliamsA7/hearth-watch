@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Alert } from './generated/contract';
 import type { NurseSession } from './useNurseSession';
 import { alertReason, alertTitle, identityLine, recoveryText, sourceTypeLabels } from './alertText';
@@ -12,7 +12,11 @@ export default function IncidentList({ session, roomAlerts, room }: { session: N
   const accepted = all.filter(a => a.status === 'acknowledged').length;
   const resolved = all.filter(a => a.status === 'resolved').length;
   const visible = all.filter(a => showResolved || a.status !== 'resolved');
-  return <details className="alerts-card" id="alerts" open={open > 0 || undefined}>
+  // Stays as the nurse left it, but opens again when a new alert needs attention.
+  const [expanded, setExpanded] = useState(true);
+  const previousOpen = useRef(open);
+  useEffect(() => { if (open > previousOpen.current) setExpanded(true); previousOpen.current = open; }, [open]);
+  return <details className="alerts-card" id="alerts" open={expanded} onToggle={e => setExpanded(e.currentTarget.open)}>
     <summary>Incident alerts · {open + accepted}</summary>
     <div className="section-heading"><h2>Incident alerts</h2><span className="count-chip">{open + accepted}</span></div>
     <p className="small">{open} need attention · {accepted} accepted · {resolved} resolved{session.nurse ? ' · your coverage' : ` · ${room} only`}
