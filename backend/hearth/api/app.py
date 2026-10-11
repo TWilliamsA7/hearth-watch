@@ -1,4 +1,4 @@
-"""Run: python -m uvicorn hearth.api.app:app --host 0.0.0.0 --port 8000."""
+"""Hearth server: API, dashboard and Sim Studio on one port. Start it with scripts/start.ps1."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
 import os
@@ -8,8 +8,7 @@ import anyio
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
 
 from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            HelpRequest, NurseAction, NursePreferences, NurseProfile,
@@ -18,12 +17,19 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            SourceStatus, SourceStatusMessage)
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+from hearth.monitor.appointments import Appointments, Appointment, AppointmentInput, CheckIn
 from hearth.sim.mount import mount_simulation
+from hearth.api.face_demo import create_face_router
+from hearth.api.camera_preview import create_preview_router
+from hearth.api.frontend import mount_frontend
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
-               with_simulation: bool = True) -> FastAPI:
+               appointments_path: str | Path | None = None, with_simulation: bool = True) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
+    appointments = Appointments(monitor, appointments_path or (
+        ":memory:" if service else os.environ.get("HEARTH_APPOINTMENTS_DB",
+        str(Path(__file__).resolve().parents[3] / "data" / "appointments.sqlite"))))
 
     simulation = None
 
@@ -36,6 +42,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
                 simulation.observe(raised)
             else:
                 monitor.check_health()
+            appointments.check_due()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -51,26 +58,53 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
     app.state.monitor = monitor
+    app.include_router(create_preview_router(monitor))
+    app.state.appointments = appointments
+    app.include_router(create_face_router(appointments, monitor))
+
+    def appointment_action(action):
+        try:
+            return action()
+        except KeyError as exc:
+            raise HTTPException(404, "Appointment not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/appointments", response_model=Appointment, status_code=201)
+    async def create_appointment(body: AppointmentInput):
+        return appointment_action(lambda: appointments.create(body))
+
+    @app.get("/appointments", response_model=list[Appointment])
+    async def list_appointments():
+        appointments.check_due()
+        return list(appointments.items.values())
+
+    @app.get("/appointments/{appointment_id}", response_model=Appointment)
+    async def get_appointment(appointment_id: str):
+        appointments.check_due()
+        return appointment_action(lambda: appointments.items[appointment_id])
+
+    @app.put("/appointments/{appointment_id}", response_model=Appointment)
+    async def reschedule_appointment(appointment_id: str, body: AppointmentInput):
+        return appointment_action(lambda: appointments.update(appointment_id, body))
+
+    @app.post("/appointments/{appointment_id}/cancel", response_model=Appointment)
+    async def cancel_appointment(appointment_id: str):
+        return appointment_action(lambda: appointments.update(appointment_id))
+
+    @app.post("/appointments/{appointment_id}/check-in", response_model=Appointment)
+    async def check_in_appointment(appointment_id: str, body: CheckIn):
+        return appointment_action(lambda: appointments.check_in(appointment_id, body))
     if with_simulation:
         # The simulator and evaluator (Person 3) feed this same service through ingest().
         simulation = mount_simulation(app, monitor)
+        app.state.sim_controller = simulation.scripted
+        scripted = simulation.scripted
+        monitor.observation_clock_paused = lambda key: (
+            key[1:3] == ("simulation", "sim") and scripted.state == "paused"
+            and key[4] == scripted.status().run_id)
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
-    static = Path(__file__).with_name("static")
-    app.mount("/assets", StaticFiles(directory=static), name="assets")
-
-    @app.get("/", include_in_schema=False)
-    async def home():
-        return RedirectResponse("/nurses")
-
-    @app.get("/nurses", include_in_schema=False)
-    async def nurse_page():
-        return FileResponse(static / "nurse.html")
-
-    @app.get("/room", include_in_schema=False)
-    async def room_page():
-        return FileResponse(static / "room.html")
-
     @app.get("/rooms")
     async def rooms():
         return {"room_ids": monitor.config.room_ids, "gesture_hold_seconds": monitor.config.gesture_hold_seconds}
@@ -246,6 +280,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
         await stream(websocket, queue, initial_payloads)
 
+    mount_frontend(app)  # last: it serves any GET path no API route claimed
     return app
 
 

@@ -2,7 +2,7 @@
 # and gets up after 40 s. A demo of detection, chosen because the fall is clearly visible:
 # across seeds, the shipped monitor thresholds detect far fewer live falls (see docs).
 title: Live day room, one fall in view
-seed: 8
+seed: 1
 duration: 180
 spec:
   actors: 4

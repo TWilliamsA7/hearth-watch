@@ -4,7 +4,7 @@
 export type Alert = {
   "alert_id": string;
   "event_id": string;
-  "kind": "possible_fall" | "help_requested" | "source_offline";
+  "kind": "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue";
   "source": string;
   "source_type": "edge" | "simulation" | "replay" | "manual";
   "room_id": string;
@@ -43,7 +43,7 @@ export type Event = {
   "scenario_id": string | null;
   "run_id": string | null;
   "person_id": string | null;
-  "event_type": "possible_fall" | "recovered" | "person_visible" | "person_not_visible" | "face_present" | "face_absent" | "source_offline" | "source_online" | "alert_acknowledged" | "alert_resolved" | "help_requested";
+  "event_type": "possible_fall" | "recovered" | "person_visible" | "person_not_visible" | "face_present" | "face_absent" | "source_offline" | "source_online" | "alert_acknowledged" | "alert_resolved" | "help_requested" | "appointment_overdue";
   "confidence": number | null;
   "metadata": Record<string, unknown>;
 };
@@ -107,14 +107,14 @@ export type NurseAction = {
 export type NursePreferences = {
   "display_name": string;
   "room_ids": Array<string>;
-  "alert_kinds": Array<"possible_fall" | "help_requested" | "source_offline">;
+  "alert_kinds": Array<"possible_fall" | "help_requested" | "source_offline" | "appointment_overdue">;
   "on_duty": boolean;
 };
 
 export type NurseProfile = {
   "display_name": string;
   "room_ids": Array<string>;
-  "alert_kinds": Array<"possible_fall" | "help_requested" | "source_offline">;
+  "alert_kinds": Array<"possible_fall" | "help_requested" | "source_offline" | "appointment_overdue">;
   "on_duty": boolean;
   "nurse_id": string;
 };

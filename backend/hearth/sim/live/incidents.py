@@ -140,7 +140,14 @@ class IncidentManager:
                 rec.t_end = round(w.t, 3)
                 rec.posture_after = rec.posture_after or a.posture
         a.incident = None
-        w.replace_plan(a, get_up(a, w) if a.posture == "floor" else [], "reset")
+        w.replace_plan(a, get_up(a, w) if a.posture in ("floor", "floor_sit") else [], "reset")
+
+    def abandoned(self, a: Actor) -> None:
+        """Their plan was dropped (a walk failed): whatever incident it was carrying out is over."""
+        for rec in self.active():
+            if rec.person_id == a.person_id:
+                self._finish(a, rec)
+        a.incident = None
 
     def _finish(self, a: Actor, rec: IncidentRecord) -> None:
         if rec.t_end is None:
@@ -204,7 +211,8 @@ class IncidentManager:
         return min(spots)[2] if spots else None
 
     def _pick(self, kind: IncidentKind, *, in_view: bool = False) -> Actor:
-        ok = [a for a in self.w.actors if a.present and not a.incident and (kind != "fall" or a.posture != "lying")]
+        ok = [a for a in self.w.actors if a.present and not a.incident
+              and (kind != "fall" or a.posture not in ("lying", "floor_sit"))]  # fmt: skip
         if not ok:
             raise IncidentError("nobody suitable is in the room")
         if in_view and kind == "fall":  # someone the camera can see well
@@ -219,7 +227,7 @@ class IncidentManager:
         w = self.w
         if a.posture == "lying":
             raise IncidentError(f"{a.person_id} is lying down; there's nothing to fall from")
-        if a.posture == "floor":
+        if a.posture in ("floor", "floor_sit"):
             raise IncidentError(f"{a.person_id} is already on the floor")
         start = a.pos
         if a.posture == "sitting":

@@ -26,6 +26,9 @@ export interface Room3D {
   update(camera: THREE.Camera): void;
   /** The simulated camera's frustum lines (toggle with .visible). */
   frustum: THREE.Object3D;
+  /** For picking: the floor, and each piece of furniture (userData.objectIndex = its index in room.objects). */
+  floor: THREE.Mesh;
+  furniture: THREE.Group[];
   dispose(): void;
 }
 
@@ -137,7 +140,12 @@ export function buildRoom3D(room: WorldRoom, theme: Theme, lighting: Lighting = 
   }
 
   // Furniture.
-  for (const o of room.objects) group.add(buildFurniture(o));
+  const furniture = room.objects.map((o, i) => {
+    const g = buildFurniture(o);
+    g.userData.objectIndex = i;
+    group.add(g);
+    return g;
+  });
 
   // Lights: a sky fill, a key light (through the window by day), and a ceiling lamp.
   group.add(...lights(room, lighting, [x0, z0, x1, z1], H));
@@ -151,8 +159,12 @@ export function buildRoom3D(room: WorldRoom, theme: Theme, lighting: Lighting = 
   return {
     group,
     frustum: cam.frustum,
+    floor,
+    furniture,
     update(camera: THREE.Camera) {
       camera.getWorldPosition(v);
+      // Seeing through the simulated camera: don't draw its body, whose lens would fill the view.
+      cam.body.visible = v.distanceTo(cam.body.position) > 0.3;
       for (const w of walls) {
         // Is the viewer on the outside of this wall (and above the floor)?
         const outsideIt = (v.x - w.at[0]) * w.normal[0] + (v.z - w.at[1]) * w.normal[1] < 0;

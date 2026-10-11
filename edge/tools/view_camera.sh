@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Continuous live view of the Jetson camera on the laptop, through the real edge pipeline:
-# skeleton, red face boxes, and a status line every 5 s in this terminal.
+# skeleton, red face boxes, our posture model's call for everyone in view (green; amber when
+# someone is on the floor), and a status line every 5 s in this terminal.
 # Runs run_edge.py --dry-run --stream on the Jetson: nothing is sent to a backend, nothing is
 # recorded; the video only goes to this window over the USB link.
 #
 # Run on the LAPTOP:
 #   edge/tools/view_camera.sh                 # until you close the window or press Ctrl+C
+#   edge/tools/view_camera.sh --fall-model    # other options go to run_edge.py (here: + the fall model)
 #   edge/tools/view_camera.sh --player-only   # window only, for something already streaming
 #                                             # (e.g. run_edge.py --stream rtp://192.168.55.100:1234)
 #
@@ -28,6 +30,7 @@ FFPLAY=(ffplay -loglevel error -window_title "Jetson camera (Hearth edge)"
 if [ "${1:-}" = "--player-only" ]; then
   exec "${FFPLAY[@]}"   # exec: stopping this script closes the window too
 fi
+edge_args="$*"          # e.g. --fall-model --no-face
 
 holder=$(ssh -o ConnectTimeout=5 "$JETSON" 'fuser /dev/video0 2>/dev/null | xargs -r ps -o pid=,args= -p') \
   || { echo "could not reach the Jetson as '$JETSON' (USB cable plugged in?)"; exit 1; }
@@ -46,7 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM HUP
 
-ssh "$JETSON" "cd ~/hearth-watch/edge && python3 -u run_edge.py --dry-run --stream $STREAM_URL \
+ssh "$JETSON" "cd ~/hearth-watch/edge && python3 -u run_edge.py --dry-run --stream $STREAM_URL $edge_args \
   2>&1 >/dev/null | grep --line-buffered -aE '\[edge'" &
 edge_pid=$!
 echo "starting (models load in ~10 s). Close the window or press Ctrl+C to stop."

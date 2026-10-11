@@ -69,6 +69,14 @@ class WorldObject(_Model):
     variant: str | None = Field(
         default=None, description="The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind."
     )
+    # Live rooms: the parts people touch, so the 3D view draws them where the simulator puts bodies.
+    seat_height: float | None = Field(default=None, description="Metres: top of the seat. None = not for sitting, or unknown.")
+    surface_height: float | None = Field(default=None, description="Metres: top of what someone lies on.")
+    arm_width: float | None = Field(default=None, description="Metres: width of each arm (armchairs, couches).")
+    arm_height: float | None = Field(default=None, description="Metres: top of the arms.")
+    back_depth: float | None = Field(
+        default=None, description="Metres the backrest (or a bed's headboard) comes forward from the back of the piece."
+    )
 
 
 class WorldDoor(_Model):

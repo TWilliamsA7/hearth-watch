@@ -9,7 +9,12 @@ import {
   LIVE_APPEARANCE,
   LiveView3D,
   RoomView,
+  actionsFor,
+  describePick,
+  readSettings,
+  roomDiffers,
   websocketFeed,
+  writeSettings,
   wsUrl,
   type ActorDetail,
   type CameraMode,
@@ -17,7 +22,10 @@ import {
   type Lighting,
   type LivePerson,
   type Overlays,
+  type Pick,
   type ServerMessage,
+  type StudioSettings,
+  LIVE_SOURCES, liveName, liveNames, modelText, type CalibrateResult, type LinkStatus,
 } from "../src";
 
 type FallMotion = "trip" | "faint" | "collapse" | "sit_miss" | "stand_up";
@@ -26,7 +34,7 @@ const ROOM_ID = "room-01";
 const OVERLAY_NAMES: [keyof Overlays, string][] = [
   ["ids", "Tags"], ["activity", "Activity"], ["paths", "Paths"], ["destinations", "Destinations"],
   ["conversations", "Conversations"], ["space", "Personal space"], ["fov", "Camera FOV"],
-  ["visibility", "Camera visibility"], ["incidents", "Incidents"],
+  ["visibility", "Camera visibility"], ["incidents", "Incidents"], ["slots", "Furniture slots"], ["nav", "Walkable floor"],
 ];
 
 async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -75,32 +83,11 @@ interface LogLine {
   live: boolean;
 }
 
-interface LinkStatus {
-  enabled: boolean;
-  source: string;
-  state: "off" | "waiting" | "live" | "stale" | "outside";
-  person_id: string;
-  last_seen: string | null;
-  posture: string | null;
-  label: string | null;
-  alert_open: boolean;
-  camera: { preset: string; height: number; tilt: number; fov: number; corner: string; pan: number } | null;
-}
 
-interface CalibrateResult {
-  ok: boolean;
-  step: "walk" | "centre";
-  pan: number | null;
-  off_by: number | null;
-  frames: number;
-  height: number | null;
-  tilt: number | null;
-  rms: number | null;
-  reason: string;
-}
+/** A live person's id in the room: the camera's track id ("p2") is added when it reports several people. */
+const liveId = (source: string, trackId?: string | null) => (trackId ? `live-${source}-${trackId}` : `live-${source}`);
 
-// Sources that send keypoints (the fall model sends none, so it can't be placed in the room).
-const LIVE_SOURCES = ["jetson-01", "replay-01"];
+
 
 function useMonitorFeed(liveSource: string | null) {
   const feed = useMemo(() => websocketFeed(wsUrl(`/ws/room/${ROOM_ID}`)), []);
@@ -113,8 +100,8 @@ function useMonitorFeed(liveSource: string | null) {
         const e = msg.data;
         const live = e.source === liveSource;
         if (e.source !== "sim" && !live) return;
-        // The live camera tracks one unnamed person: they're the live avatar in the room.
-        const person = live ? `live-${e.source}` : e.person_id;
+        // Live people are in the room as live-<source>[-<track id>].
+        const person = live ? liveId(e.source, e.person_id) : e.person_id;
         eventsById.current.set(e.event_id, person);
         if (e.event_type === "face_present" || e.event_type === "face_absent" || e.event_type === "person_visible") return;
         setLog((l) => [{ key: e.event_id, at: e.timestamp, kind: e.event_type, person, text: "", live,
@@ -122,7 +109,8 @@ function useMonitorFeed(liveSource: string | null) {
       } else if (msg.type === "alert") {
         const a = msg.data;
         if (a.source !== "sim" && a.source !== liveSource) return;
-        const person = eventsById.current.get(a.event_id) ?? (a.source === liveSource ? `live-${a.source}` : null);
+        const track = typeof a.metadata?.person_id === "string" ? a.metadata.person_id : null;
+        const person = eventsById.current.get(a.event_id) ?? (a.source === liveSource ? liveId(a.source, track) : null);
         setAlerts((m) => ({ ...m, [a.alert_id]: { person, open: a.status !== "resolved" && !a.recovered_at } }));
       }
     });
@@ -145,7 +133,17 @@ function Slider(props: { label: string; value: number; min: number; max: number;
   );
 }
 
+/** What a fresh studio starts with; the URL carries only what differs (see studioUrl). */
+const STUDIO_DEFAULTS: StudioSettings = {
+  seed: 7, actors: 6, width: 7, depth: 6, density: 0.6, preset: "corner_left", camHeight: 2.4, camTilt: 12, camFov: 62,
+  lighting: "day", activity: 1, social: 1, overlays: DEFAULT_OVERLAYS, cameraMode: "orbit",
+};
+
 function Studio() {
+  const initial = useMemo(() => readSettings(window.location.search, STUDIO_DEFAULTS), []);
+  // Opened from a link: offer to load its room if the backend is running a different one.
+  const [linked, setLinked] = useState(() => new URLSearchParams(window.location.search).has("seed"));
+  const [copied, setCopied] = useState(false);
   const client = useLive(useMemo(() => new LiveClient(wsUrl("/sim/live/ws")), []));
   const [link, setLink] = useState<LinkStatus | null>(null);
   const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
@@ -160,26 +158,40 @@ function Studio() {
   const { feed, log, alertPersonIds } = useMonitorFeed(link?.enabled ? link.source : null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [overlays, setOverlays] = useState<Overlays>(DEFAULT_OVERLAYS);
-  const [cameraMode, setCameraMode] = useState<CameraMode>("orbit");
+  const [overlays, setOverlays] = useState<Overlays>(initial.overlays);
+  const [cameraMode, setCameraMode] = useState<CameraMode>(initial.cameraMode);
   const [hideTruth, setHideTruth] = useState(false);
-  const [lighting, setLighting] = useState<Lighting>("day");
+  const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const [detail, setDetail] = useState<ActorDetail | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; pick: Pick } | null>(null);
   const [fallMotion, setFallMotion] = useState<FallMotion | "">("");
   const [recover, setRecover] = useState(true);
 
   // Room and population settings for the next "Generate".
-  const [seed, setSeed] = useState(7);
-  const [actors, setActors] = useState(6);
-  const [width, setWidth] = useState(7);
-  const [depth, setDepth] = useState(6);
-  const [density, setDensity] = useState(0.6);
-  const [preset, setPreset] = useState<EngineSpec["camera"]["preset"]>("corner_left");
-  const [camHeight, setCamHeight] = useState(2.4);
-  const [camTilt, setCamTilt] = useState(12);
-  const [camFov, setCamFov] = useState(62);
-  const [activity, setActivity] = useState(1);
-  const [social, setSocial] = useState(1);
+  const [seed, setSeed] = useState(initial.seed);
+  const [actors, setActors] = useState(initial.actors);
+  const [width, setWidth] = useState(initial.width);
+  const [depth, setDepth] = useState(initial.depth);
+  const [density, setDensity] = useState(initial.density);
+  const [preset, setPreset] = useState<EngineSpec["camera"]["preset"]>(initial.preset);
+  const [camHeight, setCamHeight] = useState(initial.camHeight);
+  const [camTilt, setCamTilt] = useState(initial.camTilt);
+  const [camFov, setCamFov] = useState(initial.camFov);
+  const [activity, setActivity] = useState(initial.activity);
+  const [social, setSocial] = useState(initial.social);
+  const settings: StudioSettings = { seed, actors, width, depth, density, preset, camHeight, camTilt, camFov, lighting, activity,
+    social, overlays, cameraMode };
+  // Keep the URL in step with the settings, so the address is always a link to this view.
+  const search = writeSettings(settings, STUDIO_DEFAULTS);
+  useEffect(() => {
+    if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
+  }, [search]);
+  const copyLink = () => {
+    void navigator.clipboard?.writeText(window.location.href).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   const frame = client.latest;
   const world = client.world;
@@ -207,7 +219,10 @@ function Studio() {
           activity_frequency: activity,
           social_frequency: social,
         },
-      }).then(() => setSelected(null)),
+      }).then(() => {
+        setSelected(null);
+        setLinked(false);
+      }),
     );
 
   const togglePlay = () => run(() => api(state === "playing" ? "/sim/live/pause" : "/sim/live/play", {}));
@@ -286,7 +301,10 @@ function Studio() {
         e.preventDefault();
         togglePlay();
       } else if (e.key === "f" || e.key === "F") setCameraMode((m) => (m === "follow" ? "orbit" : "follow"));
-      else if (e.key === "Escape") setSelected(null);
+      else if (e.key === "Escape") {
+        if (menu) setMenu(null);
+        else setSelected(null);
+      }
       else if (e.key === "h" || e.key === "H") setHideTruth((h) => !h);
       else if (["1", "2", "3", "4"].includes(e.key)) setCameraMode((["orbit", "top", "camera", "follow"] as CameraMode[])[Number(e.key) - 1]);
     };
@@ -306,7 +324,11 @@ function Studio() {
       <header className="topbar">
         <div className="brand">Hearth <span>Sim Studio</span></div>
         <span className="pill sim">SIMULATED</span>
-        {link?.enabled && <span className={`pill live ${link.state}`}>LIVE · {link.source} · {link.state.toUpperCase()}</span>}
+        {link?.enabled && (
+          <span className={`pill live ${link.state}`}>
+            LIVE · {link.source} · {link.state.toUpperCase()}{link.people.length > 1 ? ` · ${link.people.length} PEOPLE` : ""}
+          </span>
+        )}
         <span className={`pill ${state === "playing" ? "playing" : ""} ${client.connected ? "" : "off"}`}>
           {client.connected ? state.toUpperCase() : "DISCONNECTED"}
         </span>
@@ -364,6 +386,7 @@ function Studio() {
           <div className="btns" style={{ marginTop: 10 }}>
             <button className="primary" onClick={() => generate(true)}>Generate room</button>
             <button onClick={() => generate(false)}>Generate paused</button>
+            <button title="Copy a link to this room and view" onClick={copyLink}>{copied ? "Copied" : "Copy link"}</button>
           </div>
           {error && <div className="err">{error}</div>}
         </section>
@@ -418,7 +441,8 @@ function Studio() {
           )}
           {link?.enabled && (
             <p className="hint">
-              {link.state === "live" ? `In the room: ${link.label ?? link.posture}${link.alert_open ? " · ALERT OPEN" : ""}`
+              {link.state === "live" ? `In the room: ${link.people.filter((q) => q.state === "live").map((q) =>
+                  `${link.people.length > 1 ? `${liveName(q.person_id, link.source)} ` : ""}${q.label ?? q.posture}${q.alert_open ? " (ALERT OPEN)" : ""}`).join(" · ")}`
                 : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
                 : link.state === "outside" ? "Outside the tracked area: step back inside the tape"
                 : `No fresh frames from ${link.source}`}
@@ -475,8 +499,8 @@ function Studio() {
               return (
                 <div key={p.person_id} className={`person ${live ? "live" : ""} ${selected === p.person_id ? "sel" : ""}`} onClick={() => setSelected(selected === p.person_id ? null : p.person_id)}>
                   <span className="swatch" style={{ background: live ? LIVE_APPEARANCE.top : info?.appearance.top }} />
-                  <span className="pid">{live ? "LIVE" : p.person_id?.toUpperCase()}</span>
-                  <span className="doing">{p.incident ? `⚠ ${p.incident}` : p.activity}</span>
+                  <span className="pid">{live ? liveName(p.person_id, link?.source) : p.person_id?.toUpperCase()}</span>
+                  <span className="doing">{p.incident ? `⚠ ${p.incident}` : live && p.model ? `model: ${modelText(p.model)}` : p.activity}</span>
                   {!hideTruth && <span className={`tag ${p.label}`}>{p.label.replace("_intentional", "")}</span>}
                 </div>
               );
@@ -494,8 +518,40 @@ function Studio() {
       </aside>
 
       <main className="view">
-        <LiveView3D client={client} overlays={overlays} cameraMode={cameraMode} selected={selected} onSelect={setSelected}
+        <LiveView3D client={client} overlays={overlays} cameraMode={cameraMode} selected={selected} liveNames={liveNames(link)}
+          onSelect={(id) => {
+            setMenu(null);
+            setSelected(id);
+          }}
+          onPick={(pick, at) => {
+            if (!selected || !world) return false;
+            setMenu({ ...at, pick });
+            return true;
+          }}
           alertPersonIds={alertPersonIds} hideTruth={hideTruth} lighting={lighting} />
+        {linked && world && roomDiffers(settings, world) && (
+          <div className="link-banner">
+            <span>This link is for a different room (seed {seed}, {actors} people). The backend is running seed {world.seed}.</span>
+            <button className="primary" onClick={() => {
+              setLinked(false);
+              generate(true);
+            }}>Load this room</button>
+            <button onClick={() => setLinked(false)}>Keep the current one</button>
+          </div>
+        )}
+        {menu && selected && world && (
+          <div className="cmd-menu" style={{ left: menu.x, top: menu.y }}>
+            <div className="cmd-title">{selected.toUpperCase()} â†’ {describePick(menu.pick, world)}</div>
+            {actionsFor(menu.pick, world).map(([label, cmd]) => (
+              <button key={label} onClick={() => {
+                setMenu(null);
+                run(() => api(`/sim/live/actors/${selected}/command`, cmd));
+              }}>{label}</button>
+            ))}
+            {actionsFor(menu.pick, world).length === 0 && <div className="hint">Nothing to do here.</div>}
+            <button className="cancel" onClick={() => setMenu(null)}>Cancel</button>
+          </div>
+        )}
         <div className="overlay-bar">
           <div className="chips">
             {OVERLAY_NAMES.map(([k, name]) => (
@@ -527,16 +583,19 @@ function Studio() {
         <section>
           <h3>Inspector</h3>
           {!me && <p className="hint">Click a person in the room or the list to inspect them.</p>}
+          {me && me.kind !== "live" && <p className="hint">Click furniture or the floor to tell them what to do there.</p>}
           {me && me.kind === "live" && (
             <dl className="kv">
               <dt>Live person</dt>
-              <dd><b>{link?.source ?? me.person_id}</b> · a real camera, not simulated</dd>
+              <dd><b>{liveName(me.person_id, link?.source)}</b> · {link?.source ?? me.person_id}, a real camera, not simulated</dd>
               <dt>Monitor says</dt>
               <dd>{me.label} ({me.posture})</dd>
+              <dt>Camera's model</dt>
+              <dd>{modelText(me.model)}{me.model ? <span className="hint"> · {me.model.model_id}</span> : null}</dd>
               <dt>Feed</dt>
-              <dd>{link ? `${link.state}${link.last_seen ? ` · last frame ${new Date(link.last_seen).toLocaleTimeString()}` : ""}` : "…"}</dd>
+              <dd>{link ? `${link.people.find((q) => q.person_id === me.person_id)?.state ?? link.state}${link.last_seen ? ` · last frame ${new Date(link.last_seen).toLocaleTimeString()}` : ""}` : "…"}</dd>
               <dt>Alert</dt>
-              <dd>{link?.alert_open ? <span style={{ color: "var(--alert)" }}>possible fall open</span> : "—"}</dd>
+              <dd>{link?.people.find((q) => q.person_id === me.person_id)?.alert_open ? <span style={{ color: "var(--alert)" }}>possible fall open</span> : "—"}</dd>
               <dt>Helper</dt>
               <dd>{people.find((q) => q.intent === "help")?.person_id?.toUpperCase() ?? "—"}</dd>
             </dl>
@@ -620,6 +679,7 @@ function Studio() {
           <div className="cam-inner">
             {showReal && link?.enabled ? (
               <RoomView key={link.source} feed={feed} scene={null} roomId={ROOM_ID} source={link.source}
+                alertPersonIds={link.people.filter((q) => q.alert_open && q.track_id).map((q) => q.track_id!)}
                 alertActive={link.alert_open} style={{ height: "100%", width: "auto", maxWidth: "100%" }} />
             ) : (
               <RoomView feed={feed} scene={world?.scene ?? null} roomId={ROOM_ID} source="sim" alertPersonIds={alertPersonIds} alertActive={alertPersonIds.length > 0}
@@ -635,7 +695,7 @@ function Studio() {
               <li key={l.key} className={l.alert ? "alert" : ""}>
                 <span className="when">{new Date(l.at).toLocaleTimeString()}</span>
                 <span>{l.kind.replace(/_/g, " ")}</span>
-                <span>{l.live ? "LIVE" : l.person?.toUpperCase() ?? ""}</span>
+                <span>{l.live ? liveName(l.person, link?.source) : l.person?.toUpperCase() ?? ""}</span>
                 <span className="hint">{l.text}</span>
               </li>
             ))}

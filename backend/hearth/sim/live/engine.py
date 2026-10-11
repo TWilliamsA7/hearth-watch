@@ -36,19 +36,23 @@ from hearth.sim.world import (
     world_person,
 )
 
-from hearth.sim.live.activities import COOLDOWN_S, Activity, Away, Enter, Hold, Walk, abandon, choose, release, reserve
-from hearth.sim.live.actor import LIVE_LOOKS, Actor, ExternalActor, external_profile, make_profile
+from hearth.sim.live.activities import COOLDOWN_S, Activity, Away, Enter, Hold, Walk, abandon, choose, release, reserve, seat_stance
+from hearth.sim.live.actor import LIVE_LOOKS, Actor, ExternalActor, external_id, external_profile, make_profile
 from hearth.sim.live.animate import world_pose
 from hearth.sim.live.camera import Camera, Observer
 from hearth.sim.live.incidents import IncidentManager
 from hearth.sim.live.lift import LiftedBody
 from hearth.sim.live.models import (
+    LiveModelCall,
     ActorDetail,
     LiveActorInfo,
     LiveAppearance,
     LiveConversation,
     LiveFrame,
+    LiveNav,
     LivePerson,
+    LivePlace,
+    LiveSlot,
     LiveState,
     LiveWorld,
 )
@@ -58,6 +62,7 @@ from hearth.sim.live.spec import CameraSpec, EngineSpec
 from hearth.sim.live.truth import TruthRecorder
 
 DT = 0.05
+SHUN_SLOT_S = 30.0  # how long someone who couldn't reach a seat leaves it alone
 Record = Observation | Heartbeat
 
 
@@ -77,7 +82,7 @@ class World:
         self.truth = TruthRecorder(self.scenario_id, seed)
         self.actors: list[Actor] = []
         self._by_id: dict[str, Actor] = {}
-        self.externals: dict[str, ExternalActor] = {}  # live people, by person_id ("live-<source>")
+        self.externals: dict[str, ExternalActor] = {}  # live people: "live-<source>[-<person_id>]"
         self.routes: list[WorldRoute] = []
         self._walks: dict[str, tuple[float, list]] = {}  # person -> (t_start, path) of the walk in progress
         self._spawn()
@@ -109,7 +114,7 @@ class World:
                 seat = seats.pop()
                 reserve(a, self, seat)
                 a.pos, a.heading, a.posture = seat.at, seat.heading, "sitting"
-                a.body = dict(KEY_POSES["sitting"])
+                a.body = a.rest_pose = seat_stance(seat, a.size).body
                 a.plan.append(Hold(rng.uniform(4.0, 45.0), "seated"))
                 a.intent = "sit"
             else:
@@ -138,10 +143,12 @@ class World:
         """Everyone physically in the room, live people included: for steering and space."""
         return [*self.actors, *self.externals.values()]
 
-    def set_external(self, source: str, lifted: LiftedBody | None, *, posture: str = "standing",
-                     label: str = "standing", seen_at: float = 0.0) -> ExternalActor:
-        """Place (or update) the live person seen by `source`; lifted=None means they're gone."""
-        pid = f"live-{source}"
+    def set_external(self, source: str, lifted: LiftedBody | None, *, person_id: str | None = None,
+                     posture: str = "standing", label: str = "standing", seen_at: float = 0.0,
+                     model: LiveModelCall | None = None) -> ExternalActor:
+        """Place (or update) a live person seen by `source`; lifted=None means they're gone.
+        person_id: the camera's anonymous track id when it reports several people (None: one)."""
+        pid = external_id(source, person_id)
         e = self.externals.get(pid)
         if e is None:
             height = lifted.height if lifted else 1.7
@@ -154,7 +161,7 @@ class World:
             return e
         e.pos, e.heading, e.joints = lifted.root, lifted.heading, dict(lifted.joints)
         e.posture = posture if posture in ("standing", "sitting", "lying", "floor") else "standing"  # type: ignore[assignment]
-        e.live_label, e.seen_at = label, seen_at
+        e.live_label, e.seen_at, e.model = label, seen_at, model
         return e
 
     def set_camera(self, spec: CameraSpec) -> None:
@@ -164,7 +171,14 @@ class World:
         self.observer.camera = self.camera
 
     def remove_external(self, source: str) -> None:
-        self.externals.pop(f"live-{source}", None)
+        """Take everyone seen by `source` out of the room."""
+        for pid in [pid for pid, e in self.externals.items() if e.source == source]:
+            del self.externals[pid]
+
+    def forget_external(self, source: str, person_id: str | None = None) -> None:
+        """Take one live person out of the room (they left the camera's view for good)."""
+        if (e := self.externals.pop(external_id(source, person_id), None)) is not None:
+            e.posture, e.joints = "absent", {}  # anyone helping them sees they've gone
 
     def present(self) -> list[Actor]:
         return [a for a in self.actors if a.present]
@@ -227,7 +241,13 @@ class World:
             if isinstance(act, Walk):
                 self._end_walk(a, act.path)
             if act.failed:
+                # Couldn't get to a seat (someone in the way): try another one for a while.
+                if a.posture not in ("sitting", "lying"):
+                    for sid in a.slots:
+                        a.shunned[sid] = self.t + SHUN_SLOT_S
                 abandon(a, self)
+                if a.incident:
+                    self.incidents.abandoned(a)
                 self.social.release_engaged(self, a)
                 a.cooldowns[a.intent] = self.t + 5.0
             elif not a.plan and a.intent in COOLDOWN_S:
@@ -247,9 +267,12 @@ class World:
         for p in r.pieces:
             sx, sz = p.size
             h = p.kind.h
-            objects.append(WorldObject(kind=LEGACY_KIND[p.kind.name], center=(p.at[0], round(h / 2, 3), p.at[1]),  # type: ignore[arg-type]
+            k = p.kind
+            objects.append(WorldObject(kind=LEGACY_KIND[k.name], center=(p.at[0], round(h / 2, 3), p.at[1]),  # type: ignore[arg-type]
                                        size=(round(sx, 3), round(h, 3), round(sz, 3)), rotation=round(p.rotation, 4),
-                                       variant=p.kind.name))  # fmt: skip
+                                       variant=k.name, seat_height=k.seat or None, surface_height=k.surface or None,
+                                       arm_width=k.arm or None, arm_height=k.arm_h or None,
+                                       back_depth=k.back or None))  # fmt: skip
         return WorldRoom(
             width_front=r.width, width_back=r.width, depth=r.depth, height=r.height,
             camera_position=_r3(cam.position), camera_target=_r3(cam.target), camera_fov=cam.fov,
@@ -290,6 +313,7 @@ class World:
         return LivePerson(
             **wp.model_dump(), label=a.label, activity=f"live · {a.source}" if live else act.name if act else "idle",
             intent=a.intent, posture=a.posture, kind="live" if live else "simulated",
+            model=a.model if live else None,
             destination=_r2(a.destination) if a.destination else None, path=[_r2(p) for p in a.path[:40]],
             conversation=a.conversation, incident=a.incident, visible=round(self.observer.visible.get(a.person_id, 0.0), 3),
         )  # fmt: skip
@@ -301,11 +325,31 @@ class World:
             conversations=[LiveConversation(conv_id=c.conv_id, members=list(c.members), centre=_r2(c.centre))
                            for c in self.social.conversations.values()],
             incidents=self.incidents.active(),
+            slots_taken={s.slot_id: s.occupant for s in self.room.slots if s.occupant},
         )  # fmt: skip
 
     def live_world(self, run_id: str) -> LiveWorld:
         return LiveWorld(run_id=run_id, scenario_id=self.scenario_id, seed=self.seed, spec=self.spec,
-                         room=self.world_room(), scene=self.scene(), actors=[self.info(a) for a in self.actors])  # fmt: skip
+                         room=self.world_room(), scene=self.scene(), actors=[self.info(a) for a in self.actors],
+                         slots=self.live_slots(), places=[LivePlace(name=p.name, at=_r2(p.at), heading=round(p.heading, 4))
+                                                         for p in self.room.places],
+                         nav=self.live_nav())  # fmt: skip
+
+    def live_slots(self) -> list[LiveSlot]:
+        out = []
+        for s in self.room.slots:
+            sit = s.kind == "sit"
+            approach = self.room.approach(s, PERSON_HEIGHT_M) if sit else None
+            out.append(LiveSlot(slot_id=s.slot_id, piece=s.piece, kind=s.kind, at=_r2(s.at), heading=round(s.heading, 4),
+                                height=s.seat if sit else self.room.pieces[s.piece].kind.surface, group=s.group,
+                                stand=_r2(s.stand_point(PERSON_HEIGHT_M)) if sit else None,
+                                approach=_r2(approach) if approach else None))  # fmt: skip
+        return out
+
+    def live_nav(self) -> LiveNav:
+        nav = self.room.nav
+        rows = ["".join("0" if nav.free(nav._centre((i, j))) else "1" for i in range(nav.nx)) for j in range(nav.nz)]
+        return LiveNav(cell=nav.cell, origin=_r2((nav.x_min, nav.z_min)), cols=nav.nx, rows=rows)
 
     def detail(self, person_id: str) -> ActorDetail:
         a = self.actor(person_id)

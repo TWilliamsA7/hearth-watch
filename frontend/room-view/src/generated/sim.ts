@@ -1,9 +1,13 @@
 /* Generated from backend/schema/sim.schema.json by scripts/gen-types.mjs. Do not edit. */
 
 export interface HearthSimApi {
+  ActorCommand?: ActorCommand;
   ActorDetail?: ActorDetail;
   AlertResult?: AlertResult;
+  Appointment?: Appointment;
+  AppointmentInput?: AppointmentInput;
   CameraSpec?: CameraSpec;
+  CheckIn?: CheckIn;
   Counts?: Counts;
   EngineSpec?: EngineSpec;
   EvaluationReport?: EvaluationReport;
@@ -16,7 +20,11 @@ export interface HearthSimApi {
   LiveAppearance?: LiveAppearance;
   LiveConversation?: LiveConversation;
   LiveFrame?: LiveFrame;
+  LiveModelCall?: LiveModelCall;
+  LiveNav?: LiveNav;
   LivePerson?: LivePerson;
+  LivePlace?: LivePlace;
+  LiveSlot?: LiveSlot;
   LiveStatus?: LiveStatus;
   LiveWorld?: LiveWorld;
   Rate?: Rate;
@@ -39,6 +47,21 @@ export interface HearthSimApi {
   WorldRoute?: WorldRoute;
   WorldTrack?: WorldTrack;
   WorldWindow?: WorldWindow;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "ActorCommand".
+ */
+export interface ActorCommand {
+  action: "go" | "sit" | "lie" | "kneel" | "tie_shoe" | "pick_up" | "floor_sit" | "fall";
+  /**
+   * sit, lie: which slot (LiveWorld.slots).
+   */
+  slot_id: string | null;
+  /**
+   * Other actions: the floor point (x, z) to do it at.
+   */
+  at: [number, number] | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -151,6 +174,24 @@ export interface LivePerson {
    * 'live': a real person from a live camera feed, not simulated.
    */
   kind: "simulated" | "live";
+  /**
+   * Live people: the camera's own posture model on them, latest frame.
+   */
+  model: LiveModelCall | null;
+}
+/**
+ * A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveModelCall".
+ */
+export interface LiveModelCall {
+  model_id: string;
+  /**
+   * standing | sitting | fallen | unknown (the contract's PosturePrediction).
+   */
+  label: string;
+  confidence: number | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -204,6 +245,34 @@ export interface AlertResult {
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "Appointment".
+ */
+export interface Appointment {
+  resident_label: string;
+  room_id: string;
+  scheduled_at: string;
+  grace_seconds?: number;
+  demo?: boolean;
+  appointment_id: string;
+  check_in_token: string;
+  status?: "scheduled" | "overdue" | "arrived" | "cancelled";
+  checked_in_at?: string | null;
+  check_in_method?: string | null;
+  alert_id?: string | null;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "AppointmentInput".
+ */
+export interface AppointmentInput {
+  resident_label: string;
+  room_id: string;
+  scheduled_at: string;
+  grace_seconds?: number;
+  demo?: boolean;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
  * via the `definition` "CameraSpec".
  */
 export interface CameraSpec {
@@ -231,6 +300,15 @@ export interface CameraSpec {
    * Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right).
    */
   pan: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "CheckIn".
+ */
+export interface CheckIn {
+  method?: "manual" | "token" | "face_assisted_demo";
+  token?: string | null;
+  source?: string | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -417,6 +495,7 @@ export interface SegmentResult {
         | "alert_acknowledged"
         | "alert_resolved"
         | "help_requested"
+        | "appointment_overdue"
       )
     | null;
   /**
@@ -453,7 +532,8 @@ export interface TimelineEvent {
     | "source_online"
     | "alert_acknowledged"
     | "alert_resolved"
-    | "help_requested";
+    | "help_requested"
+    | "appointment_overdue";
   /**
    * Resident the record concerns; None in single-person runs.
    */
@@ -549,6 +629,95 @@ export interface LiveFrame {
    * Incidents in progress.
    */
   incidents: IncidentRecord[];
+  /**
+   * slot_id -> person_id: who is sitting or lying there, or on their way.
+   */
+  slots_taken: {
+    [k: string]: string;
+  };
+}
+/**
+ * The floor people can walk on: a grid of body-centre positions, furniture grown by a body's radius.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveNav".
+ */
+export interface LiveNav {
+  /**
+   * Metres between cell centres.
+   */
+  cell: number;
+  /**
+   * Floor (x, z) of cell (0, 0)'s centre.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  origin: [number, number];
+  /**
+   * Cells along x.
+   */
+  cols: number;
+  /**
+   * One string per row along z (from origin): '1' = blocked, '0' = walkable.
+   */
+  rows: string[];
+}
+/**
+ * Somewhere to stand on purpose: by a window, browsing a shelf, the open middle, a door.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LivePlace".
+ */
+export interface LivePlace {
+  name: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  at: [number, number];
+  heading: number;
+}
+/**
+ * Somewhere on a piece of furniture to sit or lie (debug overlays, commands).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveSlot".
+ */
+export interface LiveSlot {
+  slot_id: string;
+  /**
+   * Index into room.objects.
+   */
+  piece: number;
+  kind: "sit" | "lie";
+  /**
+   * Floor (x, z) under where the person's hips go.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  at: [number, number];
+  /**
+   * Sitting: the way they face. Lying: from head to feet.
+   */
+  heading: number;
+  /**
+   * Metres: top of the seat or lying surface.
+   */
+  height: number;
+  /**
+   * Slots in one group can't be used at once (a couch's seats and its lying slot).
+   */
+  group: string;
+  /**
+   * Sit slots: where someone of average height stands just before sitting.
+   */
+  stand: [number, number] | null;
+  /**
+   * Sit slots: the open floor they walk to, turn round at, and step back from.
+   */
+  approach: [number, number] | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -577,6 +746,9 @@ export interface LiveWorld {
   room: WorldRoom;
   scene: Scene;
   actors: LiveActorInfo[];
+  slots: LiveSlot[];
+  places: LivePlace[];
+  nav: LiveNav | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -651,6 +823,26 @@ export interface WorldObject {
    * The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind.
    */
   variant: string | null;
+  /**
+   * Metres: top of the seat. None = not for sitting, or unknown.
+   */
+  seat_height: number | null;
+  /**
+   * Metres: top of what someone lies on.
+   */
+  surface_height: number | null;
+  /**
+   * Metres: width of each arm (armchairs, couches).
+   */
+  arm_width: number | null;
+  /**
+   * Metres: top of the arms.
+   */
+  arm_height: number | null;
+  /**
+   * Metres the backrest (or a bed's headboard) comes forward from the back of the piece.
+   */
+  back_depth: number | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema

@@ -20,8 +20,10 @@ from hearth.sim.pose import KEY_POSES, BodyPose
 
 if TYPE_CHECKING:
     from hearth.sim.live.activities import Activity
+    from hearth.sim.live.models import LiveModelCall
 
-Posture = Literal["standing", "sitting", "lying", "floor", "absent"]
+Posture = Literal["standing", "sitting", "lying", "floor", "floor_sit", "absent"]
+"""floor: fallen (or down there after a fall); floor_sit: sitting on the floor on purpose."""
 Mobility = Literal["normal", "slow"]
 
 
@@ -103,6 +105,7 @@ class Actor:
     base: float = 0.0  # metres above the floor the pose rests on
     posture: Posture = "standing"
     body: BodyPose = field(default_factory=lambda: dict(KEY_POSES["standing"]))
+    rest_pose: BodyPose | None = None  # sitting or lying: the pose fitted to the seat or bed, to idle about
     velocity: Floor = (0.0, 0.0)
     gait_phase: float = 0.0
     activity: Activity | None = None
@@ -112,6 +115,7 @@ class Actor:
     history: deque[tuple[str, float]] = field(default_factory=lambda: deque(maxlen=12))
     cooldowns: dict[str, float] = field(default_factory=dict)  # intent -> scenario time it's allowed again
     slots: list[str] = field(default_factory=list)  # slot ids held (sitting in, lying on, or headed for)
+    shunned: dict[str, float] = field(default_factory=dict)  # slot id -> scenario time: couldn't reach it, leave it until then
     conversation: str | None = None
     engaged_by: str | None = None  # someone is coming over to talk
     incident: str | None = None  # kind of the incident in progress
@@ -138,11 +142,13 @@ class Actor:
 
     @property
     def on_floor_space(self) -> bool:
-        """Standing or walking on open floor (not on furniture, not away): a body others walk around."""
-        return self.posture == "standing" and not self.slots_in_use
+        """Standing, walking or sitting on open floor (not on furniture, not away): a body others walk around."""
+        return self.posture in ("standing", "floor_sit") and not self.slots_in_use
 
     @property
     def slots_in_use(self) -> bool:
+        if getattr(self.activity, "posture", None) == "standing":  # standing up: out onto the floor
+            return False
         return bool(self.slots) and self.posture in ("sitting", "lying")
 
     @property
@@ -150,7 +156,7 @@ class Actor:
         if self.activity is not None:
             return self.activity.label_for(self)
         return {"standing": "standing", "sitting": "sitting", "lying": "lying_intentional", "floor": "fall",
-                "absent": "absent"}[self.posture]  # fmt: skip
+                "floor_sit": "sitting", "absent": "absent"}[self.posture]  # fmt: skip
 
 
 LIVE_LOOKS = Appearance("#c9a48a", "#e5484d", "#2f3542", "#5c4a3c", 1.0)  # the LIVE avatar's colours
@@ -168,10 +174,17 @@ class ExternalActor(Actor):
     joints: dict = field(default_factory=dict)  # name -> (x, y, z) metres, from hearth.sim.live.lift
     seen_at: float = 0.0  # wall-clock seconds of the last live frame
     live_label: str = "standing"  # what the real monitor concluded (a TruthLabel-like word)
+    model: LiveModelCall | None = None  # the camera's own posture model on them, latest frame
 
     @property
     def label(self) -> str:
         return self.live_label
+
+
+def external_id(source: str, person_id: str | None = None) -> str:
+    """The room's id for a live person: "live-<source>", plus the camera's track id ("-p2") when
+    it reports several people."""
+    return f"live-{source}" if person_id is None else f"live-{source}-{person_id}"
 
 
 def external_profile(height: float) -> Profile:

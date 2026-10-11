@@ -9,6 +9,9 @@ export type {
   SourceStatus,
 } from "./generated/contract";
 export type {
+  Appointment,
+  AppointmentInput,
+  CheckIn,
   EvaluationReport,
   RunInfo,
   Scene,

@@ -1,14 +1,14 @@
 # The live Jetson feed inside the simulation
 
-A real person seen by the Jetson camera appears in the Sim Studio's 3D room. They can be there alone ("Live only") or alongside simulated residents ("Link into this room").
+Real people seen by the Jetson camera appear in the Sim Studio's 3D room, one avatar each. They can be there alone ("Live only") or alongside simulated residents ("Link into this room"). Each shows what the Jetson's own posture model says about them.
 
 ## How the parts connect
 
 ```
-Jetson (run_edge.py, poseNet) ──POST /ingest/observations──▶ MonitorService (real rules, alerts, nurse desk)
-                                                                  │  latest observation + posture + events
+Jetson (run_edge.py, poseNet + posture model) ──POST /ingest/observations──▶ MonitorService (real rules, alerts, nurse desk)
+   one observation per person: person_id p1, p2…                  │  latest observation + posture + events, per person
                                                                   ▼
-                                    LiveLink (hearth/sim/live/link.py), every live-engine tick
+                                    LiveLink (hearth/sim/live/link.py), every live-engine tick, for each person
                                       lift keypoints into the room (hearth/sim/live/lift.py)
                                       World.set_external(...)  ──▶  live engine (residents, camera, incidents)
                                                                   │
@@ -16,12 +16,14 @@ Jetson (run_edge.py, poseNet) ──POST /ingest/observations──▶ MonitorSe
 ```
 
 **What each piece does:**
-- **Monitor.** Every decision comes from the real `MonitorService`: posture (standing, sitting, on the floor), the possible-fall alert and recovery. The simulator never decides anything about the real person.
+- **People.** The edge gives everyone in view an anonymous id (`p1`, `p2`, …) and sends one observation per person, each with its own keypoints and its own posture-model call (`posture_prediction`). In the room each is `live-jetson-01-p1`, `live-jetson-01-p2`, …; a source without ids (older recordings, `--single-person`) gives one `live-<source>`. Someone whose frames stop while others are still seen is taken out after about 5 s.
+- **Monitor.** Every decision comes from the real `MonitorService`, separately for each person: posture (standing, sitting, on the floor), the possible-fall alert and recovery. With the posture model on, that posture is the model's label held over time. The simulator never decides anything about the real people.
+- **The Jetson's model.** Its latest call on each person (label and confidence, e.g. *sitting 93%*) is shown in the roster and the inspector, and is in `GET /sim/live/link` under `people[].model` and in each live person's frame (`model`).
 - **Placement.** The person's position comes from **one camera and the floor**. Feet, or else knees, hips or neck at a typical height, are found where their ray from the lens meets the floor plane. Upright bodies stand on a vertical plane there, and bodies on the floor lie on the floor.
 - **Inside the engine, the live person is a full participant:**
   - residents walk round them;
   - they block the simulated camera's view of whoever is behind them;
-  - when the monitor raises a possible fall for them, the nearest free resident (getting up from a chair if needed) walks over and kneels beside them until the monitor sees them up.
+  - when the monitor raises a possible fall for one of them, the nearest free resident (getting up from a chair if needed) walks over and kneels beside that person until the monitor sees them up.
 - **What the engine never does with them:** they get no ground truth, no behaviour and no incidents. The simulated camera never reports them, because their own camera does.
 - **Pausing.** The live person keeps moving while the simulation is paused.
 
@@ -44,7 +46,7 @@ Before you start:
 - Jetson connected: `ping 192.168.55.1` replies, with the network fixes in place (fixed IP on the Jetson adapter, its NCM adapter disabled).
 - `run_edge.py` running on the Jetson.
 - Backend and Studio running.
-- Good, even lighting; no other people in view.
+- Good, even lighting; **no other people in view**. Calibration skips frames with more than one person and says so if that made it fail.
 - Plain clothes help poseNet find your joints.
 
 ### Step 0 · Set up the room in the Studio (1 minute)
@@ -135,23 +137,24 @@ It isn't saved yet. After a backend restart, run Steps 0–2 again; it takes abo
 ## Run it
 
 ```powershell
-.\scripts\demo.ps1              # backend + Studio; then on the Jetson: python3 run_edge.py --backend http://<laptop>:8000
-.\scripts\demo.ps1 -Replay      # no Jetson: Gaston's recorded stand / lie down / stand clips, looped, as replay-01
+.\scripts\start.ps1 -Lan                # server, dashboard and Studio; then on the Jetson: python3 run_edge.py --backend http://<laptop>:8000
+.\scripts\start.ps1 -Replay             # no Jetson: Gaston's recorded stand / lie down / stand clips, looped, as replay-01
+.\scripts\start.ps1 -Replay -People     # the same clips as two people side by side (p2 lies down), with the posture model's calls
 ```
 
-In the Studio (`http://localhost:5174/studio.html`):
+In the Studio (`http://127.0.0.1:8000/studio/`, or the developer menu in the dashboard header):
 1. **Live camera → Live only (empty room).** This makes a room on the Jetson camera preset and links it. To add residents, generate a room instead, then press **Link into this room**.
 2. **Pick the source:** `jetson-01` for the live Jetson, `replay-01` for recordings.
 3. **Calibrate.** Choose camera **Jetson mount**, then set height, tilt and field of view to match the real camera (edge/DEMO.md: 1.5–2 m up, 10–15° down) and regenerate. Adjust until the avatar stands where the person stands.
-4. **Watch the alert.** Lie down in view for 3 s. The monitor's alert turns the avatar red, shows in the event log and on `/nurses`, and a resident comes over. Get up, and they stand down.
+4. **Watch the alert.** Lie down in view for 3 s. The monitor's alert turns the avatar red, shows in the event log and in the dashboard's alerts, and a resident comes over. Get up, and they stand down.
 
 The **Real camera** chip on the bottom panel switches the 2D view to the Jetson's own skeleton.
 
-API, if you want it without the Studio: `POST /sim/live/link {"enabled": true, "source": "jetson-01", "height": 1.7}`, and `GET /sim/live/link` for the state (`waiting`, `live` or `stale`), posture and whether an alert is open.
+API, if you want it without the Studio: `POST /sim/live/link {"enabled": true, "source": "jetson-01", "height": 1.7}`, and `GET /sim/live/link` for the state (`waiting`, `live` or `stale`) and `people`: for each person their room id, track id, posture, the model's call and whether an alert is open for them. The top-level `posture` is the first live person's; `alert_open` is true if anyone has one.
 
 ## Limits
 - **Depth is inferred, not measured.** A wrong camera height or tilt puts the person in the wrong place; bodies are clamped inside the room. On the floor, from a low camera, expect up to ~0.3 m error.
-- **One live person.** The Jetson tracks one person and sends no `person_id`.
+- **Ids are tracks, not identities.** They follow the nearest box from frame to frame: two people crossing closely can swap ids, and someone who leaves for over a second comes back with a new one (a new avatar). **Their height** is shared by everyone, so people of very different heights are placed less accurately.
 - **The simulated room is not the real room.** The furniture is generated, so the real person can appear to stand inside a simulated table. Keep the furniture density low, or use "Live only".
-- **The fall model (`fall-model-01`) can't be placed.** It sends no keypoints. Its alerts still reach the monitor and `/nurses`.
-- **Simulated and live alerts share `room-01`.** On `/nurses` they're labelled by source (SIMULATED or LIVE).
+- **The fall model (`fall-model-01`) can't be placed.** It sends no keypoints. Its alerts still reach the monitor and the dashboard.
+- **Simulated and live alerts share `room-01`.** In the dashboard they're labelled by source (Simulation or Live camera). The contract's `Alert` has no `person_id`; the monitor puts it in `metadata.person_id`.

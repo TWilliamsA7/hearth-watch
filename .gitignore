@@ -7,10 +7,16 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.venv-pc/
 
 # Node / frontend
 node_modules/
+.vite/
+frontend/.dependency-backup/
+frontend/.compat-python/
 frontend/dist/
+frontend/room-view/dev/dist/
+frontend/room-view/dist/
 *.tsbuildinfo
 
 # Env and secrets
@@ -20,11 +26,14 @@ frontend/dist/
 
 # Local data — never commit camera frames or video
 *.sqlite
+data/face.key
 *.db
 *.mp4
 *.avi
 *.mkv
 scenarios/generated/
+recordings/eval/
+!recordings/.gitkeep
 recordings/sim/
 
 # Editors / OS
@@ -41,4 +50,5 @@ models/
 .hearth-runtime/
 runs/
 interfaces.md
+!docs/interfaces.md
 planning.md

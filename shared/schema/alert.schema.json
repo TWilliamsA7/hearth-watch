@@ -14,7 +14,8 @@
       "enum": [
         "possible_fall",
         "help_requested",
-        "source_offline"
+        "source_offline",
+        "appointment_overdue"
       ],
       "title": "Kind",
       "type": "string"

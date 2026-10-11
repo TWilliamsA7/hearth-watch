@@ -251,7 +251,8 @@ class SimController:
     def observe(self, events: Iterable[Event]) -> None:
         """Record monitor events raised outside ingest() (e.g. the app's offline ticker)."""
         if self._live is not None:
-            self._live.events.extend(e for e in events if e.source == SOURCE)
+            self._live.events.extend(e for e in events if e.source == SOURCE
+                                     and (e.run_id is None or e.run_id == self._live.run_id))
 
     # --- time ---
 
@@ -289,7 +290,8 @@ class SimController:
         if live.last_stamp is not None and ts < live.last_stamp:
             ts = live.last_stamp
         live.last_stamp = ts
-        return item.model_copy(update={"timestamp": ts})
+        return item.model_copy(update={"timestamp": ts, "run_id": live.run_id,
+                                       "scenario_id": live.run.scenario.scenario_id})
 
     async def _pause_heartbeat(self, live: _LiveRun) -> None:
         if any(g.truth_label == "camera_outage" for g in self.status().truth):
@@ -301,7 +303,8 @@ class SimController:
         ts = live.last_stamp + STAMP_STEP if live.last_stamp else now
         live.last_stamp = ts
         sc = live.run.scenario
-        beat = Heartbeat(timestamp=ts, source=SOURCE, source_type="simulation", room_id=sc.room_id, fps=sc.fps)
+        beat = Heartbeat(timestamp=ts, source=SOURCE, source_type="simulation", room_id=sc.room_id,
+                         fps=sc.fps, scenario_id=sc.scenario_id, run_id=live.run_id)
         self.observe(await self._ingest([beat]))
 
     def _finish(self, live: _LiveRun) -> None:

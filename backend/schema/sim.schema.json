@@ -1,5 +1,67 @@
 {
   "$defs": {
+    "ActorCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "go",
+            "sit",
+            "lie",
+            "kneel",
+            "tie_shoe",
+            "pick_up",
+            "floor_sit",
+            "fall"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "slot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "sit, lie: which slot (LiveWorld.slots).",
+          "title": "Slot Id"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Other actions: the floor point (x, z) to do it at.",
+          "title": "At"
+        }
+      },
+      "required": [
+        "action",
+        "slot_id",
+        "at"
+      ],
+      "title": "ActorCommand",
+      "type": "object"
+    },
     "ActorDetail": {
       "additionalProperties": false,
       "properties": {
@@ -158,6 +220,142 @@
       "title": "AlertResult",
       "type": "object"
     },
+    "Appointment": {
+      "additionalProperties": false,
+      "properties": {
+        "resident_label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Resident Label",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scheduled_at": {
+          "format": "date-time",
+          "title": "Scheduled At",
+          "type": "string"
+        },
+        "grace_seconds": {
+          "default": 900,
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Grace Seconds",
+          "type": "integer"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        },
+        "appointment_id": {
+          "title": "Appointment Id",
+          "type": "string"
+        },
+        "check_in_token": {
+          "title": "Check In Token",
+          "type": "string"
+        },
+        "status": {
+          "default": "scheduled",
+          "enum": [
+            "scheduled",
+            "overdue",
+            "arrived",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "checked_in_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked In At"
+        },
+        "check_in_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check In Method"
+        },
+        "alert_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alert Id"
+        }
+      },
+      "required": [
+        "resident_label",
+        "room_id",
+        "scheduled_at",
+        "appointment_id",
+        "check_in_token"
+      ],
+      "title": "Appointment",
+      "type": "object"
+    },
+    "AppointmentInput": {
+      "additionalProperties": false,
+      "properties": {
+        "resident_label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Resident Label",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scheduled_at": {
+          "format": "date-time",
+          "title": "Scheduled At",
+          "type": "string"
+        },
+        "grace_seconds": {
+          "default": 900,
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Grace Seconds",
+          "type": "integer"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resident_label",
+        "room_id",
+        "scheduled_at"
+      ],
+      "title": "AppointmentInput",
+      "type": "object"
+    },
     "CameraSpec": {
       "additionalProperties": false,
       "properties": {
@@ -250,6 +448,47 @@
         "pan"
       ],
       "title": "CameraSpec",
+      "type": "object"
+    },
+    "CheckIn": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "token",
+            "face_assisted_demo"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "title": "CheckIn",
       "type": "object"
     },
     "Counts": {
@@ -1056,6 +1295,14 @@
           },
           "title": "Incidents",
           "type": "array"
+        },
+        "slots_taken": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "slot_id -> person_id: who is sitting or lying there, or on their way.",
+          "title": "Slots Taken",
+          "type": "object"
         }
       },
       "required": [
@@ -1064,9 +1311,91 @@
         "speed",
         "people",
         "conversations",
-        "incidents"
+        "incidents",
+        "slots_taken"
       ],
       "title": "LiveFrame",
+      "type": "object"
+    },
+    "LiveModelCall": {
+      "additionalProperties": false,
+      "description": "A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).",
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "standing | sitting | fallen | unknown (the contract's PosturePrediction).",
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "model_id",
+        "label",
+        "confidence"
+      ],
+      "title": "LiveModelCall",
+      "type": "object"
+    },
+    "LiveNav": {
+      "additionalProperties": false,
+      "description": "The floor people can walk on: a grid of body-centre positions, furniture grown by a body's radius.",
+      "properties": {
+        "cell": {
+          "description": "Metres between cell centres.",
+          "title": "Cell",
+          "type": "number"
+        },
+        "origin": {
+          "description": "Floor (x, z) of cell (0, 0)'s centre.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "cols": {
+          "description": "Cells along x.",
+          "title": "Cols",
+          "type": "integer"
+        },
+        "rows": {
+          "description": "One string per row along z (from origin): '1' = blocked, '0' = walkable.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cell",
+        "origin",
+        "cols",
+        "rows"
+      ],
+      "title": "LiveNav",
       "type": "object"
     },
     "LivePerson": {
@@ -1235,6 +1564,18 @@
           ],
           "title": "Kind",
           "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveModelCall"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live people: the camera's own posture model on them, latest frame."
         }
       },
       "required": [
@@ -1251,9 +1592,157 @@
         "conversation",
         "incident",
         "visible",
-        "kind"
+        "kind",
+        "model"
       ],
       "title": "LivePerson",
+      "type": "object"
+    },
+    "LivePlace": {
+      "additionalProperties": false,
+      "description": "Somewhere to stand on purpose: by a window, browsing a shelf, the open middle, a door.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "at": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "At",
+          "type": "array"
+        },
+        "heading": {
+          "title": "Heading",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "at",
+        "heading"
+      ],
+      "title": "LivePlace",
+      "type": "object"
+    },
+    "LiveSlot": {
+      "additionalProperties": false,
+      "description": "Somewhere on a piece of furniture to sit or lie (debug overlays, commands).",
+      "properties": {
+        "slot_id": {
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "piece": {
+          "description": "Index into room.objects.",
+          "title": "Piece",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "sit",
+            "lie"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "at": {
+          "description": "Floor (x, z) under where the person's hips go.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "At",
+          "type": "array"
+        },
+        "heading": {
+          "description": "Sitting: the way they face. Lying: from head to feet.",
+          "title": "Heading",
+          "type": "number"
+        },
+        "height": {
+          "description": "Metres: top of the seat or lying surface.",
+          "title": "Height",
+          "type": "number"
+        },
+        "group": {
+          "description": "Slots in one group can't be used at once (a couch's seats and its lying slot).",
+          "title": "Group",
+          "type": "string"
+        },
+        "stand": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sit slots: where someone of average height stands just before sitting.",
+          "title": "Stand"
+        },
+        "approach": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sit slots: the open floor they walk to, turn round at, and step back from.",
+          "title": "Approach"
+        }
+      },
+      "required": [
+        "slot_id",
+        "piece",
+        "kind",
+        "at",
+        "heading",
+        "height",
+        "group",
+        "stand",
+        "approach"
+      ],
+      "title": "LiveSlot",
       "type": "object"
     },
     "LiveStatus": {
@@ -1364,6 +1853,31 @@
           },
           "title": "Actors",
           "type": "array"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/LiveSlot"
+          },
+          "title": "Slots",
+          "type": "array"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/LivePlace"
+          },
+          "title": "Places",
+          "type": "array"
+        },
+        "nav": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveNav"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1373,7 +1887,10 @@
         "spec",
         "room",
         "scene",
-        "actors"
+        "actors",
+        "slots",
+        "places",
+        "nav"
       ],
       "title": "LiveWorld",
       "type": "object"
@@ -1818,7 +2335,8 @@
                 "source_online",
                 "alert_acknowledged",
                 "alert_resolved",
-                "help_requested"
+                "help_requested",
+                "appointment_overdue"
               ],
               "type": "string"
             },
@@ -2204,7 +2722,8 @@
             "source_online",
             "alert_acknowledged",
             "alert_resolved",
-            "help_requested"
+            "help_requested",
+            "appointment_overdue"
           ],
           "title": "Event Type",
           "type": "string"
@@ -2422,6 +2941,71 @@
           "default": null,
           "description": "The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind.",
           "title": "Variant"
+        },
+        "seat_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: top of the seat. None = not for sitting, or unknown.",
+          "title": "Seat Height"
+        },
+        "surface_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: top of what someone lies on.",
+          "title": "Surface Height"
+        },
+        "arm_width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: width of each arm (armchairs, couches).",
+          "title": "Arm Width"
+        },
+        "arm_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: top of the arms.",
+          "title": "Arm Height"
+        },
+        "back_depth": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres the backrest (or a bed's headboard) comes forward from the back of the piece.",
+          "title": "Back Depth"
         }
       },
       "required": [
@@ -2429,7 +3013,12 @@
         "center",
         "size",
         "rotation",
-        "variant"
+        "variant",
+        "seat_height",
+        "surface_height",
+        "arm_width",
+        "arm_height",
+        "back_depth"
       ],
       "title": "WorldObject",
       "type": "object"

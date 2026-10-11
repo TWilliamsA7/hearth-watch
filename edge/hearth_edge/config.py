@@ -33,6 +33,10 @@ KEYPOINT_CONFIDENCE = None
 FACE_MODEL = "res10"   # or "facenet"; res10 found faces in 100% of probe frames, facenet 0%
 FACE_THRESHOLD = 0.5
 FACE_INTERVAL_S = 0.5
+# Face templates for opted-in names (face_id.py, --face-id): SFace runs only on a face res10 found
+# inside a person's head box, aligned with poseNet's eyes and nose, which must be at least this far
+# apart (closer than this the face is too small to tell people apart).
+FACE_ID_MIN_EYE_PX = 20.0
 
 # Observation rate sent to the backend (frames beyond this are processed but not sent).
 OBS_HZ = 10.0
@@ -42,12 +46,15 @@ HTTP_TIMEOUT_S = 2.0
 # About 10 s of observations are buffered while the backend is unreachable; older ones drop.
 QUEUE_MAX = 100
 
-# Video preview panel (overlay.py, only when streaming). The dashed line marks the height the
-# team backend requires the hips to be below to count as floor level
-# (backend/hearth/monitor/config.json floor_hip_y_min; the head needs floor_head_y_min, 0.40):
-# an aiming aid only. edge/tests/test_contract.py checks it against config.json.
-FLOOR_GUIDE_Y = 0.45
 BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
+
+# Optional Hugging Face fall model (fall_model.py, --fall-model): TensorRT engine from
+# edge/tools/get_fall_model.sh. Checked every FALL_INTERVAL_S on a background thread; the latest
+# result (up to FALL_MAX_AGE_S old) goes on EVERY observation, because the backend restarts its
+# floor timer whenever observations switch between model evidence and pose evidence.
+FALL_MODEL_SIZE = 416
+FALL_INTERVAL_S = 0.3
+FALL_MAX_AGE_S = 1.0
 
 # Rotated poseNet passes for people lying down (pose_rotate.RotationPolicy): only when the
 # upright pose looks lying or incomplete; standing costs nothing extra.
@@ -59,6 +66,11 @@ POSE_ROTATION = True
 TRACK_KEEP_S = 1.0
 TRACK_MAX_DIST = 0.25
 TRACK_DROPOUT_S = 0.3
+
+# Report everyone in view (hearth_edge/people.py): one observation per person per sent frame,
+# each with an anonymous person_id ("p1", ...). False (or --single-person): only the followed
+# person, with no person_id, as before.
+MULTI_PERSON = True
 
 # Bridge brief keypoint dropouts (features.KeypointHold): a joint missing for up to this long
 # is filled in from its last position, moved with the body, for the posture numbers only.

@@ -6,69 +6,191 @@ Hearth shows how local edge computer vision could help caregivers in assisted-li
 
 **Hearth is not a game.** It is a care-monitoring simulation and evaluation environment. The primary hackathon target is the Full Sail challenge (a serious simulation using face detection and/or pathfinding). Face detection is the Full Sail feature; pose-based possible-fall detection is the safety application.
 
+## Quick start
+
+One command starts everything: the monitoring server, the dashboard and the Sim Studio, all on **one port**.
+
+```powershell
+# Once, from the repository root (Python 3.11+, Node 22):
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev,face-demo]'
+
+# Every time:
+.\scripts\start.ps1
+```
+
+Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm packages and builds it; later runs rebuild only when its sources changed. Ctrl+C stops everything the script started.
+
+| Option | Adds |
+| --- | --- |
+| `-NoJetson` | Skip the Jetson (by default the script copies `edge/` to it over ssh and runs `run_edge.py` there, with face ID when its token is present) |
+| `-Camera 0` | Also this laptop's webcam as a second live camera |
+| `-Replay` | Recorded clips replayed as `replay-01`, no Jetson needed; `-Replay -People` plays two people at once |
+| `-Dev` | A Vite dev server with hot reload on http://127.0.0.1:5173/, forwarding to the server |
+| `-Port 8010` | Another port, if 8000 is taken |
+| `-NoBuild` | Use the existing build without npm |
+
+Optional sources that fail (no webcam, no models) are reported and the rest keeps running. Face recognition is on by default: the script installs its packages and models when they're missing, and the server keeps its encryption key in `data/face.key` (see [docs/face-demo.md](docs/face-demo.md)).
+
+**What is where** (all on the same server):
+
+| Address | What |
+| --- | --- |
+| `/` | **Monitor:** the room (simulated 3D room, live camera or recorded replay), staging incidents, the **Live people** link that brings real people from the Jetson or a replay into the simulated room, a person inspector, alerts to acknowledge and resolve, source health and the event log |
+| `/scenarios` | **Scenarios:** scripted scenarios and their evaluation reports, earlier runs, the live room's report, the batch summary |
+| `/recognition` | **Recognition:** staff-run, opt-in resident enrollment and a recognition test |
+| `/studio/` | Sim Studio, the developer tool for the live simulator: resident inspector, overlays, actor commands, live-camera calibration |
+| `/studio/runs` | Recorded run player: saved sim runs against ground truth |
+| `/docs` | API reference |
+
+The dashboard is for staff and watches the server's configured room (`room-01`). The header's tabs switch views and its Developer menu links to the Studio, run player and API reference.
+
 ## Status
 
-The Person 2 monitoring core is implemented: shared schemas and generated TypeScript types, FastAPI ingestion and WebSocket, possible-fall rules, alert lifecycle, source health, an in-memory event log with JSONL export, a fake-observation producer, and automated tests. It now includes held-arm help requests, a manual help button, nurse subscriptions, exclusive nurse acceptance, and built-in nurse/room pages. Bed/chair zone downgrading is available but disabled until zones are configured. Edge inference and the simulator/evaluator remain separate integrations; Person 4 can reuse these APIs in the planned React dashboard.
+The monitoring core, live simulator and evaluator, laptop model runner, Jetson edge client, appointments and opt-in patient recognition all feed **one server** and **one dashboard** (`frontend/`, served from `frontend/dist`). Shared schemas and generated TypeScript types, FastAPI ingestion and WebSockets, possible-fall rules, alert lifecycle, source health, held-arm/hand-signal/button help requests, nurse subscriptions with exclusive acceptance, and an in-memory event log with JSONL export are all implemented and tested. Bed/chair zone downgrading is available but disabled until zones are configured.
 
 Detection thresholds are initial demo parameters, not tuned or validated on real camera traces. Synthetic tests exercise software behavior; they are not measured clinical accuracy.
 
-## Standing / fallen model
+## Install the models and test on a laptop (PowerShell)
 
-The optional local vision runner integrates [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection). It sends **Standing / Sitting / Fallen** predictions through the same backend, with confidence, bounding boxes and model provenance. The monitor requires sustained Fallen predictions before opening a possible-fall alert and sustained Standing predictions before recovery. Uncertain/multiple-person results stay unknown.
+The laptop runner uses two local models on the **same webcam frames**:
 
-See [`edge/README.md`](edge/README.md) for dependency setup, camera/video commands, and Jetson compatibility limits. The camera command, after installing the optional vision dependencies and downloading the weights, is:
+| Model | Purpose | Local weights |
+| --- | --- | --- |
+| [`melihuzunoglu/human-fall-detection`](https://huggingface.co/melihuzunoglu/human-fall-detection) | Standing, Sitting, Lying (checkpoint label `Fallen`) | `models/human-fall-detection/best.pt` |
+| [`SuperSura/hand-gesture-yolo26n`](https://huggingface.co/SuperSura/hand-gesture-yolo26n) | A held **fist** requests help | `models/hand-gesture/gesture.pt` |
+
+Run all commands below from the repository root with Python 3.11+. Models and dependencies need internet during installation; inference runs locally afterward. The downloader pins each model revision and verifies its SHA-256. Weight files are git-ignored; teammates download them rather than committing them. Camera frames are not saved or uploaded.
+
+### 1. Install dependencies and download weights
+
+If `.venv` already exists, reuse it; do not create a second environment. Activation is optional because these commands use the environment's Python explicitly.
 
 ```powershell
-.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --backend http://127.0.0.1:8000
+# Create this only on a fresh checkout without .venv:
+python -m venv .venv
+
+# CPU PyTorch for the laptop:
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev,vision]'
+
+# Download both models (safe to rerun; existing files are verified):
+.\.venv\Scripts\python.exe edge/run_fall_model.py --download-only --hand-gestures
+
+# Load the actual checkpoints and run blank-frame inference; no camera opens:
+.\.venv\Scripts\python.exe edge/run_fall_model.py --check --hand-gestures
 ```
 
-Restart the backend after pulling this schema update. Nurse and room pages display model posture in the source-health section. The model provides no pose keypoints or face detections, so the existing gesture feature still needs a pose source.
+The check should print posture labels `fallen`, `sitting`, `standing` and hand labels including `fist`. No detections on a blank frame is expected. This verifies runtime compatibility, not camera accuracy. Installation of PyTorch is larger than the model weights.
 
-## Nurse desk and help requests
+### 2. Start Hearth with the webcam
 
-Start or restart the server with the command below, then open:
+Close other apps using this webcam, then from the repository root:
 
-- `http://127.0.0.1:8000/nurses` — nurse coverage preferences, live alert queue, named acceptance, resolution, source health and timeline.
-- `http://127.0.0.1:8000/room` — room help button and visible request/acknowledgement confirmation.
+```powershell
+.\scripts\start.ps1 -Camera 0
+```
 
-These pages are served by FastAPI from `backend/hearth/api/static/`, with no Node install, CDN or frontend build. They use the same APIs available to the React frontend.
+This starts the server and runs `edge/run_fall_model.py --camera 0 --hand-gestures --dashboard-preview` against it. Restart (Ctrl+C, then run again) after shared-schema or configuration changes. In the dashboard at http://127.0.0.1:8000/, choose **Live camera** above the main feed: it shows the annotated frames with body/hand boxes and **STANDING / SITTING / LYING / UNKNOWN**. The terminal shows raw posture and hand labels, confidence, input processing and inference time. `fallen` in terminal/JSON corresponds to Lying in the UI.
 
-**Minimum demo:**
+To run the camera client yourself instead (for example with a separate OpenCV window), start Hearth without `-Camera` and in a second terminal run:
 
-1. Open `/nurses`, enter a display name, choose `room-01` and **Help requests**, keep **On duty** checked, and start the session. Click **Enable alert sound** if desired.
-2. Open `/room` in a separate tab and press **Request help**. A labelled **BUTTON REQUEST** alert appears at the care desk.
-3. Accept the request in the nurse tab. The room panel shows the nurse's acknowledgement. Resolve it to allow a fresh request.
-4. Open a second nurse tab with a different name and the same coverage. Both see matching alerts and who accepted them; only the first accepting nurse owns the alert and can resolve it.
-5. Change the second nurse's coverage to **Camera / source offline** only and save. Help requests will no longer be routed there. Off-duty sessions receive no new matching requests; their already accepted work remains visible.
-6. To test a gesture without hardware, run the synthetic trace below. A brief wave or an interrupted gesture should not produce a help request.
+```powershell
+$env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --preview --hand-gestures --dashboard-preview --backend http://127.0.0.1:8000 --room room-01
+```
+
+Add `--laptop` on a slow CPU (384px posture, 640px hand inference, no contrast retry). Press Q in the preview or Ctrl+C to stop.
+
+### 3. Watch the alerts
+
+Alerts appear in the Monitor tab's alert list whichever main view is showing. **Acknowledge** marks one as seen; **Resolve** it after checking on the person. **Sound on** plays a tone for each new alert.
+
+### 4. Test the expected behavior
+
+Use one consenting person at a time. Position the camera to include the full body and floor; safely lie on a mat rather than actually falling.
+
+| Test | Expected result |
+| --- | --- |
+| Stand, then sit | Source health shows Standing, then Sitting when confidence is at least 0.65 |
+| Safely lie down and remain visible | Lying; after 3 seconds of consecutive confident lying observations, one **Possible fall** alert |
+| Stand again for at least 1 second | Recovery recorded; the alert remains open for human acknowledgement/resolution |
+| Show a fist briefly, for less than 2 seconds | No help alert |
+| Hold one fist toward the camera for at least 2 seconds | One **Help requested** alert; terminal should show `hand: fist` with confidence >= 0.65 |
+| Keep holding the fist | No repeated help alerts |
+| Show an open palm for at least 1 second, wait until 10 seconds have elapsed since the last request, then hold a fist again | A new help alert |
+| Leave the frame or obscure the hand | Unknown; missing detections do not imply safety or release the help latch |
+| Stop the camera runner | Source becomes stale/offline; subscribed nurses can receive a source-offline alert |
+
+For either temporal signal, accepted observations must remain no more than 1 second apart. Low confidence, missing detections and gaps reset a pending hold. Multiple detected people/hands are uncertain. The camera model does not identify who requested help.
+
+OpenCV CLAHE contrast retry is enabled for uncertain posture output; confident original detections are preserved. The model still determines the class—wide boxes alone do not imply lying. To compare the original model without contrast retry, stop the runner and repeat the same test with:
+
+```powershell
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --preview --hand-gestures --posture-enhancement none --backend http://127.0.0.1:8000 --room room-01
+```
+
+Contrast retry adds inference work on uncertain frames; improved accuracy must be measured on your camera. Keep `--posture-retry-threshold` aligned with backend `model_confidence_min` if changing it.
+
+### 5. Automated tests and edge recording checks
+
+```powershell
+# Run separately: the backend and edge suites have overlapping test filenames.
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+.\.venv\Scripts\python.exe -m pytest edge/tests -q
+
+# Check one actual Jetson observation recording (replace the example filename):
+.\.venv\Scripts\python.exe edge/tools/check_rules.py recordings/lie_down-example.jsonl --config backend/hearth/monitor/config.json
+
+# Check every JSONL recording in PowerShell:
+Get-ChildItem recordings -Filter *.jsonl | ForEach-Object {
+    .\.venv\Scripts\python.exe edge/tools/check_rules.py $_.FullName --config backend/hearth/monitor/config.json
+}
+```
+
+The checker prints the real detector verdict, alert/recovery times and conditions that fail. Repeat with standing, sitting and lie-down clips. Tests with synthetic observations verify software behavior; actual recordings are needed to validate the camera calibration. Windows skips the Jetson's POSIX stdin-control test.
+
+The live config supports both producers: supplied model predictions are authoritative; pose-only edge observations use calibrated pose rules (`posture_mode: "pose_fallback"`). Floor head/hips are 0.40/0.45 for the reported mat-camera setup; upright hips use an independent bound of 0.65. Use `posture_mode: "model"` to require model predictions. Separate camera sources are not automatically fused. See [the edge integration notes](docs/gaston-edge-integration.md), [model runner details](edge/MODEL_RUNNER.md), and [fist-help rules](docs/hand-help-signal.md).
+
+### Troubleshooting
+
+- **422 / `extra_forbidden` for model fields:** an older backend/schema is running. Reinstall the editable shared/backend packages using step 1, stop the old server and restart with this checkout's `.venv` Python. Do not remove the model fields.
+- **Posture unknown:** inspect the preview and terminal scores. Below 0.65, absent detections, multiple people or stale observations remain unknown. Check [ingestion status](http://127.0.0.1:8000/ingest/status): increasing `stale` counts indicate delayed frames; `future` counts suggest clock mismatch. Synchronize laptop/Jetson clocks.
+- **No fist alert:** check `hand: fist`, score >= 0.65, continuous detection for 2 seconds, and nurse room/help coverage. After a request, observe a non-fist gesture for release and respect the cooldown. `hand_help_label` is set in backend config, so restart after changing it.
+- **Camera fails to open:** close other camera apps or try `--camera 1`.
+- **Slow inference breaks the hold:** inspect `inference_ms`; compare with `--posture-enhancement none`. Raising `--max-fps` does not make the model run faster.
+- **Temporary-directory permission error during installation/tests:** create `.venv/tmp`, then set `$env:TEMP` and `$env:TMP` to its absolute path in that terminal and retry.
+
+AngelCare 8B is a separate, unverified GPU experiment; it is not part of these CPU-laptop commands or nurse alerts, and its setup notes are not in this repository.
+
+## Alerts and help requests
+
+Alerts arrive on the room WebSocket from every source (live camera, simulation, replay) and appear in the Monitor tab's alert list. **Acknowledge** marks an alert as seen and **Resolve** closes it after someone has checked on the person (`POST /alerts/{id}/ack`, then `/resolve`). Help requests come from camera gestures (a held fist, or a raised arm for pose-only sources) and from `POST /help-requests`. There is no patient-facing button in the dashboard.
+
+To test a gesture without hardware, run the synthetic traces below with Hearth running. A brief wave or an interrupted gesture should not produce a help request.
 
 ```powershell
 .\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture
 .\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario wave
 .\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture_occlusion
-# Optional second logical room for subscription routing:
-.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture --room room-02
 ```
 
-The second logical room has no camera data until a source sends it. The default config permits `room-01` and `room-02`; change `additional_room_ids` to configure coverage. Room WebSocket streams and snapshots are isolated by room.
+**Nurse sessions (API only).** The server still has nurse sessions with room/alert-kind coverage, duty status and exclusive acceptance (`/nurse-sessions`, `/ws/nurse/{id}`, `/alerts/{id}/accept`), covered by `backend/tests/test_help_and_nurses.py`. The dashboard doesn't use them: without authentication or persistence they added setup without real capability. Additional rooms (`additional_room_ids`, `room-02` by default) are likewise routing labels with no camera feeding them.
 
 **Gesture contract:** Person 1 sends the existing normalized pose keypoints. A wrist must be above both the nose and same-side shoulder by `gesture_raise_margin`, with all three confidence values at least `gesture_keypoint_confidence_min`. The same arm must satisfy that condition continuously for `gesture_hold_seconds` (default 2 seconds). Missing frames, low-confidence keypoints, or occlusion clear pending evidence. One held gesture creates one `help_requested` event/alert. Re-arming requires observing the triggering arm lowered for `gesture_release_seconds` and respecting `gesture_cooldown_seconds`. Occlusion never counts as release. These rules do not identify the person or prove their intent; validate them against reaching, waving and stretching on the actual camera.
 
-The room panel provides visual confirmation for camera gestures and button requests. It does not control a Jetson speaker. Nurse alert sound requires enabling audio in that browser tab. These are live **open-page notifications**, not SMS, mobile push, or delivery while a browser is closed. Connection interruptions are displayed; reconnect restores current matching alerts without sounding every historical request again.
-
-Profiles, subscriptions, ownership, and events are in memory and clear when the backend restarts. Nurse profiles are local demo sessions, **not authenticated staff accounts**; nurse IDs are identifiers, not security credentials. Exclusive acceptance prevents accidental competing claims through the workflow; authentication and durable delivery would be separate deployment work.
+Alerts are live **open-page notifications**, not SMS, mobile push, or delivery while a browser is closed. Connection interruptions are displayed; reconnecting restores the room's current alerts without sounding old ones again. Alerts and events are in memory and clear when the server restarts.
 
 ## Run the monitoring core
 
-From the repository root, with Python 3.11+ (PowerShell):
+`.\scripts\start.ps1` is the normal way to run it. The server alone, without building the dashboard (its pages then explain how to build it), is:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev]'
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-For Jetson access over the local network, use `--host 0.0.0.0` and the laptop's LAN address. Run **one worker**: state is in memory. Interactive API documentation is at `http://127.0.0.1:8000/docs`. Once dependencies are installed, the backend and scripts work without internet.
+For Jetson access over the local network, use `-Lan` (or `--host 0.0.0.0`) and the laptop's LAN address. Run **one worker**: state is in memory. Interactive API documentation is at `http://127.0.0.1:8000/docs`. Once dependencies are installed, the backend and scripts work without internet.
 
 In a second terminal, run the stub (no Jetson or frontend needed):
 
@@ -137,12 +259,7 @@ The event log retains the latest 10,000 events by default; JSONL export includes
 
 The live engine (`backend/hearth/sim/live/`) generates a furnished room from a seed and fills it with autonomous residents who sit, rest, walk to the window, browse the shelves, bend to pick things up, leave and come back, and hold seated or standing conversations. Each resident runs their own state machine; nothing is scripted in advance. A pinhole camera in the room produces the same contract Observations as every other source, through the same monitor. Ground truth is written as it happens and never reaches the monitor.
 
-```powershell
-# Backend (mounts /sim, /sim/live and /eval on the monitoring core)
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
-# Studio (in frontend/room-view; set HEARTH_BACKEND if the backend isn't on :8000)
-npm install; npm run dev    # then open http://localhost:5174/studio.html
-```
+The dashboard's main feed shows this room (**Simulation** source) with the controls an operator needs: play/pause, speed, staging a fall, inactivity, pacing or exit loitering (for the person clicked in the 3D view, or someone suitable), resetting one person, and generating a new room. The full **Sim Studio** is the developer tool for the same engine: run `.\scripts\start.ps1` and open http://127.0.0.1:8000/studio/ (or use the developer menu in the dashboard header). To work on the Studio itself with hot reload, run `npm run dev` in `frontend/room-view` and open http://localhost:5174/studio.html (it forwards to `HEARTH_BACKEND`, default `:8000`).
 
 In the Studio, press **Generate room**:
 
@@ -169,6 +286,10 @@ These are simulated results only, not measured accuracy. The thresholds need per
 
 ## Scope
 
+### Appointments (backend only)
+
+The server has an appointments API (`/appointments`, check-in, cancel, reschedule) that raises an `appointment_overdue` alert when arrival isn't confirmed 15 minutes after the scheduled time; see `/docs` and `backend/tests/test_appointments.py`. The dashboard doesn't offer appointments; if an overdue alert arrives, the alert list shows it like any other.
+
 The initial demo uses one camera and one person at a time. The backend now supports configured logical rooms for nurse subscription routing, without a building map or cross-camera identity tracking.
 
 In scope:
@@ -184,7 +305,7 @@ Out of scope — do not add these:
 
 - Hallways, building maps, pathfinding, resident navigation.
 - Multiple cameras or cross-camera tracking.
-- Face **recognition**, identity assignment, biometric databases.
+- Face recognition beyond the opt-in, consented patient check-in under [Optional patient recognition](#optional-patient-recognition): no identity assignment without enrollment, no biometric store beyond its encrypted, expiring enrollments.
 - Gait analysis, fall-risk scores, clinical predictions, custom fall-model training.
 - Cloud services, runtime internet dependencies, physical props, robots.
 
@@ -210,11 +331,15 @@ Jetson Nano 2GB                              |
                                              |
                                         WebSocket
                                              |
-                                    React dashboard
-                                      room view, skeleton, alerts,
-                                      timeline, scenario controls,
-                                      evaluation / after-action report
+                                    React dashboard (same server and port)
+                                      Monitor: room view, live people link,
+                                      person inspector, alerts, event log
+                                      Scenarios: scripted runs, evaluation
+                                      Recognition: opt-in enrollment
+                                    Sim Studio (/studio/, developer tool)
 ```
+
+`scripts/start.ps1` builds `frontend/dist` (dashboard) and `frontend/room-view/dist` (Studio and run player); `backend/hearth/api/frontend.py` serves them next to the API, so the browser, the Jetson and the camera client all use one address.
 
 ## Critical invariants
 
@@ -236,7 +361,9 @@ backend/            FastAPI app on the laptop (Python 3.11+)
   hearth/eval/        compares monitor events against ground truth
   tests/
 edge/               Jetson Nano code
-frontend/           React + TypeScript + Vite dashboard (SVG/Canvas, no 3D engine)
+frontend/           React + TypeScript + Vite dashboard (SVG skeletons, three.js 3D room)
+  room-view/          3D/2D room renderer package, Sim Studio and run player (dev/)
+scripts/            start.ps1 (start everything), face_id_demo.sh (Jetson face ID setup)
 shared/             the contract every component speaks
   python/             Pydantic models: the source of truth
   schema/             generated JSON Schema (do not edit by hand)
@@ -320,7 +447,7 @@ Never ask a judge to fall. Never imply lying down proves a fall.
 
 - Alerts are **possible** safety events for human review, not diagnoses or certified fall detection.
 - Do not claim clinical validation, measured accuracy beyond what was actually tested, or HIPAA compliance. Report live test results as small-sample.
-- Face detection is not identification. No enrollment or biometric identification.
+- Face detection is not identification. Identification happens only for patients who opted in to recognition, and alerts name them only with a second, separate opt-in.
 - Skeleton data can still be sensitive; do not describe it as anonymous.
 - Test only with consenting teammates and synthetic resident profiles. Label all simulated data as simulated.
 
@@ -337,8 +464,57 @@ Changes to `shared/` affect everyone; coordinate them through the monitoring-cor
 
 ### Posture determination
 
-Model-only mode (`posture_mode: "model") is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. `pose_fallback` is an explicit legacy test option. A sustained lying classification still requires the configured hold before a possible-fall alert.
+Model-only mode (`posture_mode: "model"`) is available: the Hugging Face checkpoint determines Standing, Sitting, and Lying (checkpoint/wire label `fallen`). Pose-only observations remain unknown for posture and cannot generate or recover a possible-fall incident. Pose keypoints remain usable for the separate gesture/visibility pipeline. Use `edge/run_fall_model.py` on a device with camera access; Gaston's poseNet runner alone does not produce model classifications. The default `pose_fallback` mode supports calibrated Jetson pose observations. A sustained lying classification still requires the configured hold before a possible-fall alert.
 
 ### Live edge/model integration
 
 The live config now uses `pose_fallback`: supplied Hugging Face posture predictions remain authoritative, while rotated-poseNet observations without predictions use calibrated pose thresholds. Floor head/hips are 0.40/0.45 for the reported mid-frame mat camera; upright uses its independent `upright_hip_y_max` of 0.65 so standing at hip_y 0.60 can recover incidents. Separate sources are not implicitly fused. See `docs/gaston-edge-integration.md` and `edge/tools/check_rules.py` for clip validation.
+
+Pose-only upright detection can include sitting: it is not a three-class posture classifier. Use the laptop model runner for the Standing/Sitting/Lying demo. `recordings/config_framing.json` explicitly uses `pose_fallback` and the independent upright bound, so the recorded mat clips work with that profile too.
+
+### Test the integrated simulator and evaluator
+
+The dashboard's **Scenario controls and evaluation** panel (play icon in the header) runs these from the UI: load, play, pause, reset, run again, the completed run's report, earlier runs, the live room's report and the batch summary. To drive them by API, start Hearth and open <http://127.0.0.1:8000/docs>:
+
+1. Execute `GET /sim/scenarios`; it should list the scenario library.
+2. Execute `POST /sim/load` with `{"scenario_id":"possible-fall-01","seed":42}`.
+3. Execute `POST /sim/play`. Watch the dashboard for a visibly **SIMULATED** source and a possible-fall alert.
+4. Once `GET /sim/status` says `ended`, copy its `run_id`. `GET /eval/runs/{run_id}` returns the actual-versus-observed report. `GET /alerts?run_id=...` isolates that run's alerts.
+5. `POST /sim/reset`, then play again; a new run ID prevents old observations or incidents from contaminating the replay. `/sim/pause` and `/sim/speed` (body `{"speed":4}`) control playback.
+
+For repeatable headless evaluation, run from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m hearth.eval batch --seeds 1 --scenarios possible-fall-01 camera-outage-01
+Get-Content recordings/eval/summary.md
+
+# Run the backend and edge suites separately (they share test filenames):
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+.\.venv\Scripts\python.exe -m pytest edge/tests -q
+```
+
+The default factory uses the real monitor with a virtual receipt clock; no test stub or simulator truth is used to decide alerts. `HEARTH_CONFIG` selects the same profile for the API and evaluator. Synthetic results measure behavior on those scenarios, not real-world accuracy. `GET /eval/summary` becomes available after the batch writes its default output. Files and live alert state are session-scoped as described above.
+
+The real monitor can alert on intentional lying too: sustained floor posture is a **possible** fall, not proof of an accident. The evaluator reports those false positives rather than hiding them. Calibrated bed/chair polygons downgrade alerts but do not remove them; scenario room-meter geometry is not automatically converted into camera-frame suppression polygons.
+
+Recorded runs (`python -m hearth.sim run`) play back at http://127.0.0.1:8000/studio/runs. The development ports 5173 (`start.ps1 -Dev`) and 5174 (Studio dev server) are allowed by the default backend CORS config. See [component interfaces](docs/interfaces.md) for the clocks, ingestion seam and routes.
+
+## Optional patient recognition
+
+The dashboard's **Recognition** tab (`/recognition`) offers staff-run, opt-in resident enrollment using **YuNet and SFace from Hugging Face**. With a second opt-in, possible-fall and camera help-signal alerts name the resident. See [setup, model details, and demo testing](docs/face-demo.md).
+
+For cross-branch integration, see [recognition placement, poseNet envelope, and dashboard handoff](docs/recognition-integration.md).
+
+Frontend handoff: [copy-paste recognition integration prompt for the frontend AI agent](docs/frontend-recognition-agent-prompt.md). See the [current behavior audit](docs/recognition-safety-audit.md) for verified behavior and remaining security/deployment work.
+
+### Recognition with the dashboard
+
+Recognition is on by default. It needs the `face-demo` extra and the downloaded models, which `start.ps1` installs when they're missing; the server makes its encryption key in `data/face.key` on first start (git-ignored). Keep that file: a new key cannot read existing enrollments. `HEARTH_FACE_KEY` overrides it, and `HEARTH_FACE_DEMO=0` turns recognition off. When recognition can't run, the Recognition tab says why. Enrollment and alert naming are separate opt-ins. Recognition accepts requests only from the page this computer's server served (loopback and same origin), so enroll on the laptop itself.
+
+With recognition enabled, `.\scripts\start.ps1 -Camera 0` adds `--patient-recognition` to the webcam client; fall detection works the same without identity. Stop the enrollment camera in the browser before the webcam client needs the same camera. Physical camera accuracy must be tested separately from API integration.
+
+### Annotated webcam inside the main dashboard
+
+`-Camera` shares the annotated frames with the dashboard (`--dashboard-preview`): choose **Live camera** above the main feed. The same camera frames feed inference and the image, including posture and hand bounding boxes. Preview sharing is explicit, goes only to the local server, keeps only the latest JPEG in memory and does not record video. Frames become unavailable after three seconds without an update. Live capture consumes the newest frame, and preview uploads run in a separate worker with only one pending frame, so slow uploads cannot queue old images or block alert ingestion. This preview is for laptop testing, not a Jetson-to-laptop video connection.
+
+The configured hand-model gap allowance is 2.5 seconds, with at least three confident same-hand observations and a two-second hold. Low confidence, no detection, ambiguity, larger gaps or a large hand position change clear pending evidence. Pose-based gesture and fall gap thresholds remain separate. If the preview says `Hand: unknown (0%)`, no hand was detected; if confidence is below the configured 65% threshold, no request is generated. Use one hand, good lighting, and keep the fist clearly visible. This slower-sampling allowance cannot establish what happened between camera observations.

@@ -7,12 +7,12 @@ function person(id: string, x: number, label = "walking"): LivePerson {
   return {
     person_id: id, heading: 0, height: 1.7, joints: { nose: [x, 1.6, 0], neck: [x, 1.45, 0] },
     label, activity: label, intent: "wander", posture: "standing", destination: null, path: [], conversation: null,
-    incident: null, visible: 1, kind: "simulated",
+    incident: null, visible: 1, kind: "simulated", model: null,
   };
 }
 
 function frame(t: number, people: LivePerson[], state: LiveFrame["state"] = "playing"): LiveFrame {
-  return { t, state, speed: 1, people, conversations: [], incidents: [] };
+  return { t, state, speed: 1, people, conversations: [], incidents: [], slots_taken: {} };
 }
 
 describe("LiveClient", () => {

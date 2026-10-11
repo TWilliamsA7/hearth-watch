@@ -19,6 +19,10 @@ Standard library only (works on the laptop or the Jetson). From the repo root on
     # Demo fallback: standing, lying down (alert), standing again (recovery) as ONE run:
     .venv/bin/python edge/tools/replay.py --join recordings/stand-*.jsonl \
         recordings/lie_down-20261010-063944.jsonl recordings/stand-*.jsonl
+    # Two people at once (p1 stands; p2 stands, lies down, gets up), with our posture model's call:
+    .venv/bin/python edge/tools/replay.py --together --posture-mlp \
+        recordings/demo/stand.jsonl+recordings/demo/stand.jsonl+recordings/demo/stand.jsonl \
+        recordings/demo/stand.jsonl+recordings/demo/lie_down.jsonl+recordings/demo/stand.jsonl
 """
 
 import argparse
@@ -82,6 +86,56 @@ def join_recordings(recordings, gap_s=0.1):
     return joined
 
 
+def together_recordings(recordings, spread=0.5):
+    """Several clips -> one clip of several people at once, as the edge sends them.
+
+    Clip i becomes person "p<i+1>" (any person_id in it is replaced); all start together, and
+    each is moved sideways in the frame (keypoint x and model box shifted, clamped to 0-1) so
+    the people stand apart: with spread 0.5, two people sit a quarter-frame left and right.
+    """
+    n = len(recordings)
+    if n == 0:
+        return []
+    start = contract.parse_utc_iso(recordings[0][0]["timestamp"])
+    merged = []
+    for i, observations in enumerate(recordings):
+        shift = 0.0 if n == 1 else spread * (i / (n - 1.0) - 0.5)
+        first = contract.parse_utc_iso(observations[0]["timestamp"])
+        for o in observations:
+            o = dict(o)
+            o["timestamp"] = contract.utc_iso(start + contract.parse_utc_iso(o["timestamp"]) - first)
+            o["person_id"] = "p%d" % (i + 1)
+            if o.get("keypoints"):
+                o["keypoints"] = [dict(k, x=round(_unit(k["x"] + shift), 4)) for k in o["keypoints"]]
+            box = (o.get("posture_prediction") or {}).get("bbox")
+            if box:
+                o["posture_prediction"] = dict(o["posture_prediction"], bbox=dict(
+                    box, x1=_unit(box["x1"] + shift), x2=_unit(box["x2"] + shift)))
+            merged.append(o)
+    merged.sort(key=lambda o: contract.parse_utc_iso(o["timestamp"]))
+    return merged
+
+
+def add_posture_model(observations, mlp, width=640, height=480):
+    """Copies with our posture model's call (posture_mlp.PostureMLP) on each observation's
+    keypoints, as run_edge.py sends it: for recordings made before the model existed."""
+    out = []
+    for o in observations:
+        o = dict(o)
+        if o.get("keypoints"):
+            kps = dict((k["name"], (k["x"] * width, k["y"] * height)) for k in o["keypoints"])
+            xs, ys = [p[0] for p in kps.values()], [p[1] for p in kps.values()]
+            pose = {"keypoints": kps, "bbox": (min(xs), min(ys), max(xs), max(ys))}
+            o["posture_prediction"] = mlp.person_prediction(pose, mlp.predict(kps, width, height),
+                                                            width, height)
+        out.append(o)
+    return out
+
+
+def _unit(v):
+    return 0.0 if v < 0.0 else 1.0 if v > 1.0 else v
+
+
 def new_run_id(source, n=1, clock=time.time):
     """e.g. replay-01-20261010-043512-1: unique per playback pass."""
     return "%s-%s-%d" % (source, time.strftime("%Y%m%d-%H%M%S", time.localtime(clock())), n)
@@ -138,7 +192,8 @@ def play(client, observations, ids, speed=1.0, source=REPLAY_SOURCE, run_id=None
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Replay recorded observations as source_type 'replay'.")
-    ap.add_argument("files", nargs="+", help="recordings/*.jsonl files, played in order")
+    ap.add_argument("files", nargs="+", help="recordings/*.jsonl files, played in order; "
+                    "a+b+c plays a, b and c back to back (one person, with --together)")
     ap.add_argument("--backend", default="http://127.0.0.1:8000")
     ap.add_argument("--source", default=REPLAY_SOURCE)
     ap.add_argument("--speed", type=float, default=1.0, help="2 = twice as fast")
@@ -146,18 +201,36 @@ def main(argv=None):
     ap.add_argument("--join", action="store_true",
                     help="play all files back to back as ONE run (one run_id), e.g. stand, "
                          "lie_down, stand: needed for the backend to link a recovery to its alert")
+    ap.add_argument("--together", action="store_true",
+                    help="play the files at the same time as different people (p1, p2, ...), side "
+                         "by side, in ONE run; join clips for one person with + (a+b+c)")
+    ap.add_argument("--posture-mlp", action="store_true",
+                    help="add our posture model's call to every observation (for recordings made "
+                         "before run_edge.py sent it; needs numpy)")
     args = ap.parse_args(argv)
     if args.speed <= 0:
         ap.error("--speed must be positive")
+    if args.join and args.together:
+        ap.error("--join and --together don't mix: join one person's clips with +")
 
-    recordings = [(path, load_recording(path)) for path in args.files]
-    recordings = [(p, obs) for p, obs in recordings if obs]
+    recordings = []
+    for arg in args.files:
+        parts = [obs for obs in (load_recording(p) for p in arg.split("+")) if obs]
+        if parts:
+            recordings.append((arg, join_recordings(parts) if len(parts) > 1 else parts[0]))
     if not recordings:
         sys.stderr.write("nothing to replay\n")
         return 1
-    if args.join and len(recordings) > 1:
+    if args.together:
+        recordings = [(" & ".join("+".join(os.path.basename(f) for f in p.split("+")) for p, _ in recordings),
+                       together_recordings([obs for _, obs in recordings]))]
+    elif args.join and len(recordings) > 1:
         recordings = [(" + ".join(os.path.basename(p) for p, _ in recordings),
                        join_recordings([obs for _, obs in recordings]))]
+    if args.posture_mlp:
+        from hearth_edge.posture_mlp import PostureMLP
+        mlp = PostureMLP()
+        recordings = [(p, add_posture_model(obs, mlp)) for p, obs in recordings]
 
     room = recordings[0][1][0].get("room_id", "room-01")
     stats = PlaybackStats()

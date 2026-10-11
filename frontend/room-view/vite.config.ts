@@ -48,14 +48,19 @@ const proxy = Object.fromEntries(
   ["/sim", "/ws", "/eval", "/events", "/alerts", "/sources"].map((path) => [path, { target: BACKEND, ws: true, changeOrigin: true }]),
 );
 
-export default defineConfig({
+// `npm run build` makes the copy the Hearth server serves at /studio/ (Studio) and
+// /studio/runs (run player), with /dev-api/runs answered by the server itself.
+export default defineConfig(({ command }) => ({
   root: resolve(import.meta.dirname, "dev"),
+  base: command === "build" ? "/studio/" : "/",
   plugins: [react(), simRuns()],
   server: { port: Number(process.env.PORT ?? 5174), proxy },
   build: {
+    outDir: resolve(import.meta.dirname, "dist"),
+    emptyOutDir: true,
     rollupOptions: {
       input: { index: resolve(import.meta.dirname, "dev/index.html"), studio: resolve(import.meta.dirname, "dev/studio.html") },
     },
   },
   test: { root: import.meta.dirname, include: ["src/**/*.test.ts"] },
-});
+}));

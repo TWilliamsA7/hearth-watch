@@ -22,6 +22,7 @@ const cache = new Map<string, THREE.Texture>();
 function canvasTexture(key: string, size: number, draw: (ctx: CanvasRenderingContext2D, size: number) => void): THREE.Texture {
   const hit = cache.get(key);
   if (hit) return hit;
+  if (typeof document === "undefined") return new THREE.Texture(); // no DOM (tests): untextured
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d")!;
@@ -44,12 +45,12 @@ export function woodFloor(): THREE.Texture {
       let x = -rnd() * n * 0.5;
       while (x < n) {
         const len = n * (0.35 + rnd() * 0.45);
-        const tone = 150 + rnd() * 40;
+        const tone = 158 + rnd() * 36;
         ctx.fillStyle = `rgb(${tone + 18}, ${tone * 0.74}, ${tone * 0.48})`;
         ctx.fillRect(x, r * h, len, h);
-        // Grain: faint streaks along the plank.
-        for (let g = 0; g < 14; g++) {
-          ctx.strokeStyle = `rgba(70, 40, 20, ${0.04 + rnd() * 0.08})`;
+        // Warm oak with visible grain, even when viewed from across the room.
+        for (let g = 0; g < 24; g++) {
+          ctx.strokeStyle = `rgba(70, 40, 20, ${0.08 + rnd() * 0.10})`;
           ctx.lineWidth = 1 + rnd() * 2;
           const y = r * h + rnd() * h;
           ctx.beginPath();

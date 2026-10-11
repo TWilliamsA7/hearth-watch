@@ -1,0 +1,1153 @@
+{
+  "$defs": {
+    "AlertResult": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "outcome": {
+          "enum": [
+            "true_positive",
+            "duplicate",
+            "false_positive"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resident the record concerns; None in single-person runs.",
+          "title": "Person Id"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Segment Id"
+        },
+        "truth_label": {
+          "anyOf": [
+            {
+              "enum": [
+                "walking",
+                "standing",
+                "sitting",
+                "bending",
+                "lying_intentional",
+                "fall",
+                "occluded",
+                "camera_outage",
+                "absent"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Truth Label"
+        },
+        "delay": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delay"
+        }
+      },
+      "required": [
+        "event_id",
+        "t",
+        "outcome",
+        "person_id",
+        "segment_id",
+        "truth_label",
+        "delay"
+      ],
+      "title": "AlertResult",
+      "type": "object"
+    },
+    "Counts": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_alerts": {
+          "title": "Expected Alerts",
+          "type": "integer"
+        },
+        "true_positives": {
+          "title": "True Positives",
+          "type": "integer"
+        },
+        "false_positives": {
+          "title": "False Positives",
+          "type": "integer"
+        },
+        "missed": {
+          "title": "Missed",
+          "type": "integer"
+        },
+        "duplicates": {
+          "title": "Duplicates",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expected_alerts",
+        "true_positives",
+        "false_positives",
+        "missed",
+        "duplicates"
+      ],
+      "title": "Counts",
+      "type": "object"
+    },
+    "EvaluationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "report_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Report Version",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        },
+        "duration": {
+          "title": "Duration",
+          "type": "number"
+        },
+        "people": {
+          "description": "Resident ids; empty for single-person runs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "People",
+          "type": "array"
+        },
+        "alert_tolerance": {
+          "title": "Alert Tolerance",
+          "type": "number"
+        },
+        "counts": {
+          "$ref": "#/$defs/Counts"
+        },
+        "detection_delays": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Detection Delays",
+          "type": "array"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/SegmentResult"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "alerts": {
+          "items": {
+            "$ref": "#/$defs/AlertResult"
+          },
+          "title": "Alerts",
+          "type": "array"
+        },
+        "timeline": {
+          "items": {
+            "$ref": "#/$defs/TimelineEvent"
+          },
+          "title": "Timeline",
+          "type": "array"
+        }
+      },
+      "required": [
+        "report_version",
+        "run_id",
+        "scenario_id",
+        "seed",
+        "source",
+        "start",
+        "duration",
+        "people",
+        "alert_tolerance",
+        "counts",
+        "detection_delays",
+        "segments",
+        "alerts",
+        "timeline"
+      ],
+      "title": "EvaluationReport",
+      "type": "object"
+    },
+    "EvaluationSummary": {
+      "additionalProperties": false,
+      "description": "Totals across many runs. These are simulated results, not real-world accuracy.",
+      "properties": {
+        "report_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Report Version",
+          "type": "string"
+        },
+        "runs": {
+          "title": "Runs",
+          "type": "integer"
+        },
+        "scenarios": {
+          "title": "Scenarios",
+          "type": "integer"
+        },
+        "counts": {
+          "$ref": "#/$defs/Counts"
+        },
+        "delay_median": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delay Median"
+        },
+        "delay_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Delay Max"
+        },
+        "false_positives_by_label": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "False Positives By Label",
+          "type": "object"
+        },
+        "missed_runs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missed Runs",
+          "type": "array"
+        },
+        "false_positive_runs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "False Positive Runs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "report_version",
+        "runs",
+        "scenarios",
+        "counts",
+        "delay_median",
+        "delay_max",
+        "false_positives_by_label",
+        "missed_runs",
+        "false_positive_runs"
+      ],
+      "title": "EvaluationSummary",
+      "type": "object"
+    },
+    "RunInfo": {
+      "additionalProperties": false,
+      "description": "Run metadata (<run>.run.json). The dashboard uses it to draw the room and place\nevents on the scenario clock (t = timestamp - start).",
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        },
+        "duration": {
+          "title": "Duration",
+          "type": "number"
+        },
+        "fps": {
+          "title": "Fps",
+          "type": "number"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scene": {
+          "$ref": "#/$defs/Scene"
+        },
+        "residents": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Residents",
+          "type": "array"
+        },
+        "observations": {
+          "title": "Observations",
+          "type": "integer"
+        },
+        "heartbeats": {
+          "title": "Heartbeats",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "scenario_id",
+        "title",
+        "seed",
+        "start",
+        "duration",
+        "fps",
+        "room_id",
+        "scene",
+        "residents",
+        "observations",
+        "heartbeats"
+      ],
+      "title": "RunInfo",
+      "type": "object"
+    },
+    "ScenarioInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "duration": {
+          "description": "Nominal seconds; each seed's run may differ by about 10%.",
+          "title": "Duration",
+          "type": "number"
+        },
+        "seed": {
+          "description": "Default seed.",
+          "title": "Seed",
+          "type": "integer"
+        },
+        "residents": {
+          "description": "Resident ids; empty for a single-person scenario.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Residents",
+          "type": "array"
+        },
+        "scene": {
+          "$ref": "#/$defs/Scene"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "title",
+        "description",
+        "duration",
+        "seed",
+        "residents",
+        "scene"
+      ],
+      "title": "ScenarioInfo",
+      "type": "object"
+    },
+    "Scene": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_y": {
+          "default": 0.92,
+          "description": "Frame y of the floor line under a person at the front.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Floor Y",
+          "type": "number"
+        },
+        "person_height": {
+          "default": 0.62,
+          "description": "Standing height at the front, as a fraction of frame height.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Person Height",
+          "type": "number"
+        },
+        "frame_aspect": {
+          "default": 1.3333333333333333,
+          "description": "Simulated camera width / height.",
+          "exclusiveMinimum": 0.0,
+          "title": "Frame Aspect",
+          "type": "number"
+        },
+        "depth_rise": {
+          "default": 0.14,
+          "description": "How far the floor line rises in the frame for a person at depth 1 (back wall).",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Depth Rise",
+          "type": "number"
+        },
+        "depth_shrink": {
+          "default": 0.3,
+          "description": "How much smaller a person at depth 1 appears than one at depth 0.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Depth Shrink",
+          "type": "number"
+        },
+        "objects": {
+          "items": {
+            "$ref": "#/$defs/SceneObject"
+          },
+          "title": "Objects",
+          "type": "array"
+        }
+      },
+      "required": [
+        "floor_y",
+        "person_height",
+        "frame_aspect",
+        "depth_rise",
+        "depth_shrink",
+        "objects"
+      ],
+      "title": "Scene",
+      "type": "object"
+    },
+    "SceneObject": {
+      "additionalProperties": false,
+      "description": "A piece of furniture drawn in the room view. Rectangle in frame coordinates.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "bed",
+            "chair",
+            "couch",
+            "mat",
+            "occluder"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "w": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "W",
+          "type": "number"
+        },
+        "h": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "H",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "SceneObject",
+      "type": "object"
+    },
+    "SegmentResult": {
+      "additionalProperties": false,
+      "properties": {
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resident the record concerns; None in single-person runs.",
+          "title": "Person Id"
+        },
+        "truth_label": {
+          "enum": [
+            "walking",
+            "standing",
+            "sitting",
+            "bending",
+            "lying_intentional",
+            "fall",
+            "occluded",
+            "camera_outage",
+            "absent"
+          ],
+          "title": "Truth Label",
+          "type": "string"
+        },
+        "t_start": {
+          "title": "T Start",
+          "type": "number"
+        },
+        "t_end": {
+          "title": "T End",
+          "type": "number"
+        },
+        "expected_event": {
+          "anyOf": [
+            {
+              "enum": [
+                "possible_fall",
+                "recovered",
+                "person_visible",
+                "person_not_visible",
+                "face_present",
+                "face_absent",
+                "source_offline",
+                "source_online",
+                "alert_acknowledged"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the monitor should have reported, if anything.",
+          "title": "Expected Event"
+        },
+        "detected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "None when nothing was expected.",
+          "title": "Detected"
+        },
+        "delay": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds from segment start to the first matching event.",
+          "title": "Delay"
+        },
+        "matched_event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matched Event Id"
+        },
+        "false_alerts": {
+          "default": 0,
+          "description": "Unexpected possible_fall alerts raised during this segment.",
+          "title": "False Alerts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "segment_id",
+        "person_id",
+        "truth_label",
+        "t_start",
+        "t_end",
+        "expected_event",
+        "detected",
+        "delay",
+        "matched_event_id",
+        "false_alerts"
+      ],
+      "title": "SegmentResult",
+      "type": "object"
+    },
+    "SimStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "idle",
+            "loaded",
+            "playing",
+            "paused",
+            "ended"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Key for GET /eval/runs/{run_id} once the run ends.",
+          "title": "Run Id"
+        },
+        "t": {
+          "default": 0.0,
+          "description": "Scenario seconds.",
+          "title": "T",
+          "type": "number"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration"
+        },
+        "speed": {
+          "default": 1.0,
+          "title": "Speed",
+          "type": "number"
+        },
+        "scene": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scene"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "truth": {
+          "items": {
+            "$ref": "#/$defs/TruthNow"
+          },
+          "title": "Truth",
+          "type": "array"
+        }
+      },
+      "required": [
+        "state",
+        "scenario_id",
+        "seed",
+        "run_id",
+        "t",
+        "duration",
+        "speed",
+        "scene",
+        "truth"
+      ],
+      "title": "SimStatus",
+      "type": "object"
+    },
+    "TimelineEvent": {
+      "additionalProperties": false,
+      "description": "Every monitor event of the run, placed on the scenario clock for the after-action view.",
+      "properties": {
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "event_type": {
+          "enum": [
+            "possible_fall",
+            "recovered",
+            "person_visible",
+            "person_not_visible",
+            "face_present",
+            "face_absent",
+            "source_offline",
+            "source_online",
+            "alert_acknowledged"
+          ],
+          "title": "Event Type",
+          "type": "string"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Resident the record concerns; None in single-person runs.",
+          "title": "Person Id"
+        }
+      },
+      "required": [
+        "event_id",
+        "t",
+        "event_type",
+        "person_id"
+      ],
+      "title": "TimelineEvent",
+      "type": "object"
+    },
+    "TruthNow": {
+      "additionalProperties": false,
+      "description": "Ground truth at this instant, for people watching. Never sent to the monitor.",
+      "properties": {
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Person Id"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "truth_label": {
+          "enum": [
+            "walking",
+            "standing",
+            "sitting",
+            "bending",
+            "lying_intentional",
+            "fall",
+            "occluded",
+            "camera_outage",
+            "absent"
+          ],
+          "title": "Truth Label",
+          "type": "string"
+        },
+        "expects_alert": {
+          "title": "Expects Alert",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "person_id",
+        "segment_id",
+        "truth_label",
+        "expects_alert"
+      ],
+      "title": "TruthNow",
+      "type": "object"
+    },
+    "WorldFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "description": "Scenario seconds.",
+          "title": "T",
+          "type": "number"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/WorldPerson"
+          },
+          "title": "People",
+          "type": "array"
+        }
+      },
+      "required": [
+        "t",
+        "people"
+      ],
+      "title": "WorldFrame",
+      "type": "object"
+    },
+    "WorldObject": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "bed",
+            "chair",
+            "couch",
+            "mat",
+            "occluder"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "center": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "size": {
+          "description": "Width (x), height (y), depth (z) in metres.",
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "center",
+        "size"
+      ],
+      "title": "WorldObject",
+      "type": "object"
+    },
+    "WorldPerson": {
+      "additionalProperties": false,
+      "properties": {
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Matches Observation.person_id; None in a single-person run.",
+          "title": "Person Id"
+        },
+        "heading": {
+          "description": "Radians about +y; 0 faces the camera, +pi/2 faces image right.",
+          "title": "Heading",
+          "type": "number"
+        },
+        "height": {
+          "description": "Standing height in metres. Constant per person, unlike limb lengths in motion.",
+          "title": "Height",
+          "type": "number"
+        },
+        "joints": {
+          "additionalProperties": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "description": "Metres; every joint, visible to the camera or not.",
+          "propertyNames": {
+            "enum": [
+              "nose",
+              "left_eye",
+              "right_eye",
+              "left_ear",
+              "right_ear",
+              "left_shoulder",
+              "right_shoulder",
+              "left_elbow",
+              "right_elbow",
+              "left_wrist",
+              "right_wrist",
+              "left_hip",
+              "right_hip",
+              "left_knee",
+              "right_knee",
+              "left_ankle",
+              "right_ankle",
+              "neck"
+            ]
+          },
+          "title": "Joints",
+          "type": "object"
+        }
+      },
+      "required": [
+        "person_id",
+        "heading",
+        "height",
+        "joints"
+      ],
+      "title": "WorldPerson",
+      "type": "object"
+    },
+    "WorldRoom": {
+      "additionalProperties": false,
+      "properties": {
+        "width_front": {
+          "description": "Metres the camera sees across at depth 0.",
+          "title": "Width Front",
+          "type": "number"
+        },
+        "width_back": {
+          "description": "Metres the camera sees across at the back wall.",
+          "title": "Width Back",
+          "type": "number"
+        },
+        "depth": {
+          "title": "Depth",
+          "type": "number"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        },
+        "camera_position": {
+          "description": "Approximate; for display only.",
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Camera Position",
+          "type": "array"
+        },
+        "camera_target": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Camera Target",
+          "type": "array"
+        },
+        "camera_fov": {
+          "description": "Vertical field of view, degrees.",
+          "title": "Camera Fov",
+          "type": "number"
+        },
+        "objects": {
+          "items": {
+            "$ref": "#/$defs/WorldObject"
+          },
+          "title": "Objects",
+          "type": "array"
+        }
+      },
+      "required": [
+        "width_front",
+        "width_back",
+        "depth",
+        "height",
+        "camera_position",
+        "camera_target",
+        "camera_fov",
+        "objects"
+      ],
+      "title": "WorldRoom",
+      "type": "object"
+    },
+    "WorldTrack": {
+      "additionalProperties": false,
+      "description": "A run's bodies in 3D (<run>.world.json, GET /sim/world). Simulator-only.",
+      "properties": {
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "fps": {
+          "title": "Fps",
+          "type": "number"
+        },
+        "duration": {
+          "title": "Duration",
+          "type": "number"
+        },
+        "room": {
+          "$ref": "#/$defs/WorldRoom"
+        },
+        "frames": {
+          "description": "One per frame slot, in time order.",
+          "items": {
+            "$ref": "#/$defs/WorldFrame"
+          },
+          "title": "Frames",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "seed",
+        "fps",
+        "duration",
+        "room",
+        "frames"
+      ],
+      "title": "WorldTrack",
+      "type": "object"
+    }
+  },
+  "title": "Hearth simulator and evaluation API v1"
+}

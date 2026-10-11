@@ -12,8 +12,8 @@
   "hand_gesture_max_center_shift": 0.25,
   "floor_hold_seconds": 3.0,
   "posture_mode": "pose_fallback",
-  "fall_model_id": "melihuzunoglu/human-fall-detection",
-  "model_confidence_min": 0.65,
+  "fall_model_id": "hearth/posture-mlp",
+  "model_confidence_min": 0.5,
   "model_standing_hold_seconds": 1.0,
   "max_observation_gap_seconds": 1.0,
   "source_timeout_seconds": 3.0,
@@ -32,6 +32,8 @@
   "event_capacity": 10000,
   "dedupe_capacity": 20000,
   "websocket_queue_capacity": 512,
-  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
-  "zones": []
+  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
+  "zones": [],
+  "hand_max_observation_gap_seconds": 2.5,
+  "hand_min_confirmations": 3
 }

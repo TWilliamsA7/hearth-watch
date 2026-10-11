@@ -146,7 +146,7 @@ class Converse(Activity):
         elif a.posture == "sitting":
             from hearth.sim.pose import KEY_POSES
 
-            a.body = idle(a, KEY_POSES["sitting"], w.t, dt, sway=0.6, talking=True)
+            a.body = idle(a, a.rest_pose or KEY_POSES["sitting"], w.t, dt, sway=0.6, talking=True)
         return False
 
     def end(self, a: Actor, w: World) -> None:

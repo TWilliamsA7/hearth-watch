@@ -19,6 +19,7 @@ laid down head first in some direction and rolled onto the back, side or front (
 
 from __future__ import annotations
 
+import functools
 import math
 import random
 
@@ -519,3 +520,126 @@ def ease_in(x: float) -> float:
 def ease_out(x: float) -> float:
     x = min(max(x, 0.0), 1.0)
     return 1.0 - (1.0 - x) * (1.0 - x)
+
+
+
+HIP_DEPTH = 0.055
+"""Body units from a hip joint's centre down to the seat (or bed) under it: the flesh of the
+buttocks, which the 3D view's mannequin has and keypoints don't."""
+KNEE_DEPTH = 0.035  # ...and from a knee's centre to its underside
+THIGH_DEPTH = 0.045  # ...and from the middle of a thigh to its underside
+ANKLE_V = 0.03  # body units: an ankle's height off the floor, standing
+
+
+@functools.lru_cache(maxsize=512)
+def _seated(seat: float, front: float, size: float) -> tuple[tuple[str, Vec], ...]:
+    sit = KEY_POSES["sitting"]
+    seat_v, front_v = seat / size, front / size
+    hips = hips_of(sit)
+    thigh, shin = REST[("left_hip", "left_knee")], REST[("left_knee", "left_ankle")]
+    # Hips on the seat; slid forward if the knees wouldn't otherwise reach its front edge.
+    dv = seat_v + HIP_DEPTH - hips[1]
+    df = max(0.0, front_v + KNEE_DEPTH - (hips[0] + thigh))
+    out: BodyPose = {j: (f + df, v + dv, l) for j, (f, v, l) in sit.items() if not j.endswith(("_knee", "_ankle"))}
+    hip_f, hip_v = hips[0] + df, hips[1] + dv
+
+    def clear(a: float) -> bool:
+        """Do the thigh and knee stay above the seat at this slope?"""
+        kf, kv = hip_f + thigh * math.cos(a), hip_v - thigh * math.sin(a)
+        if kf < front_v + KNEE_DEPTH / 2:  # the knee is over the seat
+            return kv >= seat_v + KNEE_DEPTH
+        k = (front_v - hip_f) / (kf - hip_f)  # where the thigh crosses the front edge
+        return hip_v + (kv - hip_v) * k >= seat_v + THIGH_DEPTH
+
+    # Slope the thighs so the shins stand as near upright as they can: knees up on a low
+    # seat, down over the edge of a high one.
+    want = ANKLE_V + shin
+    slopes = [math.radians(d) for d in range(-35, 56)]
+    a = min((x for x in slopes if clear(x)), key=lambda x: abs(hip_v - thigh * math.sin(x) - want), default=0.0)
+    knee_f, knee_v = hip_f + thigh * math.cos(a), hip_v - thigh * math.sin(a)
+    drop = knee_v - ANKLE_V
+    if drop >= shin:  # can't reach the floor: the feet hang
+        ankle_f, ankle_v = knee_f + 0.02, knee_v - math.sqrt(shin * shin - 0.02 * 0.02)
+    else:
+        ankle_f, ankle_v = knee_f + math.sqrt(shin * shin - drop * drop), ANKLE_V
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        l_hip = out[f"{side}_hip"][2]
+        out[f"{side}_knee"] = (knee_f, knee_v, l_hip)
+        out[f"{side}_ankle"] = (ankle_f, ankle_v, sit[f"{side}_ankle"][2])
+        # Hands in the lap, on the thighs, not out by the sides (where a couch's arms are).
+        f, v, _ = out[f"{side}_wrist"]
+        out[f"{side}_wrist"] = (f, v, sign * 0.10)
+    return tuple(fit_bones(out).items())
+
+
+def seated_pose(seat: float, front: float, size: float) -> BodyPose:
+    """Pose "sitting", fitted to a seat for someone `size` metres tall: `seat` metres high,
+    its front edge `front` metres in front of the root. The hips rest on the seat (slid
+    forward if the legs are too short to reach its edge), the thighs and knees stay above
+    it, and the shins stand as upright as they can; on a seat too high for the feet to
+    reach the floor, they hang."""
+    return dict(_seated(round(seat, 3), round(front, 3), round(size, 3)))
+
+
+def curled_lying(bend: float, roll: float) -> BodyPose:
+    """On the side, curled up by `bend` (0 = straight, 1 = knees well up), arms in front:
+    how someone fits a body onto a couch shorter than they are. Head towards -f, like "lying";
+    roll +-pi/2 = which side they lie on."""
+    p = dict(STANDING)
+    for side in SIDES:
+        p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(85.0 * bend))
+        p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(110.0 * bend))
+        p = turn_limb(p, f"{side}_shoulder", L_AXIS, -math.radians(30.0))
+        p = turn_limb(p, f"{side}_elbow", L_AXIS, -math.radians(100.0))  # hands up by the face
+    p = turn_limb(p, "neck", L_AXIS, math.radians(15.0 * bend))
+    return fit_bones(lay(fit_bones(p), head=-1.0, roll=roll))
+
+
+def supine(bend: float = 0.0) -> BodyPose:
+    """On the back, head towards -f like "lying", but compact: arms folded on the chest, and
+    the knees drawn up by `bend` (0 = legs straight, 1 = feet flat by the hips), as on a couch
+    that's narrow or short for the person on it."""
+    p = lay(STANDING, head=-1.0, roll=0.0)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        sh = p[f"{side}_shoulder"]
+        p[f"{side}_elbow"] = (sh[0] + 0.17, sh[1] + 0.01, sign * 0.13)  # upper arms by the sides
+        p[f"{side}_wrist"] = (sh[0] + 0.22, sh[1] + 0.07, sign * 0.03)  # hands together on the belly
+    p = fit_bones(p)
+    if bend > 0:
+        for side in SIDES:
+            p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(60.0 * bend))
+            p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(120.0 * bend))
+    return fit_bones(p)
+
+
+def tucked(seated: BodyPose) -> BodyPose:
+    """Sitting on an edge with the knees drawn up and the feet off the floor, leaning back a
+    little: how the legs come up onto a bed or couch (and down again) without the feet
+    sliding through its side."""
+    p = seated
+    for side in SIDES:
+        p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(55.0))
+    return lean(p, L_AXIS, -math.radians(12.0))
+
+
+def long_sit(bend: float = 0.0) -> BodyPose:
+    """Sitting up with the legs along the bed or couch ("floor_sit", on whatever is under the
+    hips), the knees up by `bend` (as for curled_lying): half way between sitting on the edge
+    and lying down."""
+    p = dict(KEY_POSES["floor_sit"])
+    for side, sign in (("left", 1.0), ("right", -1.0)):  # hands on the thighs, not propped up behind
+        sh = p[f"{side}_shoulder"]
+        p[f"{side}_elbow"] = (sh[0] + 0.05, sh[1] - 0.17, sign * 0.14)
+        p[f"{side}_wrist"] = (sh[0] + 0.21, sh[1] - 0.22, sign * 0.10)
+    p = fit_bones(p)
+    if bend > 0:
+        for side in SIDES:
+            p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(45.0 * bend))
+            p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(90.0 * bend))
+    return fit_bones(p)
+
+
+def two_bone(root: Vec, target: Vec, pole: Vec, upper: float, lower: float) -> tuple[Vec, Vec]:
+    """(middle joint, end) for a limb of two bones from root reaching for target, bending
+    towards pole: a knee or an elbow. As the knees in blend_body."""
+    return _knee(root, target, pole, upper, lower)

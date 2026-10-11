@@ -3,9 +3,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { DEFAULT_THEME, type Theme } from "./draw";
+import { buildFurnitureDebug, type FurnitureDebug } from "./furnitureDebug";
 import type { LivePerson } from "./generated/sim";
 import type { LiveClient } from "./live";
 import { createMannequinRig } from "./mannequin";
+import { nearestSlot, type Pick } from "./pick";
 import { buildRoom3D, roomBounds, setupRenderer, type Lighting, type Room3D } from "./room3d";
 import type { PersonRig, RigFactory } from "./scene3d";
 
@@ -19,11 +21,13 @@ export interface Overlays {
   fov: boolean; // the simulated camera's field of view
   visibility: boolean; // fade people the camera can't see
   incidents: boolean;
+  slots: boolean; // where people sit and lie, and the way up to each seat
+  nav: boolean; // floor a body can't walk on
 }
 
 export const DEFAULT_OVERLAYS: Overlays = {
   ids: true, activity: true, paths: true, destinations: true, space: false, conversations: true, fov: true,
-  visibility: false, incidents: true,
+  visibility: false, incidents: true, slots: false, nav: false,
 };
 
 export type CameraMode = "orbit" | "top" | "camera" | "follow";
@@ -34,8 +38,15 @@ export interface LiveView3DProps {
   cameraMode?: CameraMode;
   selected?: string | null;
   onSelect?: (personId: string | null) => void;
+  /**
+   * A click that missed everyone but landed on furniture (its nearest slot) or the floor,
+   * with where on the view it was. Return true if handled; otherwise it deselects.
+   */
+  onPick?: (pick: Pick, at: { x: number; y: number }) => boolean;
   /** person_ids with an open alert: drawn red. */
   alertPersonIds?: readonly string[];
+  /** Names for live people the camera recognized (person_id -> name), shown in their tag. */
+  liveNames?: Readonly<Record<string, string>>;
   /** Hide ground-truth activity labels (for blind demos). */
   hideTruth?: boolean;
   lighting?: Lighting;
@@ -75,6 +86,7 @@ export function LiveView3D(props: LiveView3DProps) {
     controls.maxDistance = 25;
 
     let room: Room3D | null = null;
+    let debug: FurnitureDebug | null = null;
     let roomRev = -1;
     let roomLighting: Lighting | null = null;
     const rigs = new Map<string, PersonRig>();
@@ -137,9 +149,28 @@ export function LiveView3D(props: LiveView3DProps) {
       controls.update();
     };
 
-    // Picking: the person whose body is nearest the click on screen.
+    // Picking: the person whose body is nearest the click on screen; failing that, the
+    // furniture or floor under it.
     let people: LivePerson[] = [];
     const v = new THREE.Vector3();
+    const raycaster = new THREE.Raycaster();
+    const pickScene = (ndc: THREE.Vector2): Pick | null => {
+      const world = live.current.client.world;
+      if (!world || !room) return null;
+      raycaster.setFromCamera(ndc, camera);
+      const targets: THREE.Object3D[] = [...(debug?.slots.visible ? [debug.slots] : []), ...room.furniture];
+      for (const hit of raycaster.intersectObjects(targets, true)) {
+        let o: THREE.Object3D | null = hit.object;
+        while (o && o.userData.slotId === undefined && o.userData.objectIndex === undefined) o = o.parent;
+        if (!o) continue;
+        if (o.userData.slotId !== undefined) return { kind: "slot", slotId: o.userData.slotId, x: hit.point.x, z: hit.point.z };
+        const slot = nearestSlot(world.slots, o.userData.objectIndex, hit.point.x, hit.point.z);
+        if (slot) return { kind: "slot", slotId: slot.slot_id, x: hit.point.x, z: hit.point.z };
+        break; // furniture nobody uses (a table): not floor either
+      }
+      const [floor] = raycaster.intersectObject(room.floor, false);
+      return floor ? { kind: "floor", x: floor.point.x, z: floor.point.z } : null;
+    };
     const onClick = (ev: MouseEvent) => {
       if (dragged) return;
       const r = renderer.domElement.getBoundingClientRect();
@@ -158,6 +189,10 @@ export function LiveView3D(props: LiveView3DProps) {
             best = p.person_id;
           }
         }
+      }
+      if (best === null && live.current.onPick) {
+        const pick = pickScene(new THREE.Vector2((mx / r.width) * 2 - 1, -(my / r.height) * 2 + 1));
+        if (pick && live.current.onPick(pick, { x: mx, y: my })) return;
       }
       live.current.onSelect?.(best);
     };
@@ -200,6 +235,12 @@ export function LiveView3D(props: LiveView3DProps) {
           }
           rigs.clear();
           frameRoom();
+          if (debug) {
+            overlay.remove(debug.slots, debug.nav);
+            debug.dispose();
+          }
+          debug = buildFurnitureDebug(world);
+          overlay.add(debug.slots, debug.nav);
         }
         roomRev = p.client.revision;
         roomLighting = lighting;
@@ -230,7 +271,7 @@ export function LiveView3D(props: LiveView3DProps) {
         }
         const live = person.kind === "live";
         const tag = !ov.ids ? null
-          : live ? `LIVE · ${person.label}`
+          : live ? `${p.liveNames?.[id] ?? "LIVE"} · ${person.label}`
           : ov.activity && !p.hideTruth ? `${id.toUpperCase()} · ${person.incident ? person.incident.replace("_", " ") : person.activity}`
           : id.toUpperCase();
         rig.update(person, {
@@ -311,6 +352,11 @@ export function LiveView3D(props: LiveView3DProps) {
       talk.geometry.setFromPoints(convPts);
       talk.visible = convPts.length > 0;
       if (room) room.frustum.visible = ov.fov;
+      if (debug) {
+        debug.slots.visible = ov.slots;
+        debug.nav.visible = ov.nav;
+        if (ov.slots) debug.update(sample.frame?.slots_taken ?? {});
+      }
 
       // Camera.
       const mode = p.cameraMode ?? "orbit";
@@ -361,6 +407,7 @@ export function LiveView3D(props: LiveView3DProps) {
       renderer.domElement.removeEventListener("click", onClick);
       for (const rig of rigs.values()) rig.dispose();
       room?.dispose();
+      debug?.dispose();
       controls.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);

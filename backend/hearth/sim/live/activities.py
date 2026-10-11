@@ -16,23 +16,25 @@ PLANNERS. Neither needs changes to the engine.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from hearth.sim.generator import Stance
 from hearth.sim.nav import Floor, distance
-from hearth.sim.pose import KEY_POSES, BodyPose, blend_body, smoothstep
+from hearth.sim.pose import L_AXIS, KEY_POSES, REST, BodyPose, blend_body, hips_of, lean, smoothstep, tucked, two_bone
 
 from hearth.sim.live.actor import Actor, Posture
-from hearth.sim.live.animate import Blend, Play, apply, gait, heading_to, idle, stance, wrap
-from hearth.sim.live.room import Slot, forward
+from hearth.sim.live.animate import Blend, Play, apply, gait, heading_to, idle, seated_variants, stance, wrap
+from hearth.sim.live.room import Piece, Slot, forward
 
 if TYPE_CHECKING:
     from hearth.sim.live.engine import World
 
 POSTURE_LABEL: dict[str, str] = {"standing": "standing", "sitting": "sitting", "lying": "lying_intentional",
-                                 "floor": "fall", "absent": "absent"}  # fmt: skip
+                                 "floor": "fall", "floor_sit": "sitting", "absent": "absent"}  # fmt: skip
+ON_FLOOR = ("floor", "floor_sit")  # down on the floor (fallen, or sat there): walkers keep further off
 
 PERSONAL_SPACE_M = 0.75  # walkers start steering away inside this
 MIN_SEPARATION_M = 0.52  # bodies never get closer than this (centre to centre)
@@ -80,11 +82,11 @@ class Hold(Activity):
     """Stay in the current posture (or a given pose) for a while, never perfectly still."""
 
     def __init__(self, duration: float, name: str = "idle", *, pose: str | None = None, label: str | None = None,
-                 sway: float = 1.0, look: Floor | None = None, talking: bool = False,
+                 sway: float = 1.0, look: Floor | None = None, talking: bool = False, eating: bool = False,
                  until: Callable[[], bool] | None = None) -> None:  # fmt: skip
         super().__init__()
         self.duration, self.name, self.pose, self.sway = duration, name, pose, sway
-        self.look, self.talking, self.until = look, talking, until
+        self.look, self.talking, self.eating, self.until = look, talking, eating, until
         self._label = label
 
     def label_for(self, a: Actor) -> str:
@@ -92,12 +94,21 @@ class Hold(Activity):
 
     def begin(self, a: Actor, w: World) -> None:
         self.start = a.body
+        self.shifts: list[BodyPose] = []
+        if self.pose is None and a.posture == "sitting" and a.rest_pose and self.duration > SHIFT_EVERY_S[0]:
+            seat = _slot_of(a, w, "sit")
+            arms = seat is not None and w.room.pieces[seat.piece].kind.arm > 0
+            self.shifts = seated_variants(a.rest_pose, arms=arms)
+            self.next_shift = a.rng.uniform(*SHIFT_EVERY_S)
+            self.shift_from: BodyPose | None = None
         if self.pose is not None:
             self.target = KEY_POSES[self.pose]
         elif a.posture == "standing":
             self.target = KEY_POSES["standing"]
         elif a.posture == "sitting":
-            self.target = KEY_POSES["sitting"]
+            self.target = a.rest_pose or KEY_POSES["sitting"]
+        elif a.posture == "floor_sit":
+            self.target = KEY_POSES["floor_sit"]
         else:
             self.target = a.body
         if self.look is not None:
@@ -106,7 +117,15 @@ class Hold(Activity):
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
         base = blend_body(self.start, self.target, smoothstep(self.tau / 0.6)) if self.tau < 0.6 else self.target
-        a.body = idle(a, base, w.t, dt, sway=self.sway, talking=self.talking)
+        if self.shifts:  # sitting a long while: shift now and then
+            if self.tau >= self.next_shift:
+                self.shift_from, self.shift_at = self.target, self.tau
+                self.target = a.rng.choice([p for p in self.shifts if p is not self.target])
+                self.next_shift = self.tau + a.rng.uniform(*SHIFT_EVERY_S)
+            if self.shift_from is not None:
+                k = (self.tau - self.shift_at) / SHIFT_S
+                base = blend_body(self.shift_from, self.target, smoothstep(k)) if k < 1.0 else self.target
+        a.body = idle(a, base, w.t, dt, sway=self.sway, talking=self.talking, eating=self.eating)
         if self.until is not None and self.until():
             return True
         return self.tau >= self.duration
@@ -145,7 +164,7 @@ class Walk(Activity):
             for o in w.bodies:
                 if o is a or not o.present or o.slots_in_use or distance(o.pos, a.pos) > 3.5:
                     continue
-                r = FALLEN_CLEARANCE_M if o.posture == "floor" else 0.6
+                r = FALLEN_CLEARANCE_M if o.posture in ON_FLOOR else 0.6
                 # Keep the disc of someone right next to us (a disc covering the start is ignored).
                 discs.append((o.pos[0], o.pos[1], min(r, distance(o.pos, a.pos) - 0.03)))
         path = w.room.nav.find_path(a.pos, self.goal, ignore=self.ignore, avoid=discs)
@@ -197,6 +216,8 @@ class Walk(Activity):
 
 
 IDLE_HOLDS = frozenset({"pausing", "standing about", "looking out", "browsing", "waiting", "idle"})
+SHIFT_EVERY_S = (8.0, 20.0)  # someone sitting a long while changes how they sit this often
+SHIFT_S = 1.4  # ...taking this long over it
 
 
 def make_way(a: Actor, w: World, towards: Floor) -> None:
@@ -235,7 +256,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
         dist = math.hypot(rx, rz)
         if dist > 3.0 or dist < 1e-6:
             continue
-        space = FALLEN_CLEARANCE_M + 0.3 if o.posture == "floor" else PERSONAL_SPACE_M
+        space = FALLEN_CLEARANCE_M + 0.3 if o.posture in ON_FLOOR else PERSONAL_SPACE_M
         if dist < space:  # too close: move apart
             k = (space - dist) / space * 1.6
             ax -= rx / dist * k
@@ -289,7 +310,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
     for o in w.bodies:
         if o is a or not o.present or o.slots_in_use:
             continue
-        limit = FALLEN_CLEARANCE_M if o.posture == "floor" else MIN_SEPARATION_M
+        limit = FALLEN_CLEARANCE_M if o.posture in ON_FLOOR else MIN_SEPARATION_M
         before, after = distance(a.pos, o.pos), distance((px + mx, pz + mz), o.pos)
         if after < limit and after < before:
             ox, oz = px - o.pos[0], pz - o.pos[1]
@@ -300,7 +321,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
                 mx, mz = mx - ox * inward, mz - oz * inward
     cand = (px + mx, pz + mz)
     if (mx or mz) and nav.free(cand, ignore) and all(
-        distance(cand, o.pos) >= min(distance(a.pos, o.pos), FALLEN_CLEARANCE_M if o.posture == "floor" else MIN_SEPARATION_M) - 1e-6
+        distance(cand, o.pos) >= min(distance(a.pos, o.pos), FALLEN_CLEARANCE_M if o.posture in ON_FLOOR else MIN_SEPARATION_M) - 1e-6
         for o in w.bodies if o is not a and o.present and not o.slots_in_use
     ):  # fmt: skip
         new = cand
@@ -323,14 +344,16 @@ def _length(points: list[Floor]) -> float:
 
 
 class Step(Activity):
-    """A short, straight, unhurried step (into a seat, through a door), ignoring furniture."""
+    """A short, straight, unhurried step (back to a seat, through a door), ignoring furniture.
+    face=False keeps the heading, stepping backwards if the step goes behind."""
 
     name = "stepping"
     label = "walking"
 
-    def __init__(self, to: Floor, *, speed: float = 0.45, name: str = "stepping", face: bool = True) -> None:
+    def __init__(self, to: Floor, *, speed: float = 0.45, name: str = "stepping", face: bool = True,
+                 stride: float = 1.0) -> None:  # fmt: skip
         super().__init__()
-        self.to, self.speed, self.name, self.face = to, speed, name, face
+        self.to, self.speed, self.name, self.face, self.stride = to, speed, name, face, stride
         self.waited = 0.0
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
@@ -359,7 +382,8 @@ class Step(Activity):
             turn = wrap(math.atan2(dx, dz) - a.heading)
             step = TURN_RATE * dt
             a.heading = wrap(a.heading + max(-step, min(step, turn)))
-        a.body = gait(a, sp, dt)
+        backwards = dx * math.sin(a.heading) + dz * math.cos(a.heading) < 0
+        a.body = gait(a, sp, dt, backwards=backwards, stride=self.stride)
         return self.tau > 8.0
 
 
@@ -391,11 +415,14 @@ class Transition(Activity):
 
     def __init__(self, pose: str | BodyPose, duration: float, *, name: str, label: str, posture: Posture,
                  root: Floor | None = None, heading: float | None = None, base: float | None = None,
-                 on_end: Callable[[Actor, World], None] | None = None) -> None:  # fmt: skip
+                 on_end: Callable[[Actor, World], None] | None = None, lag: float = 1.0) -> None:  # fmt: skip
+        """lag > 1: the root moves later than the body changes shape (lowering onto a seat
+        before settling back into it); lag < 1: sooner (weight forward over the feet before
+        rising)."""
         super().__init__()
         self.pose = KEY_POSES[pose] if isinstance(pose, str) else pose
         self.duration, self.name, self.label, self.posture = duration, name, label, posture
-        self.root, self.heading, self.base, self.on_end = root, heading, base, on_end
+        self.root, self.heading, self.base, self.on_end, self.lag = root, heading, base, on_end, lag
 
     def begin(self, a: Actor, w: World) -> None:
         st = stance(a)
@@ -406,7 +433,12 @@ class Transition(Activity):
         a.velocity = (0.0, 0.0)
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
-        apply(a, self.blend.at(self.tau))
+        st = self.blend.at(self.tau)
+        if self.lag != 1.0 and not self.blend.done(self.tau):
+            s, e = self.blend.start, self.blend.end
+            k = self.blend.ease((self.tau / self.duration) ** self.lag)
+            st = Stance(st.body, st.heading, s.x + (e.x - s.x) * k, s.z + (e.z - s.z) * k, st.base)
+        apply(a, st)
         if self.blend.done(self.tau):
             a.posture = self.posture
             return True
@@ -415,6 +447,7 @@ class Transition(Activity):
     def end(self, a: Actor, w: World) -> None:
         if self.started and self.blend.done(self.tau):
             a.posture = self.posture
+            a.rest_pose = self.pose if self.posture in ("sitting", "lying") else None
             if self.on_end:
                 self.on_end(a, w)
 
@@ -550,33 +583,108 @@ def mobility_pace(a: Actor) -> float:
     return 1.45 if a.profile.mobility == "slow" else 1.0
 
 
+def push_up_pose(seat: Slot, piece: Piece, size: float, *, reaching: bool = False) -> BodyPose:
+    """Sitting forward, weight over the feet, hands pushing down on the armrests (an armchair)
+    or on the knees (anything else): how someone frail starts to get out of a seat.
+    reaching: the hands on their way up and over onto the armrests."""
+    p = lean(seat.pose(size), L_AXIS, math.radians(22))
+    k = piece.kind
+    hips = hips_of(p)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        if k.name == "armchair":  # on top of each arm, half way along it
+            reach = (k.w / 2 - k.arm / 2) / size
+            wrist = (hips[0] + 0.06, k.arm_h / size + (0.1 if reaching else 0.03), sign * (reach * 0.6 if reaching else reach))
+        else:  # on the knees
+            knee = p[f"{side}_knee"]
+            wrist = (knee[0] - 0.02, knee[1] + 0.05, sign * 0.09)
+        sh = f"{side}_shoulder"
+        el, wr = f"{side}_elbow", f"{side}_wrist"
+        # The elbow bends out and back, as when leaning on something.
+        p[el], p[wr] = two_bone(p[sh], wrist, (-0.4, 0.0, sign), REST[(sh, el)], REST[(el, wr)])
+    return p
+
+
+def _rise(a: Actor, w: World, seat: Slot | None, pace: float) -> list[Activity]:
+    """Stand up out of `seat` (pushing up first, for someone frail)."""
+    out: list[Activity] = []
+    if seat is not None and a.profile.mobility == "slow":
+        piece = w.room.pieces[seat.piece]
+        if piece.kind.name == "armchair":  # hands up and over onto the arms, not through them
+            out.append(Transition(push_up_pose(seat, piece, a.size, reaching=True), 0.5 * pace, name="pushing up",
+                                  label="sitting", posture="sitting", root=seat.at, heading=seat.heading, base=0.0))  # fmt: skip
+        out.append(Transition(push_up_pose(seat, piece, a.size), 0.7 * pace, name="pushing up", label="sitting",
+                              posture="sitting", root=seat.at, heading=seat.heading, base=0.0))  # fmt: skip
+    out.append(Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
+                          root=seat.stand_point(a.size) if seat else None, on_end=_releaser(a), lag=0.67))  # fmt: skip
+    return out
+
+
 def get_up(a: Actor, w: World) -> list[Activity]:
     """Whatever it takes to be standing on open floor again."""
     pace = mobility_pace(a)
     if a.posture == "sitting":
-        seat = _slot_of(a, w, "sit")
-        root = seat.stand_point(a.size) if seat else None
-        return [Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                           root=root, on_end=_releaser(a))]  # fmt: skip
+        return _rise(a, w, _slot_of(a, w, "sit"), pace)
     if a.posture == "lying":
         lie = _slot_of(a, w, "lie")
-        entry = w.room.slot(lie.entry) if lie and lie.entry and lie.entry in w.room._slot_index else None
-        sit_up = Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting",
-                            root=entry.at if entry else None, heading=entry.heading if entry else None, base=0.0)  # fmt: skip
+        # Off the side they got on from (the seat they hold), else the lie slot's usual one.
+        entry = _slot_of(a, w, "sit")
+        if entry is None and lie and lie.entry and lie.entry in w.room._slot_index:
+            entry = w.room.slot(lie.entry)
+        stances = lie_stances(lie, w.room.pieces[lie.piece], a.size) if lie else None
+        out: list[Activity] = []
+        if stances is not None:  # sit up where they lie, then swing the legs down off the edge
+            out.append(_to(stances[1], 1.6 * pace, name="sitting up", label="sitting", posture="sitting"))
+        if entry is not None:
+            edge = seat_stance(entry, a.size)
+            if stances is not None:
+                out.append(_to(dataclasses.replace(edge, body=tucked(edge.body)), 1.5 * pace, name="swinging legs down",
+                               label="sitting", posture="sitting"))  # fmt: skip
+            out.append(_to(edge, 0.9 * pace, name="swinging legs down", label="sitting", posture="sitting"))
+        else:
+            out.append(Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting", base=0.0))
         if entry is not None and entry.slot_id not in a.slots:
             a.slots.append(entry.slot_id)
-        stand = Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                           root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a))  # fmt: skip
-        return [sit_up, stand]
-    if a.posture == "floor":
+        return out + _rise(a, w, entry, pace)
+    if a.posture in ON_FLOOR:
         return [PlayMotion("get_up", name="getting up", label="standing", posture="standing", pace=pace)]
     if a.posture == "absent":
         return [Enter(a.rng.choice(w.room.doors).door_id)]
     return []
 
 
+def seat_stance(seat: Slot, size: float) -> Stance:
+    """How someone `size` metres tall ends up sitting in `seat`."""
+    return Stance(seat.pose(size), seat.heading, seat.at[0], seat.at[1], 0.0)
+
+
+def lie_stances(lie: Slot, piece: Piece, size: float) -> tuple[Stance, Stance] | None:
+    """How someone `size` metres tall lies on `lie` (fit.lie_fit: centred, knees drawn up or
+    curled if the piece is short for them), and sits up on the same spot on the way:
+    (lying, sitting up). None if they don't fit."""
+    from hearth.sim.live.fit import lie_fit
+
+    fit = lie_fit(piece.kind, lie.heading - piece.rotation, size)
+    if fit is None:
+        return None
+    x, z = piece.local(*fit.root)
+    sx, sz = piece.local(*fit.sit_root)
+    return (Stance(fit.pose, lie.heading, x, z, fit.base), Stance(fit.sit_pose, lie.heading, sx, sz, fit.sit_base))
+
+
+def lie_stance(lie: Slot, piece: Piece, size: float) -> Stance | None:
+    """How someone `size` metres tall ends up lying on `lie`; None if they don't fit."""
+    st = lie_stances(lie, piece, size)
+    return st[0] if st else None
+
+
+def _to(st: Stance, duration: float, **kw) -> Transition:
+    """A Transition to a whole stance."""
+    return Transition(st.body, duration, root=(st.x, st.z), heading=st.heading, base=st.base, **kw)
+
+
 def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
-    """Walk to a seat, step in front of it, turn round and sit down (slot already reserved)."""
+    """Walk up to a seat, turn round on open floor, step back to it and sit down (slot already
+    reserved). Turning at the seat itself would sweep the feet through its front."""
     approach = w.room.approach(seat, a.size)
     if approach is None:
         return None
@@ -585,10 +693,30 @@ def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
     ignore = frozenset({piece.index})
     return [
         Walk(approach, purpose="to a seat", ignore=ignore, stop_short_ok=False),
-        Step(seat.stand_point(a.size), speed=0.4, name="stepping up"),
         Turn(seat.heading),
-        Transition("sitting", 1.4 * pace, name="sitting down", label="sitting", posture="sitting",
-                   root=seat.at, heading=seat.heading, base=0.0),  # fmt: skip
+        Step(seat.stand_point(a.size), speed=0.3, name="stepping back", face=False, stride=0.25),
+        _to(seat_stance(seat, a.size), 1.4 * pace, name="sitting down", label="sitting", posture="sitting", lag=1.5),
+    ]
+
+
+def lie_plan(a: Actor, w: World, lie: Slot, entry: Slot) -> list[Activity] | None:
+    """Sit on `entry`, swing the legs up onto the piece, lie back and rest (both already
+    reserved). Going straight from sitting on the edge to lying would sweep the body through
+    the backrest or the mattress."""
+    stances = lie_stances(lie, w.room.pieces[lie.piece], a.size)
+    sit = sit_plan(a, w, entry)
+    if sit is None or stances is None:
+        return None
+    lying, sitting_up = stances
+    pace = mobility_pace(a)
+    edge = seat_stance(entry, a.size)
+    return sit + [
+        Hold(a.rng.uniform(1.0, 3.0), "seated"),
+        _to(dataclasses.replace(edge, body=tucked(edge.body)), 0.9 * pace, name="lifting legs up", label="sitting",
+            posture="sitting"),  # fmt: skip
+        _to(sitting_up, 1.5 * pace, name="lifting legs up", label="sitting", posture="sitting"),
+        _to(lying, 1.6 * pace, name="lying down", label="lying_intentional", posture="lying"),
+        Hold(dwell(a, w, 50.0, 160.0), "resting", sway=0.0),
     ]
 
 
@@ -596,10 +724,13 @@ def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
 
 BASE_WEIGHTS: dict[str, float] = {
     "sit": 3.0, "rest": 0.7, "window": 0.9, "browse": 0.8, "wander": 1.0, "pick_up": 0.35, "chat": 1.6,
-    "leave": 0.3, "pause": 0.8,
+    "leave": 0.3, "pause": 0.8, "table": 0.8, "tv": 0.9, "tie_shoe": 0.2, "reach_low": 0.3, "floor_sit": 0.12,
 }  # fmt: skip
 COOLDOWN_S: dict[str, float] = {"chat": 45.0, "leave": 150.0, "rest": 180.0, "pick_up": 60.0, "browse": 30.0,
-                                "window": 30.0}  # fmt: skip
+                                "window": 30.0, "table": 150.0, "tv": 180.0, "tie_shoe": 120.0, "reach_low": 60.0,
+                                "floor_sit": 300.0}  # fmt: skip
+TV_FACING = math.radians(35)  # a seat faces the TV if it's within this of straight ahead
+TV_RANGE_M = 5.0
 
 
 def dwell(a: Actor, w: World, lo: float, hi: float) -> float:
@@ -621,11 +752,12 @@ def choose(a: Actor, w: World) -> tuple[str, list[Activity]]:
         if intent in recent:
             wgt *= 0.25 if recent[-1] == intent else 0.6
         if a.posture == "sitting":
-            wgt *= {"sit": 0.15, "pause": 0.2, "pick_up": 0.3}.get(intent, 1.0)
+            wgt *= {"sit": 0.15, "pause": 0.2, "pick_up": 0.3, "table": 0.4, "tv": 0.4, "tie_shoe": 0.3,
+                    "reach_low": 0.3, "floor_sit": 0.3}.get(intent, 1.0)  # fmt: skip
         if a.posture == "lying":
             wgt *= {"rest": 0.0, "sit": 0.6}.get(intent, 1.0)
         # After a long time on their feet, people want to sit down.
-        if a.posture == "standing" and intent in ("sit", "rest"):
+        if a.posture == "standing" and intent in ("sit", "rest", "table", "tv"):
             wgt *= 1.0 + min(w.t - a.intent_since, 120.0) / 60.0
         if wgt > 0:
             weights[intent] = wgt
@@ -665,7 +797,7 @@ def plan_sit(a: Actor, w: World) -> list[Activity] | None:
     scored = []
     for s in seats:
         kind = w.room.pieces[s.piece].kind.name
-        if a.slots and s.slot_id in a.slots:
+        if (a.slots and s.slot_id in a.slots) or shunned(a, w, s):
             continue
         scored.append((s, pref.get(kind, 0.5) / (1.0 + distance(s.at, a.pos) / 3.0)))
     if not scored:
@@ -678,6 +810,54 @@ def plan_sit(a: Actor, w: World) -> list[Activity] | None:
     return first + sit_plan(a, w, seat) + [Hold(dwell(a, w, 25.0, 90.0), "seated")]  # type: ignore[operator]
 
 
+def shunned(a: Actor, w: World, slot: Slot) -> bool:
+    """Did they fail to reach this slot a moment ago?"""
+    return a.shunned.get(slot.slot_id, -1.0) > w.t
+
+
+def _take_seat(a: Actor, w: World, seats: list[Slot]) -> Slot | None:
+    """The nearest of `seats` that's free and can be reached."""
+    free = {s.slot_id for s in w.room.free_slots("sit")}
+    for s in sorted(seats, key=lambda s: distance(s.at, a.pos)):
+        if s.slot_id in free and s.slot_id not in a.slots and not shunned(a, w, s) and w.room.approach(s, a.size) is not None:
+            return s
+    return None
+
+
+def plan_table(a: Actor, w: World) -> list[Activity] | None:
+    """Sit at a table for something to eat or drink."""
+    tables = {p.group for p in w.room.pieces if p.kind.name == "table" and p.group is not None}
+    seat = _take_seat(a, w, [s for s in w.room.slots if s.kind == "sit" and w.room.pieces[s.piece].group in tables])
+    if seat is None:
+        return None
+    first = get_up(a, w)
+    reserve(a, w, seat)
+    return first + sit_plan(a, w, seat) + [Hold(dwell(a, w, 30.0, 120.0), "eating", eating=True)]  # type: ignore[operator]
+
+
+def facing_tv(w: World, seat: Slot) -> Floor | None:
+    """The TV (on a cabinet) a seat looks at, if any."""
+    for p in w.room.pieces:
+        if p.kind.name != "cabinet":
+            continue
+        d = distance(seat.at, p.at)
+        if d <= TV_RANGE_M and abs(wrap(heading_to(seat.at, p.at) - seat.heading)) <= TV_FACING:
+            return p.at
+    return None
+
+
+def plan_tv(a: Actor, w: World) -> list[Activity] | None:
+    """Sit somewhere facing the TV and watch it for a while."""
+    seats = [s for s in w.room.slots if s.kind == "sit" and facing_tv(w, s) is not None]
+    seat = _take_seat(a, w, seats)
+    if seat is None:
+        return None
+    first = get_up(a, w)
+    reserve(a, w, seat)
+    tv = facing_tv(w, seat)
+    return first + sit_plan(a, w, seat) + [Hold(dwell(a, w, 60.0, 200.0), "watching TV", look=tv, sway=0.5)]  # type: ignore[operator]
+
+
 def plan_rest(a: Actor, w: World) -> list[Activity] | None:
     beds = w.room.free_slots("lie", a.person_id)
     a.rng.shuffle(beds)
@@ -685,26 +865,86 @@ def plan_rest(a: Actor, w: World) -> list[Activity] | None:
         entry = w.room._slot_index.get(lie.entry or "")
         if entry is None or entry.occupant not in (None, a.person_id):
             entry = next((s for s in w.room.slots if s.group == lie.group and s.kind == "sit" and s.occupant is None), None)
-        if entry is None or w.room.approach(entry, a.size) is None:
+        if entry is None or w.room.approach(entry, a.size) is None or shunned(a, w, entry) or shunned(a, w, lie):
+            continue
+        if lie_stances(lie, w.room.pieces[lie.piece], a.size) is None:  # too short for them, even curled up
             continue
         first = get_up(a, w)
         reserve(a, w, lie, entry)
-        sit = sit_plan(a, w, entry)
-        assert sit is not None
-        lie_down = Transition("lying", 2.6 * mobility_pace(a), name="lying down", label="lying_intentional",
-                              posture="lying", root=lie.at, heading=lie.heading, base=lie.base)  # fmt: skip
-        return first + sit + [Hold(a.rng.uniform(1.0, 3.0), "seated"), lie_down,
-                              Hold(dwell(a, w, 50.0, 160.0), "resting", sway=0.0)]  # fmt: skip
+        rest = lie_plan(a, w, lie, entry)
+        assert rest is not None
+        return first + rest
     return None
+
+
+def _open_spot(a: Actor, w: World, clearance: float = 0.3) -> Floor | None:
+    """Somewhere on open floor within a few steps."""
+    for _ in range(10):
+        p = (a.pos[0] + a.rng.uniform(-2.5, 2.5), a.pos[1] + a.rng.uniform(-2.5, 2.5))
+        if w.room.nav.free(p) and w.room.nav.clearance(p) > clearance:
+            return p
+    return None
+
+
+# Everyday movements down near the floor. Ordinary, but they look a lot like trouble to a
+# camera, which is the point: the monitor has to tell them from a fall.
+
+
+def tie_shoe_steps(a: Actor) -> list[Activity]:
+    return [
+        Transition("half_kneel", 1.1, name="kneeling down", label="bending", posture="standing"),
+        Hold(a.rng.uniform(4.0, 8.0), "tying a shoe", pose="half_kneel", label="bending", sway=0.2),
+        Transition("standing", 1.2, name="getting up", label="standing", posture="standing"),
+    ]
+
+
+def floor_sit_steps(a: Actor, w: World) -> list[Activity]:
+    """Down onto the floor on purpose (crouch, kneel, sit with the legs out) and stay a while;
+    get_up() brings them back up."""
+    pace = mobility_pace(a)
+    return [
+        Transition("crouch", 1.0 * pace, name="crouching down", label="bending", posture="standing"),
+        Transition("kneel", 1.0 * pace, name="kneeling down", label="bending", posture="standing"),
+        Transition("floor_sit", 1.4 * pace, name="sitting down on the floor", label="sitting", posture="floor_sit"),
+        Hold(dwell(a, w, 20.0, 90.0), "sitting on the floor", label="sitting", sway=0.4),
+    ]
+
+
+def plan_tie_shoe(a: Actor, w: World) -> list[Activity] | None:
+    """Stop, go down on one knee to tie a shoe, and get up again."""
+    p = _open_spot(a, w)
+    if p is None:
+        return None
+    return get_up(a, w) + [Walk(p, purpose="to tie a shoe")] + tie_shoe_steps(a)
+
+
+def plan_reach_low(a: Actor, w: World) -> list[Activity] | None:
+    """Crouch in front of a cabinet or shelf for something on its bottom shelf."""
+    places = [p for p in w.room.places if p.name == "browse"
+              and not any(o is not a and o.present and distance(o.pos, p.at) < 0.9 for o in w.bodies)]  # fmt: skip
+    if not places:
+        return None
+    place = a.rng.choice(places)
+    return get_up(a, w) + [
+        Walk(place.at, purpose="to get something"), Turn(place.heading),
+        Transition("crouch", 1.0, name="crouching down", label="bending", posture="standing"),
+        Hold(a.rng.uniform(3.0, 6.0), "reaching low", pose="crouch", label="bending", sway=0.2),
+        Transition("standing", 1.1, name="straightening up", label="standing", posture="standing"),
+    ]
+
+
+def plan_floor_sit(a: Actor, w: World) -> list[Activity] | None:
+    """Sit down on the floor for a while, on purpose."""
+    p = _open_spot(a, w, clearance=0.44)  # nav.clearance() tops out at 0.45: as open as floor gets
+    if p is None:
+        return None
+    return get_up(a, w) + [Walk(p, purpose="to sit on the floor")] + floor_sit_steps(a, w)
 
 
 def plan_pick_up(a: Actor, w: World) -> list[Activity] | None:
     """Bend down to the floor for something and straighten up: an ordinary movement that looks like trouble."""
-    for _ in range(10):
-        p = (a.pos[0] + a.rng.uniform(-2.5, 2.5), a.pos[1] + a.rng.uniform(-2.5, 2.5))
-        if w.room.nav.free(p) and w.room.nav.clearance(p) > 0.3:
-            break
-    else:
+    p = _open_spot(a, w)
+    if p is None:
         return None
     return get_up(a, w) + [
         Walk(p, purpose="to pick something up"),
@@ -736,6 +976,11 @@ PLANNERS: dict[str, Callable[[Actor, World], list[Activity] | None]] = {
     "pick_up": plan_pick_up,
     "leave": plan_leave,
     "pause": plan_pause,
+    "table": plan_table,
+    "tv": plan_tv,
+    "tie_shoe": plan_tie_shoe,
+    "reach_low": plan_reach_low,
+    "floor_sit": plan_floor_sit,
 }
 """intent -> planner. Add an entry (and a BASE_WEIGHTS weight) to teach people something new."""
 

@@ -31,6 +31,7 @@ from hearth.eval.scoring import evaluate
 from hearth.sim.controller import STAMP_STEP, Clock, IngestFn, Record, WallClock
 from hearth.sim.generator import SIM_EPOCH, SOURCE
 
+from hearth.sim.live.commands import ActorCommand, apply_command
 from hearth.sim.live.engine import World
 from hearth.sim.live.incidents import IncidentRecord
 from hearth.sim.live.models import ActorDetail, LiveActorInfo, LiveState, LiveStatus, LiveWorld
@@ -174,6 +175,15 @@ class LiveController:
         rec = self.world.incidents.trigger(spec, source="manual")
         self._broadcast_frame()
         return rec
+
+    def command(self, person_id: str, cmd: ActorCommand) -> ActorDetail:
+        """Have a resident do something now (commands.apply_command). KeyError: unknown
+        person or slot; CommandError: they can't, now."""
+        if self.world is None:
+            raise RuntimeError("generate a room first")
+        apply_command(self.world, person_id, cmd)
+        self._broadcast_frame()
+        return self.world.detail(person_id)
 
     def reset_actor(self, person_id: str) -> ActorDetail:
         if self.world is None:

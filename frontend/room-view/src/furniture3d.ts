@@ -9,12 +9,43 @@ import type { WorldObject } from "./types";
  * plant, a rug. Each fits the object's box exactly (so it matches what the simulator
  * plans around) and faces the way `rotation` says (its front is local +z).
  *
+ * The parts people touch (seat and lying surface heights, arm width and height, how far
+ * the backrest comes forward) come from the object when it says (live rooms), so bodies
+ * the simulator fits to them rest on what's drawn. Scripted rooms get these defaults.
+ *
  * Live rooms say which piece it is in `variant`; scripted rooms only have `kind`, so
  * those get the closest model.
  */
 
 const WOODS = ["#8a5a3b", "#a0714f", "#6e4a33", "#b48a62"];
 const FABRICS = ["#5b6f8a", "#8a5b5b", "#6b7d5a", "#9b8a6e", "#5e5a7a", "#7a6a5a", "#466b6b"];
+
+/** The parts people touch, in metres; see the backend's room.Kind. */
+export interface Dims {
+  seat: number; // top of the seat
+  surface: number; // top of what someone lies on
+  arm: number; // width of each arm
+  armH: number; // top of the arms
+  back: number; // how far the backrest (headboard) comes forward from the back
+}
+
+const DEFAULT_DIMS: Record<"chair" | "sofa" | "bed", Dims> = {
+  chair: { seat: 0.485, surface: 0, arm: 0, armH: 0, back: 0.05 },
+  sofa: { seat: 0.43, surface: 0.43, arm: 0.16, armH: 0.62, back: 0.26 },
+  bed: { seat: 0.565, surface: 0.565, arm: 0, armH: 0, back: 0.06 },
+};
+
+export function dimsOf(o: WorldObject, family: "chair" | "sofa" | "bed", w: number): Dims {
+  const d = { ...DEFAULT_DIMS[family] };
+  if (family === "sofa") d.arm = Math.min(0.16, w * 0.12);
+  return {
+    seat: o.seat_height ?? d.seat,
+    surface: o.surface_height ?? d.surface,
+    arm: o.arm_width ?? d.arm,
+    armH: o.arm_height ?? d.armH,
+    back: o.back_depth ?? d.back,
+  };
+}
 
 interface Look {
   wood: THREE.MeshStandardMaterial;
@@ -45,9 +76,13 @@ function box(w: number, h: number, d: number, mat: THREE.Material, x = 0, y = 0,
   return m;
 }
 
-/** A box with softened edges (an extruded rounded rectangle), for cushions. */
+/** A box with softened edges (an extruded rounded rectangle), for cushions. Its outside is
+ * exactly w x h x d: the bevel grows the outline outwards, so the outline is drawn that much smaller. */
 function roundedBox(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
-  r = Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3);
+  const bevel = Math.min(r * 0.6, d / 4, w / 4, h / 4);
+  w -= 2 * bevel;
+  h -= 2 * bevel;
+  r = Math.max(0, Math.min(r - bevel, w / 2 - 1e-3, h / 2 - 1e-3));
   const s = new THREE.Shape();
   s.moveTo(-w / 2 + r, -h / 2);
   s.lineTo(w / 2 - r, -h / 2);
@@ -58,7 +93,6 @@ function roundedBox(w: number, h: number, d: number, r: number): THREE.BufferGeo
   s.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
   s.lineTo(-w / 2, -h / 2 + r);
   s.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
-  const bevel = Math.min(r * 0.6, d / 4);
   const geo = new THREE.ExtrudeGeometry(s, { depth: d - 2 * bevel, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 2, curveSegments: 4 });
   geo.translate(0, 0, -(d - 2 * bevel) / 2);
   return geo;
@@ -76,45 +110,52 @@ function legs(w: number, d: number, h: number, mat: THREE.Material, inset = 0.04
   );
 }
 
-function chair(w: number, d: number, h: number, l: Look): THREE.Object3D[] {
-  const seat = 0.45;
+function chair(w: number, d: number, h: number, l: Look, dims: Dims): THREE.Object3D[] {
+  const seat = dims.seat - 0.035; // the board; its cushion's top is dims.seat
+  const back = Math.max(dims.back - 0.01, 0.02);
   return [
     ...legs(w, d, seat - 0.03, l.wood),
     box(w, 0.05, d, l.wood, 0, seat - 0.025, 0),
     box(w - 0.04, 0.04, d - 0.06, l.cloth, 0, seat + 0.015, 0.01, 0.015),
-    box(w, h - seat - 0.03, 0.04, l.wood, 0, (h + seat) / 2, -d / 2 + 0.03),
+    box(w, h - seat - 0.03, back, l.wood, 0, (h + seat) / 2, -d / 2 + 0.01 + back / 2),
   ];
 }
 
-function sofa(w: number, d: number, h: number, l: Look, seats: number): THREE.Object3D[] {
-  const arm = Math.min(0.16, w * 0.12);
-  const base = 0.24;
+function sofa(w: number, d: number, h: number, l: Look, seats: number, dims: Dims): THREE.Object3D[] {
+  const { arm, armH } = dims;
+  const cushion = 0.13;
+  const base = dims.seat - 0.06 - cushion; // legs, then the base, then the seat cushions
+  const frame = Math.min(0.2, dims.back - 0.11); // the back frame; back cushions bring it to dims.back
+  const round = Math.min(0.05, arm / 2 - 0.005);
   const out: THREE.Object3D[] = [
     box(w, base, d, l.cloth, 0, base / 2 + 0.06, 0, 0.03),
-    box(w, h - 0.06, 0.2, l.cloth, 0, (h + 0.06) / 2, -d / 2 + 0.1, 0.05),
-    box(arm, 0.62 - 0.06, d, l.cloth, -w / 2 + arm / 2, 0.06 + (0.62 - 0.06) / 2, 0, 0.05),
-    box(arm, 0.62 - 0.06, d, l.cloth, w / 2 - arm / 2, 0.06 + (0.62 - 0.06) / 2, 0, 0.05),
+    box(w, h - 0.06, frame, l.cloth, 0, (h + 0.06) / 2, -d / 2 + frame / 2, 0.05),
+    box(arm, armH - 0.06, d, l.cloth, -w / 2 + arm / 2, 0.06 + (armH - 0.06) / 2, 0, round),
+    box(arm, armH - 0.06, d, l.cloth, w / 2 - arm / 2, 0.06 + (armH - 0.06) / 2, 0, round),
   ];
   const inner = w - 2 * arm;
   const cw = inner / seats;
+  const backCushion = dims.back - frame;
   for (let i = 0; i < seats; i++) {
     const x = -inner / 2 + cw * (i + 0.5);
-    out.push(box(cw - 0.02, 0.13, d - 0.24, l.cloth, x, base + 0.06 + 0.065, 0.1, 0.05));
-    out.push(box(cw - 0.04, 0.38, 0.14, l.accent, x, base + 0.06 + 0.3, -d / 2 + 0.24, 0.06));
+    out.push(box(cw - 0.02, cushion, d - frame - 0.04, l.cloth, x, base + 0.06 + cushion / 2, (frame + 0.04) / 2, 0.05));
+    out.push(box(cw - 0.04, 0.38, backCushion, l.accent, x, dims.seat + 0.17, -d / 2 + frame + backCushion / 2, 0.06));
   }
   for (const m of legs(w, d, 0.06, l.wood, 0.06, 0.025)) out.push(m);
   return out;
 }
 
-function bed(w: number, d: number, _h: number, l: Look): THREE.Object3D[] {
+function bed(w: number, d: number, _h: number, l: Look, dims: Dims): THREE.Object3D[] {
   const white = new THREE.MeshStandardMaterial({ color: "#eceae4", roughness: 0.95, map: fabric() });
+  const top = dims.surface; // the blanket's top; the mattress is just under it
+  const head = dims.back;
   return [
-    box(w, 0.28, d, l.wood, 0, 0.14 + 0.04, 0),
+    box(w, top - 0.285, d, l.wood, 0, 0.04 + (top - 0.285) / 2, 0),
     ...legs(w, d, 0.06, l.wood, 0.05),
-    box(w - 0.06, 0.2, d - 0.06, white, 0, 0.42, 0, 0.04),
-    box(w - 0.02, 0.06, d * 0.62, l.cloth, 0, 0.535, d * 0.19, 0.03),
-    box(w * 0.72, 0.1, 0.32, white, 0, 0.56, -d / 2 + 0.26, 0.05),
-    box(w + 0.02, 0.95, 0.06, l.wood, 0, 0.475, -d / 2 + 0.03),
+    box(w - 0.06, 0.2, d - head, white, 0, top - 0.145, head / 2, 0.04),
+    box(w - 0.02, 0.06, d * 0.62, l.cloth, 0, top - 0.03, d * 0.19, 0.03),
+    box(w * 0.72, 0.1, 0.32, white, 0, top - 0.005, -d / 2 + head + 0.2, 0.05),
+    box(w + 0.02, 0.95, head, l.wood, 0, 0.475, -d / 2 + head / 2),
   ];
 }
 
@@ -221,19 +262,19 @@ export function buildFurniture(o: WorldObject): THREE.Group {
   let parts: THREE.Object3D[];
   switch (variant) {
     case "chair":
-      parts = chair(w, d, h, l);
+      parts = chair(w, d, h, l, dimsOf(o, "chair", w));
       break;
     case "armchair":
-      parts = sofa(w, d, h, l, 1);
+      parts = sofa(w, d, h, l, 1, dimsOf(o, "sofa", w));
       break;
     case "couch":
-      parts = sofa(w, d, h, l, w > 1.8 ? 3 : 2);
+      parts = sofa(w, d, h, l, w > 1.8 ? 3 : 2, dimsOf(o, "sofa", w));
       break;
     case "loveseat":
-      parts = sofa(w, d, h, l, 2);
+      parts = sofa(w, d, h, l, 2, dimsOf(o, "sofa", w));
       break;
     case "bed":
-      parts = bed(w, d, h, l);
+      parts = bed(w, d, h, l, dimsOf(o, "bed", w));
       break;
     case "table":
     case "side_table":

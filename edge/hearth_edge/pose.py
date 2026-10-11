@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover - older installs
     from jetson.utils import (videoSource, videoOutput, cudaAllocMapped, cudaToNumpy,
                               cudaDeviceSynchronize, cudaDrawCircle, cudaDrawLine, cudaResize)
 
-from hearth_edge.pose_rotate import scale_pose, unrotate_pose
+from hearth_edge.pose_rotate import largest, scale_pose, unrotate_pose
 
 AMBER = (255, 190, 0, 255)
 # COCO-18 bones, for drawing a pose found on a rotated frame (poseNet's own overlay can't).
@@ -39,8 +39,9 @@ BONES = (("nose", "neck"), ("neck", "left_shoulder"), ("neck", "right_shoulder")
 
 class PoseCamera(object):
     def __init__(self, camera="/dev/video0", width=640, height=480, model="resnet18-body",
-                 threshold=0.15, stream=None, fps=None):
+                 threshold=0.15, stream=None, fps=None, plain=False):
         self.net = poseNet(model, threshold=threshold)
+        self.plain = plain  # stream the camera image without drawing on it (the dashboard draws)
         argv = ["--input-codec=mjpeg", "--input-width=%d" % width, "--input-height=%d" % height]
         if fps:
             argv.append("--input-rate=%d" % fps)
@@ -93,6 +94,11 @@ class PoseCamera(object):
         Returns (largest pose mapped back to the original frame or None, milliseconds). A person
         lying on the floor looks upright in the rotated frame, which poseNet handles far better.
         """
+        poses, ms = self.rotated_poses(frame, k)
+        return largest(poses), ms
+
+    def rotated_poses(self, frame, k):
+        """Like rotated_pose, but every pose found, all mapped back: (poses, milliseconds)."""
         import numpy as np
         start = time.time()
         img = frame["img"]
@@ -107,15 +113,8 @@ class PoseCamera(object):
         cudaDeviceSynchronize()  # the GPU must have finished before the CPU reads the result
         np.copyto(self._rot_view, np.rot90(cudaToNumpy(self._small), k))
         poses = self._plain(self.net.Process(self._rot_buf, overlay="none"))
-        best, best_area = None, -1.0
-        for p in poses:
-            l, t, r, b = p["bbox"]
-            area = max(0.0, r - l) * max(0.0, b - t)
-            if area > best_area:
-                best, best_area = p, area
-        pose = (scale_pose(unrotate_pose(best, k, w2, h2), img.width / float(w2))
-                if best is not None else None)
-        return pose, (time.time() - start) * 1000.0
+        back = [scale_pose(unrotate_pose(p, k, w2, h2), img.width / float(w2)) for p in poses]
+        return back, (time.time() - start) * 1000.0
 
     def render(self, frame):
         """Draw the skeleton and send the frame to the optional viewer stream.
@@ -125,6 +124,9 @@ class PoseCamera(object):
         if self.output is None:
             return
         img = frame["img"]
+        if self.plain:
+            self.output.Render(img)
+            return
         override = frame.get("pose_override")
         if override is not None:  # a pose found on a rotated frame: draw it ourselves, in amber
             try:

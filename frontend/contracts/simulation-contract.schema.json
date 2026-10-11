@@ -1,0 +1,746 @@
+{
+  "$defs": {
+    "Event": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_type": {
+          "enum": [
+            "edge",
+            "simulation",
+            "replay"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Anonymous per-session track id of the person the event concerns (e.g. 'p1'). Not an identity. None = single-person source.",
+          "title": "Person Id"
+        },
+        "event_type": {
+          "enum": [
+            "possible_fall",
+            "recovered",
+            "person_visible",
+            "person_not_visible",
+            "face_present",
+            "face_absent",
+            "source_offline",
+            "source_online",
+            "alert_acknowledged"
+          ],
+          "title": "Event Type",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_id",
+        "timestamp",
+        "source",
+        "source_type",
+        "room_id",
+        "scenario_id",
+        "person_id",
+        "event_type",
+        "confidence",
+        "metadata"
+      ],
+      "title": "Event",
+      "type": "object"
+    },
+    "GroundTruth": {
+      "additionalProperties": false,
+      "description": "One labelled segment of a simulated scenario. Times are seconds from scenario start.",
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "segment_id": {
+          "title": "Segment Id",
+          "type": "string"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which simulated resident this segment describes. None = single-resident scenario.",
+          "title": "Person Id"
+        },
+        "t_start": {
+          "minimum": 0.0,
+          "title": "T Start",
+          "type": "number"
+        },
+        "t_end": {
+          "minimum": 0.0,
+          "title": "T End",
+          "type": "number"
+        },
+        "truth_label": {
+          "enum": [
+            "walking",
+            "standing",
+            "sitting",
+            "bending",
+            "lying_intentional",
+            "fall",
+            "occluded",
+            "camera_outage",
+            "absent"
+          ],
+          "title": "Truth Label",
+          "type": "string"
+        },
+        "expects_alert": {
+          "title": "Expects Alert",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "scenario_id",
+        "seed",
+        "segment_id",
+        "person_id",
+        "t_start",
+        "t_end",
+        "truth_label",
+        "expects_alert"
+      ],
+      "title": "GroundTruth",
+      "type": "object"
+    },
+    "Heartbeat": {
+      "additionalProperties": false,
+      "description": "Sent by every source about once per second; also carries edge performance metrics.",
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_type": {
+          "enum": [
+            "edge",
+            "simulation",
+            "replay"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "fps": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fps"
+        },
+        "inference_ms": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inference Ms"
+        },
+        "mem_used_mb": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mem Used Mb"
+        }
+      },
+      "required": [
+        "schema_version",
+        "timestamp",
+        "source",
+        "source_type",
+        "room_id",
+        "fps",
+        "inference_ms",
+        "mem_used_mb"
+      ],
+      "title": "Heartbeat",
+      "type": "object"
+    },
+    "Keypoint": {
+      "additionalProperties": false,
+      "description": "Coordinates are normalized to the frame: (0, 0) top-left, (1, 1) bottom-right.",
+      "properties": {
+        "name": {
+          "enum": [
+            "nose",
+            "left_eye",
+            "right_eye",
+            "left_ear",
+            "right_ear",
+            "left_shoulder",
+            "right_shoulder",
+            "left_elbow",
+            "right_elbow",
+            "left_wrist",
+            "right_wrist",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+            "neck"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "x",
+        "y",
+        "confidence"
+      ],
+      "title": "Keypoint",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "obs_id": {
+          "title": "Obs Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "source": {
+          "description": "Device or generator id, e.g. 'jetson-01' or 'sim'.",
+          "title": "Source",
+          "type": "string"
+        },
+        "source_type": {
+          "enum": [
+            "edge",
+            "simulation",
+            "replay"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Anonymous per-session track id when a source reports several people (e.g. 'p1'). Not an identity. None = single-person source.",
+          "title": "Person Id"
+        },
+        "person_detected": {
+          "title": "Person Detected",
+          "type": "boolean"
+        },
+        "keypoints": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Keypoint"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keypoints"
+        },
+        "features": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostureFeatures"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "face_present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "None = face detection did not run on this frame.",
+          "title": "Face Present"
+        },
+        "face_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Face Confidence"
+        }
+      },
+      "required": [
+        "schema_version",
+        "obs_id",
+        "timestamp",
+        "source",
+        "source_type",
+        "room_id",
+        "scenario_id",
+        "person_id",
+        "person_detected",
+        "keypoints",
+        "features",
+        "face_present",
+        "face_confidence"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "ObservationBatch": {
+      "additionalProperties": false,
+      "description": "Body of POST /ingest/observations.",
+      "properties": {
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Observations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observations"
+      ],
+      "title": "ObservationBatch",
+      "type": "object"
+    },
+    "PostureFeatures": {
+      "additionalProperties": false,
+      "description": "Per-frame posture features. Every field is optional: missing = not measurable this frame.",
+      "properties": {
+        "torso_angle_deg": {
+          "anyOf": [
+            {
+              "maximum": 180.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Neck-to-hip angle from vertical. 0 = upright, 90 = horizontal.",
+          "title": "Torso Angle Deg"
+        },
+        "head_y": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized head height (0 = top of frame).",
+          "title": "Head Y"
+        },
+        "hip_y": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Normalized mid-hip height (0 = top of frame).",
+          "title": "Hip Y"
+        },
+        "bbox_aspect": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Person bounding box width / height.",
+          "title": "Bbox Aspect"
+        },
+        "vertical_velocity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Change in hip_y per second; positive = moving down.",
+          "title": "Vertical Velocity"
+        }
+      },
+      "required": [
+        "torso_angle_deg",
+        "head_y",
+        "hip_y",
+        "bbox_aspect",
+        "vertical_velocity"
+      ],
+      "title": "PostureFeatures",
+      "type": "object"
+    },
+    "SourceStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_type": {
+          "enum": [
+            "edge",
+            "simulation",
+            "replay"
+          ],
+          "title": "Source Type",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "online": {
+          "title": "Online",
+          "type": "boolean"
+        },
+        "last_seen": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
+        "fps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fps"
+        },
+        "inference_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inference Ms"
+        },
+        "mem_used_mb": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mem Used Mb"
+        }
+      },
+      "required": [
+        "source",
+        "source_type",
+        "room_id",
+        "online",
+        "last_seen",
+        "fps",
+        "inference_ms",
+        "mem_used_mb"
+      ],
+      "title": "SourceStatus",
+      "type": "object"
+    },
+    "EventMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "event",
+          "default": "event",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/Event"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "EventMessage",
+      "type": "object"
+    },
+    "ObservationMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "observation",
+          "default": "observation",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/Observation"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "ObservationMessage",
+      "type": "object"
+    },
+    "SourceStatusMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "source_status",
+          "default": "source_status",
+          "title": "Type",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/SourceStatus"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "SourceStatusMessage",
+      "type": "object"
+    },
+    "ServerMessage": {
+      "discriminator": {
+        "mapping": {
+          "event": "#/$defs/EventMessage",
+          "observation": "#/$defs/ObservationMessage",
+          "source_status": "#/$defs/SourceStatusMessage"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ObservationMessage"
+        },
+        {
+          "$ref": "#/$defs/EventMessage"
+        },
+        {
+          "$ref": "#/$defs/SourceStatusMessage"
+        }
+      ]
+    }
+  },
+  "title": "Hearth contract v1"
+}

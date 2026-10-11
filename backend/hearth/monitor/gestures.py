@@ -18,6 +18,7 @@ class GestureState:
     last_request: datetime | None = None
     hand_center: tuple[float, float] | None = None
     evidence_mode: str | None = None
+    confirmations: int = 0
 
 
 class HelpGestureDetector:
@@ -31,6 +32,7 @@ class HelpGestureDetector:
             if track[:len(key)] != key:
                 continue
             state.since = state.released_since = None
+            state.confirmations = 0
             # Missing frames cannot re-arm an already sent request.
             if not state.latched:
                 state.side = None
@@ -60,12 +62,14 @@ class HelpGestureDetector:
             gap = (obs.timestamp - state.last_timestamp).total_seconds()
             if gap <= 0:
                 return []
-            if gap > self.config.max_observation_gap_seconds:
+            limit = self.config.hand_max_observation_gap_seconds if obs.hand_gesture_prediction else self.config.max_observation_gap_seconds
+            if gap > limit:
                 self.invalidate(key)
         state.last_timestamp = obs.timestamp
         prediction = obs.hand_gesture_prediction
         mode = prediction.model_id + "@" + prediction.model_revision if prediction else "pose"
         if state.evidence_mode != mode:
+            state.confirmations = 0
             state.since = state.released_since = None
             state.hand_center = None
             state.evidence_mode = mode
@@ -76,6 +80,7 @@ class HelpGestureDetector:
             if (state.hand_center is not None and
                     max(abs(a-b) for a, b in zip(center, state.hand_center)) > self.config.hand_gesture_max_center_shift):
                 state.since = state.released_since = None
+                state.confirmations = 0
                 if state.latched:
                     state.hand_center = center
                     return []
@@ -95,12 +100,16 @@ class HelpGestureDetector:
         raised = state.side if arms.get(state.side) is True else next((side for side, up in arms.items() if up is True), None)
         if raised is None:
             state.since, state.side = None, None
+            state.confirmations = 0
             return []
         if raised != state.side or state.since is None:
             state.side, state.since = raised, obs.timestamp
+            state.confirmations = 1
+        else:
+            state.confirmations += 1
         held = (obs.timestamp - state.since).total_seconds()
         cooled = state.last_request is None or (obs.timestamp - state.last_request).total_seconds() >= self.config.gesture_cooldown_seconds
-        if held < self.config.gesture_hold_seconds or not cooled:
+        if held < self.config.gesture_hold_seconds or not cooled or (raised == "hand_model" and state.confirmations < self.config.hand_min_confirmations):
             return []
         state.latched, state.last_request = True, obs.timestamp
         if raised == "hand_model":

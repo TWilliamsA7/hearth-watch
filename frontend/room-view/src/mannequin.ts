@@ -37,6 +37,14 @@ const AIMS: ReadonlyArray<{ bone: string; child: string; from: Point; to: Point 
   { bone: "calf_r", child: "foot_r", from: joint("right_knee"), to: joint("right_ankle") },
 ];
 
+/**
+ * The simulator's leg, as fractions of standing height (backend pose.STANDING: hips at 0.52,
+ * knees at 0.28 and 0.01 forward, ankles at 0.03). The mannequin's legs are shorter (thigh
+ * 0.22, calf 0.235), so posed from the hips its feet would float above the ankles.
+ */
+const SIM_THIGH = Math.hypot(0.01, 0.24);
+const SIM_SHIN = Math.hypot(0.01, 0.25);
+
 const _qp = new THREE.Quaternion();
 const _qr = new THREE.Quaternion();
 const _v = new THREE.Vector3();
@@ -81,6 +89,8 @@ export interface Template {
   height: number;
   /** The head's rest rotation and which way the face points, in the head bone's own frame. */
   headRest?: { quaternion: THREE.Quaternion; face: THREE.Vector3 };
+  /** Bone scales that give the mannequin the simulator's leg proportions (feet kept their size). */
+  legScale: { thigh: number; calf: number; foot: number };
 }
 
 const templates = new Map<string, Promise<Template>>();
@@ -108,6 +118,11 @@ export function mannequinTemplate(scene: THREE.Object3D): Template {
   const basis = bodyBasis(pos("thigh_l"), pos("thigh_r"), pos("neck_01"));
   if (!basis) throw new Error("mannequin rest pose has no usable hips");
   const height = new THREE.Box3().setFromObject(scene).getSize(new THREE.Vector3()).y;
+  const thighLen = pos("thigh_l").distanceTo(pos("calf_l")) / height;
+  const calfLen = pos("calf_l").distanceTo(pos("foot_l")) / height;
+  const thigh = SIM_THIGH / thighLen;
+  const calf = SIM_SHIN / calfLen / thigh; // the calf already grows with its parent
+  const legScale = { thigh, calf, foot: 1 / (thigh * calf) };
   // The face points along the rest body's forward axis (basis column z).
   let headRest: Template["headRest"];
   const head = scene.getObjectByName("Head");
@@ -116,7 +131,7 @@ export function mannequinTemplate(scene: THREE.Object3D): Template {
     const inv = head.getWorldQuaternion(new THREE.Quaternion()).invert();
     headRest = { quaternion: head.quaternion.clone(), face: forward.applyQuaternion(inv).normalize() };
   }
-  return { scene, rest, restBasisInv: basis.invert(), height, headRest };
+  return { scene, rest, restBasisInv: basis.invert(), height, headRest, legScale };
 }
 
 const v3 = (p: Vec3) => new THREE.Vector3(p[0], p[1], p[2]);
@@ -185,6 +200,9 @@ export function mannequinBody(t: Template, personId: string | null): PersonRig {
   const headBone = model.getObjectByName("Head");
   const thighL = model.getObjectByName("thigh_l")!;
   const thighR = model.getObjectByName("thigh_r")!;
+  for (const side of ["l", "r"]) {
+    for (const part of ["thigh", "calf", "foot"] as const) model.getObjectByName(`${part}_${side}`)?.scale.setScalar(t.legScale[part]);
+  }
   const parts: { mesh: THREE.SkinnedMesh; mat: THREE.MeshStandardMaterial; role: "main" | "joints" }[] = [];
   model.traverse((o) => {
     const mesh = o as THREE.SkinnedMesh;

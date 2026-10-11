@@ -1,0 +1,2 @@
+# Shell scripts run under bash (Git Bash, the Jetson): CRLF breaks them, so always LF.
+*.sh text eol=lf

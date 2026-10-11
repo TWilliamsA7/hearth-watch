@@ -77,3 +77,92 @@ def test_a_live_person_plays_out_in_the_live_room():
 def test_link_needs_a_room():
     with TestClient(create_app(service=MonitorService(MonitorConfig.load()))) as c:
         assert c.post("/sim/live/link", json={"enabled": True}).status_code == 409
+
+
+def people_frames(world, people, start, seconds, hz=10):
+    """One camera reporting several people: per frame, one observation per (person_id, pose, x, z),
+    with the edge's posture-model call. People in one frame share its timestamp."""
+    out = []
+    for person_id, pose, x, z in people:
+        frames = camera_frames(world, pose, x, z, start, seconds, hz)
+        label = "standing" if pose == "standing" else "fallen"
+        for f in frames:
+            xs, ys = [k["x"] for k in f["keypoints"]], [k["y"] for k in f["keypoints"]]
+            f.update(obs_id=f"{person_id}-{f['obs_id']}", person_id=person_id,
+                     posture_prediction={"model_id": "hearth/posture-mlp", "model_revision": "test",
+                                         "input_processing": "original", "label": label, "confidence": 0.93,
+                                         "bbox": {"x1": min(xs), "y1": min(ys), "x2": max(xs), "y2": max(ys)},
+                                         "detection_count": 1, "uncertainty_reason": None})
+        out += frames
+    return sorted(out, key=lambda o: o["timestamp"])
+
+
+def test_each_person_from_one_camera_gets_their_own_avatar_and_alert():
+    app = create_app(service=MonitorService(MonitorConfig.load()))
+    sim = app.state.simulation
+    with TestClient(app) as c:
+        c.post("/sim/live/new", json={"spec": SPEC, "seed": 1})
+        c.post("/sim/live/link", json={"enabled": True, "source": SOURCE})
+        world = sim.live.world
+
+        both_up = [("p1", "standing", -1.2, -3.0), ("p2", "standing", 1.4, -3.5)]
+        c.post("/ingest/observations", json={"observations": people_frames(world, both_up, 0, 2)})
+        tick(sim)
+        status = c.get("/sim/live/link").json()
+        assert status["state"] == "live"
+        assert [(p["person_id"], p["track_id"], p["posture"]) for p in status["people"]] == [
+            (f"live-{SOURCE}-p1", "p1", "standing"), (f"live-{SOURCE}-p2", "p2", "standing")]
+        assert status["people"][0]["model"] == {"model_id": "hearth/posture-mlp", "label": "standing",
+                                                "confidence": 0.93}
+        live = {p.person_id: p for p in world.frame().people if p.kind == "live"}
+        assert set(live) == {f"live-{SOURCE}-p1", f"live-{SOURCE}-p2"}
+        assert live[f"live-{SOURCE}-p2"].model is not None and live[f"live-{SOURCE}-p2"].model.label == "standing"
+        assert distance(world.externals[f"live-{SOURCE}-p1"].pos, (-1.2, -3.0)) < 0.3
+        assert distance(world.externals[f"live-{SOURCE}-p2"].pos, (1.4, -3.5)) < 0.3
+
+        # p2 goes down for longer than the monitor's hold: only p2's alert, and help goes to p2.
+        p2_down = [("p1", "standing", -1.2, -3.0), ("p2", "side_lying", 1.4, -3.5)]
+        c.post("/ingest/observations", json={"observations": people_frames(world, p2_down, 2, 4.5)})
+        tick(sim)
+        status = c.get("/sim/live/link").json()
+        by_id = {p["track_id"]: p for p in status["people"]}
+        assert by_id["p2"]["posture"] == "floor" and by_id["p2"]["alert_open"]
+        assert by_id["p2"]["model"]["label"] == "fallen"
+        assert by_id["p1"]["posture"] == "standing" and not by_id["p1"]["alert_open"]
+        assert status["alert_open"]
+        alerts = [a for a in c.get("/alerts").json() if a["kind"] == "possible_fall" and a["source"] == SOURCE]
+        assert [a["metadata"]["person_id"] for a in alerts] == ["p2"]
+        assert set(world.incidents.responders) == {f"live-{SOURCE}-p2"}
+
+        assert c.post("/sim/live/link", json={"enabled": False, "source": SOURCE}).json()["people"] == []
+        assert all(p.kind != "live" for p in world.frame().people)
+
+
+def test_someone_who_leaves_is_taken_out_and_the_others_stay():
+    now = [1000.0]
+    app = create_app(service=MonitorService(MonitorConfig.load(), clock=lambda: now[0]))
+    sim = app.state.simulation
+    with TestClient(app) as c:
+        c.post("/sim/live/new", json={"spec": SPEC, "seed": 1})
+        c.post("/sim/live/link", json={"enabled": True, "source": SOURCE})
+        world = sim.live.world
+        c.post("/ingest/observations", json={"observations": people_frames(
+            world, [("p1", "standing", -1.2, -3.0), ("p2", "standing", 1.4, -3.5)], 0, 1)})
+        for _ in range(12):
+            now[0] += 0.05
+            sim.link.update()
+        assert {p.person_id for p in world.frame().people if p.kind == "live"} == {
+            f"live-{SOURCE}-p1", f"live-{SOURCE}-p2"}
+        # p1 walks out; p2 is still seen 5 s later. (Also the "nobody" record is never a person.)
+        now[0] += 5.0
+        nobody = {**people_frames(world, [("p2", "standing", 1.4, -3.5)], 5, 0.1)[0],
+                  "obs_id": "nobody", "person_detected": False, "keypoints": None, "features": None,
+                  "posture_prediction": None}
+        nobody.pop("person_id")
+        c.post("/ingest/observations", json={"observations": [nobody] + people_frames(
+            world, [("p2", "standing", 1.4, -3.5)], 5.1, 1)})
+        for _ in range(12):
+            now[0] += 0.05
+            sim.link.update()
+        assert {p.person_id for p in world.frame().people if p.kind == "live"} == {f"live-{SOURCE}-p2"}
+        assert [p["track_id"] for p in c.get("/sim/live/link").json()["people"]] == ["p2"]

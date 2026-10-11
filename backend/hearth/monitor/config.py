@@ -33,6 +33,8 @@ class MonitorConfig(BaseModel):
     hand_gesture_model_id: str = "SuperSura/hand-gesture-yolo26n"
     hand_help_label: Literal["palm", "call", "fist"] = "fist"
     hand_gesture_confidence_min: float = Field(default=.65, gt=0, le=1)
+    hand_max_observation_gap_seconds: float = Field(default=1, gt=0)
+    hand_min_confirmations: int = Field(default=3, ge=3)
     hand_gesture_max_center_shift: float = Field(default=.25, gt=0, le=1)
     floor_hold_seconds: float = Field(default=3, gt=0)
     posture_mode: Literal["model", "pose_fallback"] = "model"
@@ -56,7 +58,8 @@ class MonitorConfig(BaseModel):
     event_capacity: int = Field(default=10000, gt=0)
     dedupe_capacity: int = Field(default=20000, gt=0)
     websocket_queue_capacity: int = Field(default=512, gt=0)
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"])
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173",
+                                                          "http://localhost:5174", "http://127.0.0.1:5174"])
     zones: list[Zone] = Field(default_factory=list)
 
     @model_validator(mode="after")

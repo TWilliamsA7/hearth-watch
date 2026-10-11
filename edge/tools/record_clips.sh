@@ -5,15 +5,16 @@
 #     edge/tools/record_clips.sh --no-video stand        # no camera window
 #
 # One run_edge.py session runs on the Jetson for the whole script (models load once, ~10 s),
-# and the camera window (skeleton, face boxes, info panel, cyan "floor zone" line) stays open.
+# and the camera window (skeleton, face boxes, info panel with our posture model) stays open.
 # Before every clip you see yourself live and can position; press Enter and the countdown
 # (--countdown, default 5 s) starts right away, then it records for --seconds and goes back to
 # the live view. Type s + Enter to skip a clip, q + Enter to quit.
-#   standing: whole body in view, hip dot ABOVE the cyan line
-#   lying on the mat, sideways across the picture: head and hip dots BELOW the line
+#   standing: whole body in view, head to feet
+#   lying on the mat, sideways across the picture: whole body in view, side to side
 # Clips are saved on the Jetson in ~/hearth-watch/recordings/ and copied to <repo>/recordings/
 # at the end (git ignores that folder). Only keypoints and posture numbers are saved, never
-# video; the window is a live view only. Uses --dry-run: nothing is sent to any backend.
+# video (each observation includes our posture model's posture_prediction, as live); the window
+# is a live view only. Uses --dry-run: nothing is sent to any backend.
 # Check the clips afterwards: .venv/bin/python edge/tools/check_rules.py recordings/<clip>.jsonl
 #
 # Safety: for lie-down clips, lower yourself slowly onto a mat. Never stage a real fall.

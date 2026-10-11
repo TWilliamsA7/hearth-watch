@@ -18,14 +18,17 @@ from hearth.sim.generator import Stance, blend_stance
 from hearth.sim.motion import Key, timeline
 from hearth.sim.pose import (
     F_AXIS,
+    HEAD_JOINTS,
     KEY_POSES,
     L_AXIS,
     V_AXIS,
     BodyPose,
     body_pose,
+    fit_bones,
     gait_amount,
     hips_of,
     lean,
+    rotate,
     smoothstep,
     stride_length,
     turn_limb,
@@ -35,6 +38,7 @@ from hearth.sim.world import WorldPose, body
 from hearth.sim.live.actor import Actor
 
 STILL_SPEED = 0.15  # m/s: below this the gait fades out, so standing still looks still
+SHUFFLE = 0.75  # stride of someone with slow mobility, against everyone else's: short, quick steps
 MAX_HEAD_YAW = math.radians(65)
 HEAD_TURN_RATE = 2.5  # rad/s
 
@@ -48,21 +52,30 @@ def heading_to(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.atan2(b[0] - a[0], b[1] - a[1])
 
 
-def gait(actor: Actor, speed: float, dt: float, *, stepping: float = 0.0) -> BodyPose:
+def gait(actor: Actor, speed: float, dt: float, *, stepping: float = 0.0, backwards: bool = False,
+         stride: float = 1.0) -> BodyPose:  # fmt: skip
     """A standing body walking at `speed` m/s. The cycle advances with distance covered,
-    so the planted foot keeps pace with the floor; `stepping` adds a little stepping on
-    the spot (turning in place)."""
+    so the planted foot keeps pace with the floor (and runs the other way when stepping
+    backwards); `stepping` adds a little stepping on the spot (turning in place). `stride`
+    scales the step length: under 1, shorter quicker steps (a shuffle). Someone with slow
+    mobility always shuffles a little."""
     size = actor.size
-    stride = stride_length(speed, size)
-    actor.gait_phase = (actor.gait_phase + 2.0 * math.pi * (speed * dt / stride + stepping * dt * 0.9)) % (2 * math.pi)
+    stride = stride_length(speed, size) * stride * (SHUFFLE if actor.profile.mobility == "slow" else 1.0)
+    ahead = -1.0 if backwards else 1.0
+    actor.gait_phase = (actor.gait_phase + 2.0 * math.pi * (ahead * speed * dt / stride + stepping * dt * 0.9)) % (2 * math.pi)
     fade = min(1.0, max(speed / STILL_SPEED, stepping * 1.5))
     if fade <= 0.01:
         return dict(KEY_POSES["standing"])
     return body_pose("standing", actor.gait_phase, gait_amount(stride, size) * smoothstep(fade))
 
 
-def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0, talking: bool = False) -> BodyPose:
-    """Layer breathing, sway, head turns and talking gestures over a held pose."""
+EAT_PERIOD_S = 7.0  # a forkful or a sip this often
+EAT_LIFT_S = 2.2  # ...taking this long, hand up to the mouth and down again
+
+
+def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0, talking: bool = False,
+         eating: bool = False) -> BodyPose:  # fmt: skip
+    """Layer breathing, sway, head turns, and talking or eating gestures over a held pose."""
     ph = actor.idle_phase
     out = dict(pose)
     upright = actor.posture in ("standing", "sitting")
@@ -86,7 +99,7 @@ def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0
     step = HEAD_TURN_RATE * dt
     actor.look_yaw += max(-step, min(step, want - actor.look_yaw))
     if abs(actor.look_yaw) > 1e-3 and actor.posture != "floor":
-        out = turn_limb(out, "neck", V_AXIS, actor.look_yaw)
+        out = turn_head(out, actor.look_yaw)
     # Talking: a forearm comes up now and then, as people gesture.
     target = 0.0
     if talking:
@@ -98,7 +111,45 @@ def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0
         g = actor.gesture
         out = turn_limb(out, f"{side}_shoulder", L_AXIS, -math.radians(18) * g)
         out = turn_limb(out, f"{side}_elbow", L_AXIS, -math.radians(65) * g)
+    # Eating or drinking: now and then a hand comes up to the mouth and goes down again.
+    if eating:
+        u = (t + ph * 3.0) % EAT_PERIOD_S
+        g = math.sin(math.pi * u / EAT_LIFT_S) ** 2 if u < EAT_LIFT_S else 0.0
+        if g > 0.0:
+            side, inward = ("right", 1.0) if ph % 2 < 1 else ("left", -1.0)
+            out = turn_limb(out, f"{side}_shoulder", L_AXIS, -math.radians(30) * g)
+            out = turn_limb(out, f"{side}_elbow", L_AXIS, -math.radians(105) * g)
+            out = turn_limb(out, f"{side}_elbow", V_AXIS, inward * math.radians(30) * g)  # towards the mouth
     return out
+
+
+def seated_variants(rest: BodyPose, *, arms: bool) -> list[BodyPose]:
+    """Other ways to sit in the same seat, for someone sitting a long while to shift between:
+    as fitted, leaning back, ankles crossed, hands together, and (with armrests) leaning on
+    one. Small changes to the fitted pose, so none of them goes into the seat."""
+    out = [rest, lean(rest, L_AXIS, -math.radians(9))]
+    crossed = dict(rest)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        f, v, l = rest[f"{side}_ankle"]
+        crossed[f"{side}_ankle"] = (f + 0.02, v, -sign * 0.02)
+        f, v, l = rest[f"{side}_knee"]
+        crossed[f"{side}_knee"] = (f, v, l * 0.6)
+    out.append(fit_bones(crossed))
+    clasped = dict(rest)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        f, v, _ = rest[f"{side}_wrist"]
+        clasped[f"{side}_wrist"] = (f + 0.02, v + 0.02, sign * 0.035)
+    out.append(fit_bones(clasped))
+    if arms:
+        out += [lean(rest, F_AXIS, math.radians(6)), lean(rest, F_AXIS, -math.radians(6))]
+    return out
+
+
+def turn_head(pose: BodyPose, yaw: float) -> BodyPose:
+    """Turn the head on the neck (about the body's own up axis). Not turn_limb("neck"): that
+    swings the shoulders and arms round with it."""
+    neck = pose["neck"]
+    return {j: rotate(p, V_AXIS, yaw, neck) if j in HEAD_JOINTS else p for j, p in pose.items()}
 
 
 def stance(actor: Actor) -> Stance:

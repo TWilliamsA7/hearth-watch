@@ -9,6 +9,10 @@ repo root unless marked Jetson.
 > possible-fall alert in the team backend; standing up recorded recovery. The backend thresholds
 > are calibrated for the camera position below (floor head/hip lines 0.40/0.45): if the camera
 > moves, re-check with `tools/record_clips.sh` + `tools/check_rules.py` before relying on it.
+>
+> Update 2026-10-10 evening: our own posture model ([POSTURE_MODEL.md](POSTURE_MODEL.md)) is now on
+> by default and is what the backend's alerts use; it doesn't depend on those height thresholds,
+> only on seeing the whole body. The head/hip thresholds only apply with `--no-posture-mlp`.
 
 ## Before the demo (about 15 minutes ahead)
 
@@ -43,6 +47,10 @@ Jetson. Then open in a browser:
 
 - `http://127.0.0.1:8000/nurses`: choose `room-01` and Possible falls
 - `http://127.0.0.1:8000/sources`: live Jetson telemetry
+
+Our posture model runs by default: the backend gets its upright / sitting / floor call on
+every observation and the panel shows it for everyone in view (see
+[POSTURE_MODEL.md](POSTURE_MODEL.md)). Keep the whole body in view (no head-only close-ups).
 
 ## During the demo
 
