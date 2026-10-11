@@ -32,13 +32,14 @@ def build(tmp_path):
 
 def test_dashboard_pages_assets_and_api_share_one_port(tmp_path):
     client = build(tmp_path)
-    for path in ("/", "/room", "/nurses"):
+    for path in ("/", "/scenarios", "/recognition"):
         assert "dashboard" in client.get(path).text
     assert client.get("/assets/app.js").text == "app"
     assert client.get("/health").json() == {"status": "ok"}  # API routes still win
     assert client.get("/missing").status_code == 404
     assert client.get("/..%2Fsecret.txt").status_code == 404
-    assert client.get("/face-check-in", follow_redirects=False).headers["location"] == "/room#recognition"
+    for old, new in {"/nurses": "/", "/room": "/", "/face-check-in": "/recognition"}.items():
+        assert client.get(old, follow_redirects=False).headers["location"] == new
 
 
 def test_studio_and_recorded_runs(tmp_path):

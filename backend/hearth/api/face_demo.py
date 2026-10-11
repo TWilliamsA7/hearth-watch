@@ -1,4 +1,4 @@
-"""Loopback-only, explicit opt-in camera demo endpoints."""
+"""Loopback-only patient recognition endpoints: opt-in enrollment, recognition, Jetson templates."""
 from pathlib import Path
 from datetime import timedelta
 import os
@@ -39,20 +39,62 @@ class CameraObservation(CameraFrame):
     body: TrackedBody | None = None
 
 
-def create_face_router(appointments, monitor, demo=None, edge_token=None):
-    setup_error = "Disabled. Enable HEARTH_FACE_DEMO=1 and provide HEARTH_FACE_KEY to use patient enrollment."
-    if demo is None and os.environ.get("HEARTH_FACE_DEMO") == "1":
-        try:
-            from hearth.monitor.face_demo import FaceDemo
-            from hearth.perception.face_demo import FaceExtractor
-            key = os.environ.get("HEARTH_FACE_KEY")
-            if not key:
-                raise ValueError("Encryption key is required")
-            demo = FaceDemo(Path(__file__).resolve().parents[3] / "data" / "face-demo.sqlite",
-                            key, FaceExtractor())
-        except Exception:
-            # Do not expose key material or decrypted records through errors.
-            setup_error = "Face demo unavailable: check optional dependencies, downloaded models, and the original encryption key."
+DATA = Path(__file__).resolve().parents[3] / "data"
+
+
+def face_key(path: Path = DATA / "face.key") -> str:
+    """HEARTH_FACE_KEY, else the key kept in data/face.key, made on first use.
+
+    Enrollments are encrypted with it: keep the file, as a new key cannot read old ones."""
+    if key := os.environ.get("HEARTH_FACE_KEY"):
+        return key.strip()
+    if path.is_file():
+        return path.read_text(encoding="ascii").strip()
+    from cryptography.fernet import Fernet
+    path.parent.mkdir(parents=True, exist_ok=True)
+    key = Fernet.generate_key().decode()
+    # Readable by this user only where the platform supports it.
+    with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="ascii") as out:
+        out.write(key + "\n")
+    return key
+
+
+def load_recognition(database: Path = DATA / "face-demo.sqlite", key_file: Path = DATA / "face.key", *,
+                     extractor_factory=None):
+    """(FaceDemo, None) when recognition can run, else (None, what to do about it).
+
+    On by default; HEARTH_FACE_DEMO=0 turns it off. Messages never include key material."""
+    if os.environ.get("HEARTH_FACE_DEMO") == "0":
+        return None, "Recognition is turned off on this server (HEARTH_FACE_DEMO=0)."
+    try:
+        import cryptography, cv2, numpy, PIL  # noqa: F401  (the face-demo extra)
+    except ImportError:
+        return None, ("Recognition needs the face-demo packages. Run "
+                      ".venv/Scripts/python.exe -m pip install -e \"./backend[face-demo]\" "
+                      "(scripts/start.ps1 does this), then restart.")
+    from hearth.monitor.face_demo import FaceDemo
+    from hearth.perception.face_demo import FaceExtractor
+    try:
+        extractor = (extractor_factory or FaceExtractor)()
+    except ValueError as exc:  # missing or corrupted models
+        return None, f"{exc} (scripts/start.ps1 downloads them), then restart."
+    except Exception:  # an OpenCV build without YuNet/SFace
+        return None, "OpenCV could not load the face models; reinstall the face-demo packages."
+    try:
+        key = face_key(key_file)
+    except (OSError, ValueError):
+        return None, "The recognition key in data/face.key could not be read or created."
+    try:
+        return FaceDemo(database, key, extractor), None
+    except Exception:
+        return None, ("The recognition key does not match the existing enrollments in data/face-demo.sqlite. "
+                      "Restore the original key (data/face.key or HEARTH_FACE_KEY), or delete that database to start over.")
+
+
+def create_face_router(appointments, monitor, demo=None, edge_token=None, *, load=load_recognition):
+    setup_error = None
+    if demo is None:
+        demo, setup_error = load()
 
     camera = PatientCamera(demo, monitor.config) if demo is not None else None
     # An empty token is no token: the edge route stays closed.
@@ -105,7 +147,7 @@ def create_face_router(appointments, monitor, demo=None, edge_token=None):
 
     @router.get("/status")
     async def status():
-        return {"enabled": demo is not None, "message": "Ready for patient enrollment" if demo else setup_error,
+        return {"enabled": demo is not None, "message": "Ready to enroll residents" if demo else setup_error,
                 "body_detectors": ["yolo", "posenet"],
                 "transport": "loopback_only" + ("+edge_templates" if edge_token else ""),
                 "identity_ttl_seconds": PatientCamera.IDENTITY_TTL}

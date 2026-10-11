@@ -26,6 +26,7 @@ frontend/room-view/dist/
 
 # Local data — never commit camera frames or video
 *.sqlite
+data/face.key
 *.db
 *.mp4
 *.avi

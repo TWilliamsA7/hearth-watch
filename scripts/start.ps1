@@ -8,7 +8,8 @@
 #   .\scripts\start.ps1 -Dev            # ...plus a Vite dev server with hot reload on :5173
 #
 # It installs the dashboard's packages and rebuilds it when its sources changed (-NoBuild skips
-# that). Face recognition turns on when .env.face-demo exists (scripts/face_id_demo.sh makes it).
+# that), and installs face recognition's packages and models when they are missing. Recognition's
+# key is kept in data/face.key; .env.face-demo (from scripts/face_id_demo.sh) still applies if present.
 # Everything runs in this window; Ctrl+C stops all of it.
 param(
     [int]$Port = 8000,
@@ -80,6 +81,24 @@ if ($LASTEXITCODE) { Fail "The .venv is missing server packages. Run: .\.venv\Sc
 if (-not $NoBuild -or $Dev) {
     if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) { Fail 'Node.js (npm) is needed to build the dashboard: https://nodejs.org/ . Or pass -NoBuild to use an existing build.' }
 }
+
+# --- face recognition: optional, so problems here only warn -----------------------------------------
+$ErrorActionPreference = 'Continue'
+Push-Location $root
+& $python -c 'import cryptography, cv2, numpy, PIL' 2>$null
+if ($LASTEXITCODE) {
+    Write-Host 'Installing face recognition packages...'
+    & $python -m pip install --disable-pip-version-check -q -e "$root\backend[face-demo]"
+    if ($LASTEXITCODE) { Write-Host 'Could not install the face recognition packages; everything else will run.' -ForegroundColor Yellow }
+}
+& $python -c 'import sys; sys.path.insert(0, ''backend''); from hearth.perception.face_demo import MODELS, DEFAULT_DIR, verify; [verify(DEFAULT_DIR / p.split(''/'')[1], h) for p, h in MODELS.items()]' 2>$null
+if ($LASTEXITCODE) {
+    Write-Host 'Downloading the face recognition models...'
+    & $python -c 'import sys; sys.path.insert(0, ''backend''); from hearth.perception.face_demo import download; download()'
+    if ($LASTEXITCODE) { Write-Host 'Could not download the face recognition models; everything else will run.' -ForegroundColor Yellow }
+}
+Pop-Location
+$ErrorActionPreference = 'Stop'
 try {
     $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
     $probe.Start(); $probe.Stop()
@@ -106,14 +125,12 @@ function Set-Env([string]$name, [string]$value) {
 }
 Set-Env 'PYTHONPATH' "$root\backend;$root\shared\python"
 Set-Env 'PYTHONUNBUFFERED' '1'
+# An existing face key and Jetson token (from scripts/face_id_demo.sh) keep working.
 $secrets = Join-Path $root '.env.face-demo'
-$face = $false
 if (Test-Path -LiteralPath $secrets) {
     foreach ($line in Get-Content -LiteralPath $secrets) {
         if ($line -match '^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$') { Set-Env $Matches[1] $Matches[2] }
     }
-    Set-Env 'HEARTH_FACE_DEMO' '1'
-    $face = $true
 }
 
 $children = New-Object System.Collections.ArrayList
@@ -137,6 +154,9 @@ try {
         try { Invoke-RestMethod "$url/health" -TimeoutSec 1 | Out-Null; $healthy = $true } catch { Start-Sleep -Milliseconds 500 }
     }
     if (-not $healthy) { Fail "The server did not answer $url/health within a minute." }
+    $recognition = $null
+    try { $recognition = Invoke-RestMethod "$url/face-demo/status" -TimeoutSec 5 } catch {}
+    $face = [bool]($recognition -and $recognition.enabled)
 
     # --- optional producers: each may fail without stopping the rest ----------------------------------
     $producers = @{}
@@ -159,11 +179,11 @@ try {
 
     Write-Host ''
     Write-Host "Hearth is running. Ctrl+C stops everything." -ForegroundColor Green
-    Write-Host "  Dashboard       $url/          (Patient view: $url/room)"
+    Write-Host "  Dashboard       $url/          (Scenarios: $url/scenarios, Recognition: $url/recognition)"
     Write-Host "  Sim Studio      $url/studio/   Run player: $url/studio/runs"
     Write-Host "  API reference   $url/docs"
     if ($Dev) { Write-Host '  Hot reload      http://127.0.0.1:5173/' }
-    Write-Host ("  Recognition     " + $(if ($face) { 'on (.env.face-demo)' } else { 'off: run scripts/face_id_demo.sh once to set it up' }))
+    Write-Host ("  Recognition     " + $(if ($face) { 'on' } elseif ($recognition) { "off: $($recognition.message)" } else { 'status unavailable' }))
     if ($Lan) {
         $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
               Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress

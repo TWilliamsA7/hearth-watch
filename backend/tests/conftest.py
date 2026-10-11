@@ -1,10 +1,14 @@
 from datetime import datetime, timedelta, timezone
+import os
 
 import pytest
 
 from hearth_schema import Observation
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+
+# Tests build apps with create_app(); keep them away from the real data/ recognition files.
+os.environ["HEARTH_FACE_DEMO"] = "0"
 
 BASE = datetime(2026, 10, 10, tzinfo=timezone.utc)
 UPRIGHT = dict(torso_angle_deg=5, head_y=.2, hip_y=.5, bbox_aspect=.4)

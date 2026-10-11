@@ -18,8 +18,10 @@ STUDIO = ROOT / "frontend" / "room-view" / "dist"
 RUNS = ROOT / "recordings" / "sim"
 RUN_FILE = re.compile(r"^([a-z0-9-]+-s\d+)$")
 
-# The dashboard picks its view from these paths; they all load the same page.
-DASHBOARD_PAGES = ("/", "/room", "/nurses")
+# The dashboard picks its tab from these paths; they all load the same page.
+DASHBOARD_PAGES = ("/", "/scenarios", "/recognition")
+# Old addresses of pages the dashboard replaced.
+MOVED = {"/nurses": "/", "/room": "/", "/face-check-in": "/recognition"}
 
 NOT_BUILT = """<!doctype html><meta charset="utf-8"><title>Hearth · not built</title>
 <body style="font-family:system-ui;max-width:40em;margin:4em auto;line-height:1.5">
@@ -75,10 +77,8 @@ def mount_frontend(app: FastAPI, *, dashboard: Path = DASHBOARD, studio: Path = 
     for path in DASHBOARD_PAGES:
         app.add_api_route(path, lambda: _page(dashboard, "dashboard"), methods=["GET"], include_in_schema=False)
 
-    @app.get("/face-check-in", include_in_schema=False)
-    async def face_check_in():
-        # Enrollment now lives in the dashboard's patient view.
-        return RedirectResponse("/room#recognition")
+    for old, new in MOVED.items():
+        app.add_api_route(old, lambda new=new: RedirectResponse(new), methods=["GET"], include_in_schema=False)
 
     @app.get("/studio", include_in_schema=False)
     async def studio_redirect():
