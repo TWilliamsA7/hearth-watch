@@ -37,12 +37,13 @@ from hearth.sim.world import (
 )
 
 from hearth.sim.live.activities import COOLDOWN_S, Activity, Away, Enter, Hold, Walk, abandon, choose, release, reserve
-from hearth.sim.live.actor import LIVE_LOOKS, Actor, ExternalActor, external_profile, make_profile
+from hearth.sim.live.actor import LIVE_LOOKS, Actor, ExternalActor, external_id, external_profile, make_profile
 from hearth.sim.live.animate import world_pose
 from hearth.sim.live.camera import Camera, Observer
 from hearth.sim.live.incidents import IncidentManager
 from hearth.sim.live.lift import LiftedBody
 from hearth.sim.live.models import (
+    LiveModelCall,
     ActorDetail,
     LiveActorInfo,
     LiveAppearance,
@@ -77,7 +78,7 @@ class World:
         self.truth = TruthRecorder(self.scenario_id, seed)
         self.actors: list[Actor] = []
         self._by_id: dict[str, Actor] = {}
-        self.externals: dict[str, ExternalActor] = {}  # live people, by person_id ("live-<source>")
+        self.externals: dict[str, ExternalActor] = {}  # live people: "live-<source>[-<person_id>]"
         self.routes: list[WorldRoute] = []
         self._walks: dict[str, tuple[float, list]] = {}  # person -> (t_start, path) of the walk in progress
         self._spawn()
@@ -138,10 +139,12 @@ class World:
         """Everyone physically in the room, live people included: for steering and space."""
         return [*self.actors, *self.externals.values()]
 
-    def set_external(self, source: str, lifted: LiftedBody | None, *, posture: str = "standing",
-                     label: str = "standing", seen_at: float = 0.0) -> ExternalActor:
-        """Place (or update) the live person seen by `source`; lifted=None means they're gone."""
-        pid = f"live-{source}"
+    def set_external(self, source: str, lifted: LiftedBody | None, *, person_id: str | None = None,
+                     posture: str = "standing", label: str = "standing", seen_at: float = 0.0,
+                     model: LiveModelCall | None = None) -> ExternalActor:
+        """Place (or update) a live person seen by `source`; lifted=None means they're gone.
+        person_id: the camera's anonymous track id when it reports several people (None: one)."""
+        pid = external_id(source, person_id)
         e = self.externals.get(pid)
         if e is None:
             height = lifted.height if lifted else 1.7
@@ -154,7 +157,7 @@ class World:
             return e
         e.pos, e.heading, e.joints = lifted.root, lifted.heading, dict(lifted.joints)
         e.posture = posture if posture in ("standing", "sitting", "lying", "floor") else "standing"  # type: ignore[assignment]
-        e.live_label, e.seen_at = label, seen_at
+        e.live_label, e.seen_at, e.model = label, seen_at, model
         return e
 
     def set_camera(self, spec: CameraSpec) -> None:
@@ -164,7 +167,14 @@ class World:
         self.observer.camera = self.camera
 
     def remove_external(self, source: str) -> None:
-        self.externals.pop(f"live-{source}", None)
+        """Take everyone seen by `source` out of the room."""
+        for pid in [pid for pid, e in self.externals.items() if e.source == source]:
+            del self.externals[pid]
+
+    def forget_external(self, source: str, person_id: str | None = None) -> None:
+        """Take one live person out of the room (they left the camera's view for good)."""
+        if (e := self.externals.pop(external_id(source, person_id), None)) is not None:
+            e.posture, e.joints = "absent", {}  # anyone helping them sees they've gone
 
     def present(self) -> list[Actor]:
         return [a for a in self.actors if a.present]
@@ -290,6 +300,7 @@ class World:
         return LivePerson(
             **wp.model_dump(), label=a.label, activity=f"live · {a.source}" if live else act.name if act else "idle",
             intent=a.intent, posture=a.posture, kind="live" if live else "simulated",
+            model=a.model if live else None,
             destination=_r2(a.destination) if a.destination else None, path=[_r2(p) for p in a.path[:40]],
             conversation=a.conversation, incident=a.incident, visible=round(self.observer.visible.get(a.person_id, 0.0), 3),
         )  # fmt: skip

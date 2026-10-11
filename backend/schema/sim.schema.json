@@ -1069,6 +1069,40 @@
       "title": "LiveFrame",
       "type": "object"
     },
+    "LiveModelCall": {
+      "additionalProperties": false,
+      "description": "A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).",
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "standing | sitting | fallen | unknown (the contract's PosturePrediction).",
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "model_id",
+        "label",
+        "confidence"
+      ],
+      "title": "LiveModelCall",
+      "type": "object"
+    },
     "LivePerson": {
       "additionalProperties": false,
       "description": "A WorldPerson plus what they're up to. Ground truth: for people watching only.",
@@ -1235,6 +1269,18 @@
           ],
           "title": "Kind",
           "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveModelCall"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live people: the camera's own posture model on them, latest frame."
         }
       },
       "required": [
@@ -1251,7 +1297,8 @@
         "conversation",
         "incident",
         "visible",
-        "kind"
+        "kind",
+        "model"
       ],
       "title": "LivePerson",
       "type": "object"
