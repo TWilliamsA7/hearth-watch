@@ -120,7 +120,7 @@ if curl -s -m 3 "http://127.0.0.1:$PORT/health" >/dev/null; then
   echo "a backend is already running on port $PORT"
 else
   if [ "$windows" = 1 ]; then
-    # Its own window, like scripts/demo.ps1; it inherits the variables exported above.
+    # Its own window, like scripts/start.ps1; it inherits the variables exported above.
     # cmd /k keeps the window open if it fails, so the error stays readable.
     (cd "$REPO" && MSYS2_ARG_CONV_EXCL='*' cmd.exe /c start "Hearth backend (face recognition)" \
       cmd.exe /k "$(cygpath -w "$PY")" -m uvicorn hearth.api.app:app --host 0.0.0.0 --port "$PORT" \
@@ -152,11 +152,11 @@ enroll_help() {
   cat <<EOF
 
   Enroll on THIS laptop (its webcam, in the browser):
-    http://127.0.0.1:$PORT/face-check-in
-    - type a demo name, tick consent AND "Also show my demo name", start the camera, enroll 3 views
+    http://127.0.0.1:$PORT/room#recognition
+    - type a name, tick consent AND "Also show my name", start the camera, enroll 3 views
     - then click "Stop camera" (enrollment stays loopback-only; the Jetson never sees it)
   Watch alerts:
-    http://127.0.0.1:$PORT/nurses   (start a nurse session, pick room-01 and Possible falls)
+    http://127.0.0.1:$PORT/   (start a nurse session, pick room-01 and Possible falls)
 EOF
 }
 

@@ -25,7 +25,6 @@ include = ["hearth*"]
 
 [tool.setuptools.package-data]
 "hearth.monitor" = ["config.json"]
-"hearth.api" = ["static/*"]
 "hearth.perception" = ["model.json", "hand_model.json"]
 
 [tool.pytest.ini_options]
