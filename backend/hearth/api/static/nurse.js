@@ -52,10 +52,11 @@ function render() {
   for (const alert of visible) {
     const card=element('article','',`alert-card ${alert.status}`), top=element('div','','card-top'), tags=element('div','','tags');
     tags.append(element('span',alert.room_id,'pill'),element('span',sourceLabel(alert.source_type),`pill ${alert.source_type}`),element('span',alert.status==='acknowledged'?'ACCEPTED':alert.status.toUpperCase(),'pill '+(alert.status==='open'?'warning':'green')));
-    top.append(tags,element('time',time(alert.opened_at),'small')); card.append(top,element('h3',labels[alert.kind]));
+    top.append(tags,element('time',time(alert.opened_at),'small')); card.append(top,element('h3',labels[alert.kind] + (alert.metadata.identity_demo && alert.metadata.resident_label ? ` — ${alert.metadata.resident_label}` : '')));
+    if (['possible_fall','help_requested'].includes(alert.kind)) card.append(element('p',alert.metadata.identity_demo ? `Demo patient · ${alert.metadata.identity_method === 'face_match' ? 'Face match confirmed' : 'Recent face match associated with body track'}` : 'Identity unconfirmed','small'));
     const description=alert.kind==='help_requested' ? (alert.metadata.method==='button'?'A person pressed the room help button.':alert.metadata.method==='hand_gesture'?'A hand help signal was held toward the camera.':'A raised arm was held long enough to request assistance.') : alert.kind==='possible_fall'?(alert.metadata.reason==='sustained_model_fallen'?'Sustained lying posture indicates a possible fall. Please check in.':'Sustained floor-level posture was observed. Please check in.'):'This source stopped sending. The room cannot be verified through this source.';
-    card.append(element('p',description));
-    if(alert.recovered_at) card.append(element('p',alert.kind==='source_offline'?'Source reconnected. Review before resolving.':'Upright posture observed afterward. Review before resolving.','small'));
+    card.append(element('p',alert.kind==='appointment_overdue' ? `${alert.metadata.resident_label}: arrival not confirmed for the appointment at ${time(alert.metadata.scheduled_at)}. Please follow up.` : description));
+    if(alert.recovered_at) card.append(element('p',alert.kind==='appointment_overdue'?'Arrival subsequently checked in. Review before resolving.':alert.kind==='source_offline'?'Source reconnected. Review before resolving.':'Upright posture observed afterward. Review before resolving.','small'));
     const bottom=element('div','','card-bottom');
     bottom.append(element('span',alert.accepted_by_name?`Accepted by ${alert.accepted_by_name}`:alert.status==='acknowledged'?'Acknowledged without an assigned nurse':'No nurse has accepted this request.','small'));
     if(alert.status!=='resolved') {

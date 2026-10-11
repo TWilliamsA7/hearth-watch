@@ -33,6 +33,10 @@ KEYPOINT_CONFIDENCE = None
 FACE_MODEL = "res10"   # or "facenet"; res10 found faces in 100% of probe frames, facenet 0%
 FACE_THRESHOLD = 0.5
 FACE_INTERVAL_S = 0.5
+# Face templates for opted-in names (face_id.py, --face-id): SFace runs only on a face res10 found
+# inside a person's head box, aligned with poseNet's eyes and nose, which must be at least this far
+# apart (closer than this the face is too small to tell people apart).
+FACE_ID_MIN_EYE_PX = 20.0
 
 # Observation rate sent to the backend (frames beyond this are processed but not sent).
 OBS_HZ = 10.0
@@ -62,6 +66,11 @@ POSE_ROTATION = True
 TRACK_KEEP_S = 1.0
 TRACK_MAX_DIST = 0.25
 TRACK_DROPOUT_S = 0.3
+
+# Report everyone in view (hearth_edge/people.py): one observation per person per sent frame,
+# each with an anonymous person_id ("p1", ...). False (or --single-person): only the followed
+# person, with no person_id, as before.
+MULTI_PERSON = True
 
 # Bridge brief keypoint dropouts (features.KeypointHold): a joint missing for up to this long
 # is filled in from its last position, moved with the body, for the posture numbers only.

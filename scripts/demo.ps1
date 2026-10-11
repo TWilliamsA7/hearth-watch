@@ -3,11 +3,13 @@
 #   .\scripts\demo.ps1                 # backend on 0.0.0.0:8000 + Studio on :5174
 #   .\scripts\demo.ps1 -Camera 0       # ...plus the YOLO fall model on webcam 0, with a preview window
 #   .\scripts\demo.ps1 -Replay         # ...plus Gaston's recorded clips replayed as replay-01 (no Jetson needed)
+#   .\scripts\demo.ps1 -Replay -People # ...the same clips as two people at once (p2 lies down), with our posture model's calls
 #
 # Each part runs in its own window; close a window (or Ctrl+C in it) to stop that part.
 param(
     [int]$Camera = -1,
     [switch]$Replay,
+    [switch]$People,
     [int]$Port = 8000
 )
 $ErrorActionPreference = "Stop"
@@ -32,7 +34,11 @@ if ($Camera -ge 0) {
     Start-Process powershell -WorkingDirectory $root -ArgumentList "-NoExit", "-Command",
         "& '$python' edge/run_fall_model.py --camera $Camera --backend http://127.0.0.1:$Port --preview"
 }
-if ($Replay) {
+if ($Replay -and $People) {
+    $stand, $down = "recordings/demo/stand.jsonl", "recordings/demo/lie_down.jsonl"
+    Start-Process powershell -WorkingDirectory $root -ArgumentList "-NoExit", "-Command",
+        "& '$python' edge/tools/replay.py --together --posture-mlp --loop --backend http://127.0.0.1:$Port $stand+$stand+$stand $stand+$down+$stand"
+} elseif ($Replay) {
     $clips = "recordings/demo/stand.jsonl", "recordings/demo/lie_down.jsonl", "recordings/demo/stand.jsonl"
     Start-Process powershell -WorkingDirectory $root -ArgumentList "-NoExit", "-Command",
         "& '$python' edge/tools/replay.py --join --loop --backend http://127.0.0.1:$Port $($clips -join ' ')"

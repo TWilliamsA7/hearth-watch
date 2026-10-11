@@ -12,6 +12,7 @@ venv/
 # Node / frontend
 node_modules/
 frontend/dist/
+frontend/room-view/dev/dist/
 *.tsbuildinfo
 
 # Env and secrets
@@ -26,6 +27,8 @@ frontend/dist/
 *.avi
 *.mkv
 scenarios/generated/
+recordings/eval/
+!recordings/.gitkeep
 recordings/sim/
 
 # Editors / OS
@@ -42,4 +45,5 @@ models/
 .hearth-runtime/
 runs/
 interfaces.md
+!docs/interfaces.md
 planning.md

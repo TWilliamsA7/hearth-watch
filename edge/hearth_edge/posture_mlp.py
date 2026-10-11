@@ -118,7 +118,13 @@ class PostureMLP(object):
             pose, _, result = tracked[0]
         else:
             pose, _, result = max(people, key=lambda p: _area(p[0]["bbox"]))
-        base.update(detection_count=1, uncertainty_reason=None)
+        return self.person_prediction(pose, result, width, height)
+
+    def person_prediction(self, pose, result, width, height):
+        """The contract's PosturePrediction for one person: pose = {"keypoints", "bbox" (pixels)},
+        result = predict() for that pose (None: too few keypoints)."""
+        base = {"model_id": MODEL_ID, "model_revision": self.revision, "input_processing": "original",
+                "detection_count": 1, "uncertainty_reason": None}
         if result is None or result["label"] not in TO_CONTRACT:   # too few keypoints / unsure
             base.update(label="unknown", bbox=None,
                         confidence=None if result is None else _unit(result["confidence"]))

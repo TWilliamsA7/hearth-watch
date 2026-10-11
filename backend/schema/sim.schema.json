@@ -220,6 +220,142 @@
       "title": "AlertResult",
       "type": "object"
     },
+    "Appointment": {
+      "additionalProperties": false,
+      "properties": {
+        "resident_label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Resident Label",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scheduled_at": {
+          "format": "date-time",
+          "title": "Scheduled At",
+          "type": "string"
+        },
+        "grace_seconds": {
+          "default": 900,
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Grace Seconds",
+          "type": "integer"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        },
+        "appointment_id": {
+          "title": "Appointment Id",
+          "type": "string"
+        },
+        "check_in_token": {
+          "title": "Check In Token",
+          "type": "string"
+        },
+        "status": {
+          "default": "scheduled",
+          "enum": [
+            "scheduled",
+            "overdue",
+            "arrived",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "checked_in_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked In At"
+        },
+        "check_in_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check In Method"
+        },
+        "alert_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alert Id"
+        }
+      },
+      "required": [
+        "resident_label",
+        "room_id",
+        "scheduled_at",
+        "appointment_id",
+        "check_in_token"
+      ],
+      "title": "Appointment",
+      "type": "object"
+    },
+    "AppointmentInput": {
+      "additionalProperties": false,
+      "properties": {
+        "resident_label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Resident Label",
+          "type": "string"
+        },
+        "room_id": {
+          "title": "Room Id",
+          "type": "string"
+        },
+        "scheduled_at": {
+          "format": "date-time",
+          "title": "Scheduled At",
+          "type": "string"
+        },
+        "grace_seconds": {
+          "default": 900,
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Grace Seconds",
+          "type": "integer"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resident_label",
+        "room_id",
+        "scheduled_at"
+      ],
+      "title": "AppointmentInput",
+      "type": "object"
+    },
     "CameraSpec": {
       "additionalProperties": false,
       "properties": {
@@ -312,6 +448,47 @@
         "pan"
       ],
       "title": "CameraSpec",
+      "type": "object"
+    },
+    "CheckIn": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "token",
+            "face_assisted_demo"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "title": "CheckIn",
       "type": "object"
     },
     "Counts": {
@@ -1140,6 +1317,40 @@
       "title": "LiveFrame",
       "type": "object"
     },
+    "LiveModelCall": {
+      "additionalProperties": false,
+      "description": "A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).",
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "standing | sitting | fallen | unknown (the contract's PosturePrediction).",
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "model_id",
+        "label",
+        "confidence"
+      ],
+      "title": "LiveModelCall",
+      "type": "object"
+    },
     "LiveNav": {
       "additionalProperties": false,
       "description": "The floor people can walk on: a grid of body-centre positions, furniture grown by a body's radius.",
@@ -1353,6 +1564,18 @@
           ],
           "title": "Kind",
           "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveModelCall"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live people: the camera's own posture model on them, latest frame."
         }
       },
       "required": [
@@ -1369,7 +1592,8 @@
         "conversation",
         "incident",
         "visible",
-        "kind"
+        "kind",
+        "model"
       ],
       "title": "LivePerson",
       "type": "object"
@@ -2111,7 +2335,8 @@
                 "source_online",
                 "alert_acknowledged",
                 "alert_resolved",
-                "help_requested"
+                "help_requested",
+                "appointment_overdue"
               ],
               "type": "string"
             },
@@ -2497,7 +2722,8 @@
             "source_online",
             "alert_acknowledged",
             "alert_resolved",
-            "help_requested"
+            "help_requested",
+            "appointment_overdue"
           ],
           "title": "Event Type",
           "type": "string"

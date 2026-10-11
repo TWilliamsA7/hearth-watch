@@ -114,6 +114,11 @@ def test_run_id_is_optional_and_only_sent_when_given():
     assert "run_id" not in c.build_heartbeat(T0, "jetson-01", "room-01")
 
 
+def test_person_id_is_optional_and_only_sent_when_given():
+    assert "person_id" not in make_obs()
+    assert hs.Observation.model_validate(make_obs(person_id="p2")).person_id == "p2"
+
+
 def _schema(name):
     import json
     root = os.path.join(os.path.dirname(__file__), "..", "..", "shared", "schema")

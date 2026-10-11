@@ -20,6 +20,7 @@ from hearth.sim.pose import KEY_POSES, BodyPose
 
 if TYPE_CHECKING:
     from hearth.sim.live.activities import Activity
+    from hearth.sim.live.models import LiveModelCall
 
 Posture = Literal["standing", "sitting", "lying", "floor", "floor_sit", "absent"]
 """floor: fallen (or down there after a fall); floor_sit: sitting on the floor on purpose."""
@@ -173,10 +174,17 @@ class ExternalActor(Actor):
     joints: dict = field(default_factory=dict)  # name -> (x, y, z) metres, from hearth.sim.live.lift
     seen_at: float = 0.0  # wall-clock seconds of the last live frame
     live_label: str = "standing"  # what the real monitor concluded (a TruthLabel-like word)
+    model: LiveModelCall | None = None  # the camera's own posture model on them, latest frame
 
     @property
     def label(self) -> str:
         return self.live_label
+
+
+def external_id(source: str, person_id: str | None = None) -> str:
+    """The room's id for a live person: "live-<source>", plus the camera's track id ("-p2") when
+    it reports several people."""
+    return f"live-{source}" if person_id is None else f"live-{source}-{person_id}"
 
 
 def external_profile(height: float) -> Profile:

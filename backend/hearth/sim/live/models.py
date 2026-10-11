@@ -41,6 +41,14 @@ class LiveActorInfo(_Model):
     appearance: LiveAppearance
 
 
+class LiveModelCall(_Model):
+    """A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp)."""
+
+    model_id: str
+    label: str = Field(description="standing | sitting | fallen | unknown (the contract's PosturePrediction).")
+    confidence: float | None = None
+
+
 class LivePerson(WorldPerson):
     """A WorldPerson plus what they're up to. Ground truth: for people watching only."""
 
@@ -55,6 +63,9 @@ class LivePerson(WorldPerson):
     visible: float = Field(description="Fraction of joints the camera could see last frame (0..1), before noise.")
     kind: Literal["simulated", "live"] = Field(
         default="simulated", description="'live': a real person from a live camera feed, not simulated."
+    )
+    model: LiveModelCall | None = Field(
+        default=None, description="Live people: the camera's own posture model on them, latest frame."
     )
 
 

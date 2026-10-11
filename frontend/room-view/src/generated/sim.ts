@@ -4,7 +4,10 @@ export interface HearthSimApi {
   ActorCommand?: ActorCommand;
   ActorDetail?: ActorDetail;
   AlertResult?: AlertResult;
+  Appointment?: Appointment;
+  AppointmentInput?: AppointmentInput;
   CameraSpec?: CameraSpec;
+  CheckIn?: CheckIn;
   Counts?: Counts;
   EngineSpec?: EngineSpec;
   EvaluationReport?: EvaluationReport;
@@ -17,6 +20,7 @@ export interface HearthSimApi {
   LiveAppearance?: LiveAppearance;
   LiveConversation?: LiveConversation;
   LiveFrame?: LiveFrame;
+  LiveModelCall?: LiveModelCall;
   LiveNav?: LiveNav;
   LivePerson?: LivePerson;
   LivePlace?: LivePlace;
@@ -170,6 +174,24 @@ export interface LivePerson {
    * 'live': a real person from a live camera feed, not simulated.
    */
   kind: "simulated" | "live";
+  /**
+   * Live people: the camera's own posture model on them, latest frame.
+   */
+  model: LiveModelCall | null;
+}
+/**
+ * A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveModelCall".
+ */
+export interface LiveModelCall {
+  model_id: string;
+  /**
+   * standing | sitting | fallen | unknown (the contract's PosturePrediction).
+   */
+  label: string;
+  confidence: number | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -223,6 +245,34 @@ export interface AlertResult {
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "Appointment".
+ */
+export interface Appointment {
+  resident_label: string;
+  room_id: string;
+  scheduled_at: string;
+  grace_seconds?: number;
+  demo?: boolean;
+  appointment_id: string;
+  check_in_token: string;
+  status?: "scheduled" | "overdue" | "arrived" | "cancelled";
+  checked_in_at?: string | null;
+  check_in_method?: string | null;
+  alert_id?: string | null;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "AppointmentInput".
+ */
+export interface AppointmentInput {
+  resident_label: string;
+  room_id: string;
+  scheduled_at: string;
+  grace_seconds?: number;
+  demo?: boolean;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
  * via the `definition` "CameraSpec".
  */
 export interface CameraSpec {
@@ -250,6 +300,15 @@ export interface CameraSpec {
    * Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right).
    */
   pan: number;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "CheckIn".
+ */
+export interface CheckIn {
+  method?: "manual" | "token" | "face_assisted_demo";
+  token?: string | null;
+  source?: string | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -436,6 +495,7 @@ export interface SegmentResult {
         | "alert_acknowledged"
         | "alert_resolved"
         | "help_requested"
+        | "appointment_overdue"
       )
     | null;
   /**
@@ -472,7 +532,8 @@ export interface TimelineEvent {
     | "source_online"
     | "alert_acknowledged"
     | "alert_resolved"
-    | "help_requested";
+    | "help_requested"
+    | "appointment_overdue";
   /**
    * Resident the record concerns; None in single-person runs.
    */

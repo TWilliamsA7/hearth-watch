@@ -1,7 +1,7 @@
 """Shared monitor entry point for edge, simulator and replay observations."""
 import asyncio
 from collections import OrderedDict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import monotonic
 from typing import Callable
@@ -17,11 +17,17 @@ from .detector import FallDetector, SourceKey, TrackKey, make_event, source_key,
 from .gestures import HelpGestureDetector
 
 
+# A source reporting several people shows the most urgent posture among them.
+POSTURE_URGENCY = {"fallen": 3, "sitting": 2, "standing": 1}
+
+
 @dataclass
 class HealthEntry:
     status: SourceStatus
     last_receipt: float
     last_observation_receipt: float | None = None
+    # person_id -> (posture, confidence, receipt time): each person's latest, for status.posture
+    people: dict[str | None, tuple[str, float | None, float]] = field(default_factory=dict)
 
 
 class MonitorService:
@@ -33,6 +39,15 @@ class MonitorService:
         self.detector = FallDetector(config)
         self.gestures = HelpGestureDetector(config)
         self.events: deque[Event] = deque(maxlen=config.event_capacity)
+        self.event_listeners: list[Callable[[Event], None]] = []
+        # Called with every accepted observation (e.g. ending a person's recognized identity).
+        self.observation_listeners: list[Callable[[Observation], None]] = []
+        # Optional incident metadata naming an observation's person, from identity the
+        # server established itself (edge face templates); the observation cannot assert it.
+        self.incident_labeler: Callable[[Observation], dict | None] | None = None
+        # API control may explicitly pause a simulated observation clock.
+        # Live producers always retain the usual stale-evidence behavior.
+        self.observation_clock_paused: Callable[[SourceKey], bool] = lambda key: False
         self.alerts: dict[str, Alert] = {}
         self.event_alerts: dict[str, str] = {}
         self.health: dict[SourceKey, HealthEntry] = {}
@@ -44,8 +59,6 @@ class MonitorService:
         self.nurses: dict[str, NurseProfile] = {}
         self.manual_requests: OrderedDict[str, str] = OrderedDict()
         self.offline_alerts: dict[SourceKey, str] = {}
-        # Called with every event as it is recorded (e.g. the simulator collecting a run's events).
-        self.event_listeners: list[Callable[[Event], None]] = []
         self.ingest_totals = dict(accepted=0, duplicates=0, out_of_order=0, stale=0, future=0)
 
     def matches_nurse(self, nurse: NurseProfile, alert: Alert) -> bool:
@@ -105,7 +118,7 @@ class MonitorService:
 
     def record(self, event: Event) -> None:
         self.events.append(event)
-        for listener in self.event_listeners:
+        for listener in tuple(self.event_listeners):
             listener(event)
         self.publish(EventMessage(data=event))
 
@@ -119,6 +132,8 @@ class MonitorService:
                       scenario_id=event.scenario_id, run_id=event.run_id,
                       opened_at=event.timestamp, severity=event.metadata.get("severity", "warning"),
                       metadata=event.metadata.copy())
+        if event.person_id is not None:  # a source reporting several people: whose alert it is
+            alert.metadata["person_id"] = event.person_id
         self.alerts[alert.alert_id] = alert
         self.event_alerts[event.event_id] = alert.alert_id
         self.record(event)
@@ -147,13 +162,17 @@ class MonitorService:
                         and prediction.model_id == self.config.fall_model_id
                         and prediction.detection_count == 1 and prediction.confidence is not None
                         and prediction.confidence >= self.config.model_confidence_min)
-            entry.status.posture = prediction.label if reliable else "unknown"
-            entry.status.posture_confidence = prediction.confidence if reliable else None
+            posture = prediction.label if reliable else "unknown"
+            confidence = prediction.confidence if reliable else None
             entry.status.posture_model = prediction.model_id if prediction else None
             if prediction is None and self.config.posture_mode == "pose_fallback":
                 state = self.detector.states.get(track_key(record))
-                entry.status.posture = {"upright": "standing", "floor_level": "fallen",
-                                        "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
+                posture = {"upright": "standing", "floor_level": "fallen",
+                           "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
+            entry.people[record.person_id] = (posture, confidence, now)
+            recent = [p for p in entry.people.values() if now - p[2] < self.config.source_timeout_seconds]
+            top = max(recent, key=lambda p: (POSTURE_URGENCY.get(p[0], 0), p[2]))
+            entry.status.posture, entry.status.posture_confidence = top[0], top[1]
         if isinstance(record, Heartbeat):
             for name in ("fps", "inference_ms", "mem_used_mb"):
                 setattr(entry.status, name, getattr(record, name))
@@ -177,15 +196,14 @@ class MonitorService:
                     and now - entry.last_observation_receipt >= self.config.source_timeout_seconds):
                 entry.status.observation_stale = True
                 entry.status.posture, entry.status.posture_confidence = "unknown", None
-                self.detector.invalidate(key)
-                self.gestures.invalidate(key)
+                if not self.observation_clock_paused(key):
+                    self.invalidate_source(key)
                 changed = True
             if entry.status.online and now - entry.last_receipt >= self.config.source_timeout_seconds:
                 entry.status.online = False
                 entry.status.observation_stale = True
                 entry.status.posture, entry.status.posture_confidence = "unknown", None
-                self.detector.invalidate(key)
-                self.gestures.invalidate(key)
+                self.invalidate_source(key)
                 event = make_event(entry.status, "source_offline", timestamp=self.utcnow(),
                                    clock="backend_receipt", reason="source_silent")
                 self.offline_alerts[key] = self.open_alert(event).alert_id
@@ -193,7 +211,14 @@ class MonitorService:
             if changed:
                 self.publish(SourceStatusMessage(data=entry.status))
 
-    def ingest(self, batch: list[Observation]) -> dict[str, int]:
+    def invalidate_source(self, key, *, tracked_only=False):
+        for detector in (self.detector, self.gestures):
+            for tracked in tuple(detector.states):
+                # Track keys end in person_id; None is the untracked (single-person) track.
+                if tracked[:5] == key and (not tracked_only or tracked[5] is not None):
+                    detector.invalidate(tracked)
+
+    def ingest(self, batch: list[Observation], *, patient_labels=None) -> dict[str, int]:
         # Validate the complete batch before applying anything.
         for obs in batch:
             self.validate_room(obs.room_id)
@@ -225,11 +250,28 @@ class MonitorService:
             if len(self.seen) > self.config.dedupe_capacity:
                 self.seen.popitem(last=False)
             events = self.detector.process(obs) + self.gestures.process(obs)
+            if not obs.person_detected and obs.person_id is None:
+                # Clear disappeared resident tracks. The untracked gesture
+                # detector may still have a valid hand even without a body.
+                self.invalidate_source(source_key(obs), tracked_only=True)
             self.touch(obs, observation=True)
             self.observations[key] = obs
+            for listener in tuple(self.observation_listeners):
+                listener(obs)
             self.publish(ObservationMessage(data=obs))
             for event in events:
                 if event.event_type in {"possible_fall", "help_requested"}:
+                    # Only the local recognition route supplies these labels, bound
+                    # to this exact observation. Ordinary ingest cannot assert a name.
+                    if patient_labels and obs.obs_id in patient_labels:
+                        label = patient_labels[obs.obs_id].copy()
+                        hand_matches_body = label.pop("_hand_matches_body", False)
+                        if (event.event_type != "help_requested" or event.metadata.get("method") != "hand_gesture"
+                                or hand_matches_body):
+                            event.metadata.update(label)
+                    elif self.incident_labeler is not None and event.metadata.get("method") != "hand_gesture":
+                        # A hand is not tied to a tracked person's body here, so it stays anonymous.
+                        event.metadata.update(self.incident_labeler(obs) or {})
                     self.open_alert(event)
                     continue
                 if event.event_type == "recovered":

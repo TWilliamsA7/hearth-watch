@@ -18,12 +18,17 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            SourceStatus, SourceStatusMessage)
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+from hearth.monitor.appointments import Appointments, Appointment, AppointmentInput, CheckIn
 from hearth.sim.mount import mount_simulation
+from hearth.api.face_demo import create_face_router
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
-               with_simulation: bool = True) -> FastAPI:
+               appointments_path: str | Path | None = None, with_simulation: bool = True) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
+    appointments = Appointments(monitor, appointments_path or (
+        ":memory:" if service else os.environ.get("HEARTH_APPOINTMENTS_DB",
+        str(Path(__file__).resolve().parents[3] / "data" / "appointments.sqlite"))))
 
     simulation = None
 
@@ -36,6 +41,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
                 simulation.observe(raised)
             else:
                 monitor.check_health()
+            appointments.check_due()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -51,9 +57,54 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
     app.state.monitor = monitor
+    app.state.appointments = appointments
+    app.include_router(create_face_router(appointments, monitor))
+
+    @app.get("/face-check-in", include_in_schema=False)
+    async def face_check_in_page():
+        return FileResponse(Path(__file__).with_name("static") / "face-check-in.html")
+
+    def appointment_action(action):
+        try:
+            return action()
+        except KeyError as exc:
+            raise HTTPException(404, "Appointment not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/appointments", response_model=Appointment, status_code=201)
+    async def create_appointment(body: AppointmentInput):
+        return appointment_action(lambda: appointments.create(body))
+
+    @app.get("/appointments", response_model=list[Appointment])
+    async def list_appointments():
+        appointments.check_due()
+        return list(appointments.items.values())
+
+    @app.get("/appointments/{appointment_id}", response_model=Appointment)
+    async def get_appointment(appointment_id: str):
+        appointments.check_due()
+        return appointment_action(lambda: appointments.items[appointment_id])
+
+    @app.put("/appointments/{appointment_id}", response_model=Appointment)
+    async def reschedule_appointment(appointment_id: str, body: AppointmentInput):
+        return appointment_action(lambda: appointments.update(appointment_id, body))
+
+    @app.post("/appointments/{appointment_id}/cancel", response_model=Appointment)
+    async def cancel_appointment(appointment_id: str):
+        return appointment_action(lambda: appointments.update(appointment_id))
+
+    @app.post("/appointments/{appointment_id}/check-in", response_model=Appointment)
+    async def check_in_appointment(appointment_id: str, body: CheckIn):
+        return appointment_action(lambda: appointments.check_in(appointment_id, body))
     if with_simulation:
         # The simulator and evaluator (Person 3) feed this same service through ingest().
         simulation = mount_simulation(app, monitor)
+        app.state.sim_controller = simulation.scripted
+        scripted = simulation.scripted
+        monitor.observation_clock_paused = lambda key: (
+            key[1:3] == ("simulation", "sim") and scripted.state == "paused"
+            and key[4] == scripted.status().run_id)
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
     static = Path(__file__).with_name("static")

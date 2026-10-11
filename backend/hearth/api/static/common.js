@@ -1,5 +1,5 @@
 export const $ = (id) => document.getElementById(id);
-export const labels = {possible_fall: 'Possible fall', help_requested: 'Help requested', source_offline: 'Source offline', source_online: 'Source reconnected', recovered: 'Upright posture observed', alert_acknowledged: 'Accepted / acknowledged', alert_resolved: 'Resolved'};
+export const labels = {possible_fall: 'Possible fall', help_requested: 'Help requested', appointment_overdue: 'Appointment check-in overdue', source_offline: 'Source offline', source_online: 'Source reconnected', recovered: 'Upright posture observed', alert_acknowledged: 'Accepted / acknowledged', alert_resolved: 'Resolved'};
 export function element(tag, text = '', className = '') { const node = document.createElement(tag); node.textContent = text; node.className = className; return node; }
 export function time(value) { return new Date(value).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
 export function notice(text = '') { $('notice').textContent = text; }

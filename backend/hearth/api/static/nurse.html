@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hearth · Care desk</title><link rel="stylesheet" href="/assets/style.css"></head>
 <body><header><a class="brand" href="/nurses">Hearth<span class="brand-note">Nurse station</span></a>
-<nav><span id="connection" class="pill">Not connected</span><a href="/room" target="_blank" rel="noopener">Open room panel ↗</a></nav></header>
+<nav><span id="connection" class="pill">Not connected</span><a href="/face-check-in">Patient enrollment</a><a href="/room" target="_blank" rel="noopener">Open room panel ↗</a></nav></header>
 <main><div class="intro"><div><h1>Room alerts</h1><p>Requests and incidents for your assigned coverage.</p></div><button id="sound" class="secondary" type="button">Enable alert sound</button></div>
 <div id="notice" role="status" aria-live="polite"></div>
 <div class="layout"><aside class="panel"><h2>Coverage</h2>
@@ -12,6 +12,7 @@
 <label><input type="checkbox" name="kind" value="help_requested" checked> Help requests</label>
 <label><input type="checkbox" name="kind" value="possible_fall" checked> Possible falls</label>
 <label><input type="checkbox" name="kind" value="source_offline"> Camera / source offline</label>
+<label><input type="checkbox" name="kind" value="appointment_overdue" checked> Appointment check-in overdue</label>
 </div></fieldset><label class="duty"><input id="duty" type="checkbox" checked> On duty</label>
 <button id="save" type="submit">Start receiving alerts</button><p id="session-note" class="small">Keep this page open to receive live updates. Each tab can use a separate nurse session.</p></form>
 <div class="divider"></div><h3>Source health</h3><div id="sources" class="small">Start a session to see your coverage.</div></aside>

@@ -1,4 +1,4 @@
-"""Camera/video/image inference. Frames stay local; only structured observations are sent."""
+"""Camera/video/image inference. Optional recognition sends frames only to the local backend."""
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
@@ -82,7 +82,15 @@ def main(argv=None):
                         help="Score below which to retry; match backend model_confidence_min")
     parser.add_argument("--help-gesture", choices=["fist", "palm", "call"], default="fist",
                         help="Preview guidance only; backend hand_help_label controls alerts")
+    parser.add_argument("--patient-recognition", action="store_true",
+                        help="Opt-in staged patient demo: match faces locally and name fall alerts")
     args = parser.parse_args(argv)
+    if args.patient_recognition and (args.camera is None or args.dry_run):
+        parser.error("--patient-recognition requires a live --camera and local backend")
+    patient_client = None
+    if args.patient_recognition:
+        from .patient_client import PatientClient
+        patient_client = PatientClient(args.backend, args.room)
     if not math.isfinite(args.max_fps) or args.max_fps <= 0:
         parser.error("--max-fps must be positive and finite")
     if args.max_frames is not None and args.max_frames < 1:
@@ -186,6 +194,7 @@ def main(argv=None):
             metrics["inference_ms"] = (time.perf_counter()-inference_start)*1000
             if hand_result is not None:
                 observation.hand_gesture_prediction = hand_prediction(hand_result, hand_config)
+            patient_caption = "Identity unconfirmed"
             processed += 1
             metrics["fps"] = processed / max(time.monotonic()-started, .001)
             if recorder is not None:
@@ -194,7 +203,21 @@ def main(argv=None):
                 print(observation.model_dump_json(), flush=True)
             else:
                 try:
-                    response = post(args.backend, "/ingest/observations", {"observations": [observation.model_dump(mode="json")]})
+                    response = None
+                    if patient_client:
+                        try:
+                            response = patient_client.observe(frame, observation)
+                            identity = response.get("identity", {})
+                            name = identity.get("profile", {}).get("alias", "Identity unconfirmed")
+                            patient_caption = name + (" (recent match)" if identity.get("status") == "tracked" else "")
+                            print(f"patient: {name} ({identity.get('status', 'unknown')})", flush=True)
+                        except (OSError, ValueError) as exc:
+                            patient_client.close()
+                            if time.monotonic()-last_warning >= 5:
+                                print(f"Recognition unavailable; sending unnamed observation: {exc}", file=sys.stderr)
+                                last_warning = time.monotonic()
+                    if response is None:
+                        response = post(args.backend, "/ingest/observations", {"observations": [observation.model_dump(mode="json")]})
                     if response.get("stale", 0) or response.get("future", 0):
                         if time.monotonic()-last_warning >= 5:
                             print(f"Backend dropped frame outside live timestamp limits: {response}. "
@@ -221,6 +244,9 @@ def main(argv=None):
                     annotated = hand_result.plot(img=annotated)
                 annotated = draw_status(annotated, observation,
                                         posture_threshold=args.posture_retry_threshold, help_label=args.help_gesture)
+                if patient_client:
+                    cv2.putText(annotated, patient_caption, (12, annotated.shape[0]-20),
+                                cv2.FONT_HERSHEY_SIMPLEX, .7, (255, 255, 255), 2)
                 cv2.imshow("Hearth local model preview - Q to quit", annotated)
                 if cv2.waitKey(1) & 0xff == ord("q"):
                     break
@@ -231,6 +257,8 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
+        if patient_client:
+            patient_client.close()
         if recorder is not None:
             recorder.close()
             print(f"Recorded {processed} observations to {recorder.path}", file=sys.stderr)

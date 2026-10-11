@@ -226,3 +226,26 @@ def test_joined_stand_lie_stand_gives_alert_then_recovery_in_one_run(tmp_path):
         alerts = http.get("/alerts", params={"source": "replay-01"}).json()
     assert [a["kind"] for a in alerts] == ["possible_fall"]
     assert alerts[0]["recovered_at"] is not None and alerts[0]["run_id"] == run_id
+
+
+def test_together_plays_clips_as_people_side_by_side():
+    a = recorded_observations(5, hz=10.0)
+    b = [dict(o, timestamp=c.utc_iso(T0 + 100 + i / 10.0)) for i, o in enumerate(recorded_observations(3))]
+    both = replay.together_recordings([a, b])
+    assert len(both) == 8
+    assert [o["person_id"] for o in both[:2]] == ["p1", "p2"]           # both start together
+    assert both[0]["timestamp"] == both[1]["timestamp"] == a[0]["timestamp"]
+    neck = lambda o: next(k["x"] for k in o["keypoints"] if k["name"] == "neck")  # noqa: E731
+    assert neck(both[0]) == pytest.approx(0.25) and neck(both[1]) == pytest.approx(0.75)
+    assert a[0].get("person_id") is None                                  # originals untouched
+    for o in both:
+        hs.Observation.model_validate(replay.rewrite_for_replay(o, "x", T0))
+
+
+def test_posture_model_is_added_to_old_recordings():
+    pm = pytest.importorskip("hearth_edge.posture_mlp")
+    mlp = pm.PostureMLP()
+    out = replay.add_posture_model(recorded_observations(2), mlp)
+    for o in out:
+        p = hs.Observation.model_validate(o).posture_prediction
+        assert p is not None and p.model_id == pm.MODEL_ID and p.detection_count == 1
