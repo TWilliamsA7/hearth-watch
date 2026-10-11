@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Continuous live view of the Jetson camera on the laptop, through the real edge pipeline:
-# skeleton, red face boxes, and a status line every 5 s in this terminal.
+# skeleton, red face boxes, our posture model's call for everyone in view (green; amber when
+# someone is on the floor), and a status line every 5 s in this terminal.
 # Runs run_edge.py --dry-run --stream on the Jetson: nothing is sent to a backend, nothing is
 # recorded; the video only goes to this window over the USB link.
 #

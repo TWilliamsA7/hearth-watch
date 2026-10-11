@@ -139,6 +139,19 @@ scored). At cut-off 0.50:
 - These clips were also used to diagnose problems during development, so they are not a fully
   independent test; the locked test is.
 
+## Live on the Jetson (qualitative, 2026-10-10)
+
+Running live (on by default in `run_edge.py`, 0.56 ms per person per frame on the Nano), side by side
+with Person 2's Hugging Face fall model on the same camera, our model was observed to give the
+right posture more often than the HF model. This is an observation from live testing, not a
+measurement.
+
+With two people in view (one standing, one on the floor) the edge only tracked one person, so the
+first version only judged that person; the HF model, by design, answers "unknown (multiple
+people)" whenever it sees more than one. Our model now runs on every person poseNet finds and the
+panel warns when anyone is on the floor. A second person lying down only gets the plain poseNet
+pass (the rotated pass runs for the tracked person), so their keypoints can be sparse.
+
 ## What we tried and rejected
 
 | Idea | Result | Decision |
@@ -154,10 +167,11 @@ motion over several frames would be the real fix.
 
 - Real datasets are mostly young actors staging falls on mats; elderly people fall differently
   (slower, sliding, partial). OF-Synthetic adds elderly bodies, but AI-generated.
-- One person at a time.
+- The backend's observations follow one person (the panel shows our model for everyone in view).
 - A fully hidden person (OCCU's falls behind a bed) gives no keypoints at all; the backend's
   "person not visible" covers that, not this model.
-- Not yet connected to the backend: Person 2's backend only accepts the Hugging Face model's id.
+- Connected to the backend and on by default: the team backend's config trusts our model's id
+  (`hearth/posture-mlp`, threshold 0.50); see [`../POSTURE_MODEL.md`](../POSTURE_MODEL.md).
 
 ## Reproduce (PowerShell on the PC, from the repo)
 

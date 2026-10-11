@@ -186,3 +186,29 @@ def test_fall_model_line():
     assert ov.fall_model_line(p, 0.25) == "fall model: fallen 0.91 (0.2 s ago)"
     p = {"label": "unknown", "confidence": None, "uncertainty_reason": "multiple_people"}
     assert ov.fall_model_line(p, 1.0) == "fall model: unknown (multiple people, 1.0 s ago)"
+
+
+def test_posture_mlp_line():
+    assert ov.posture_mlp_line(None) == "our model: - (too few keypoints)"
+    assert ov.posture_mlp_line({"label": "floor", "confidence": 0.971}) == "our model: floor 0.97"
+    assert ov.posture_mlp_line({"label": "unknown", "confidence": 0.43}) == "our model: unknown (0.43)"
+
+
+def test_posture_mlp_people_line():
+    up = {"label": "upright", "confidence": 0.981}
+    down = {"label": "floor", "confidence": 0.95}
+    assert ov.posture_mlp_people_line([up]) == ("our model: upright 0.98", False)
+    text, floor = ov.posture_mlp_people_line([up, down, None])
+    assert floor and text == ("our model, 3 people (left to right): upright 0.98 | FLOOR 0.95 | -"
+                              "  <- someone on the floor")
+    assert ov.posture_mlp_people_line([up, {"label": "unknown", "confidence": 0.4}])[1] is False
+
+
+def test_wrap_text_breaks_at_separators_and_spaces():
+    text = "our model, 3 people (left to right): upright 0.98 | FLOOR 0.95 | sitting 0.91  <- someone on the floor"
+    parts = ov.wrap_text(text, 40)
+    assert all(len(p) <= 40 for p in parts) and len(parts) > 1
+    assert parts[1].endswith("|") and parts[1].startswith("   ")      # breaks after a separator
+    assert " ".join(p.strip() for p in parts).replace("  ", " ") == " ".join(text.split())
+    assert ov.wrap_text("short", 40) == ["short"]
+    assert all(len(p) <= 10 for p in ov.wrap_text("x" * 25, 10))

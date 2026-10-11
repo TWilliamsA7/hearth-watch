@@ -42,10 +42,6 @@ HTTP_TIMEOUT_S = 2.0
 # About 10 s of observations are buffered while the backend is unreachable; older ones drop.
 QUEUE_MAX = 100
 
-# Video preview panel (overlay.py, only when streaming). The dashed line marks the height the
-# team backend requires head and hips to be below to count as floor level
-# (backend/hearth/monitor/config.json floor_head_y_min / floor_hip_y_min): an aiming aid only.
-FLOOR_GUIDE_Y = 0.65
 BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
 
 # Optional Hugging Face fall model (fall_model.py, --fall-model): TensorRT engine from

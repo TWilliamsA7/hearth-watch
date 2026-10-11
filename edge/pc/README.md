@@ -1,16 +1,55 @@
-# PC (RTX 3060 Ti): PyTorch + the Hugging Face fall model
+# PC (RTX 3060 Ti): PyTorch, the Hugging Face fall model, and our own posture model
 
-Goal: learn PyTorch while preparing Person 2's Hugging Face fall model
-([melihuzunoglu/human-fall-detection](https://huggingface.co/melihuzunoglu/human-fall-detection),
-YOLO11, classes Standing / Sitting / Fallen) to run on the Jetson. Everything here runs on the
-Windows PC (Python 3.12) in PowerShell, from the repo folder.
+Everything here runs on the Windows PC (Python 3.12, PowerShell, from the repo folder
+`C:\Users\Gaston\hearth-watch`, data in `D:\hearth-data`). Two parts:
 
-**Builds on what Person 2 already did (on main), does not redo it:**
-`backend/hearth/perception/fall_model.py` + `model.json` already download the model pinned to a
+1. **Steps 1-5:** Person 2's Hugging Face fall model (YOLO11, standing / sitting / fallen) made to
+   run on the Jetson: load it in PyTorch, export to ONNX, publish it, TensorRT on the Nano.
+2. **Steps 6-7: our own posture model**, trained here and now the model the system uses by
+   default. How it works on the Jetson and with the backend: [`../POSTURE_MODEL.md`](../POSTURE_MODEL.md).
+   Results (locked test, field test, false positive rates): [`RESULTS.md`](RESULTS.md).
+
+## Our posture model: the training pipeline
+
+```
+5 public fall datasets (videos) + OmniFall's timed labels
+  -> download_datasets.py / manual (GMDCSA24, Le2i)       videos in D:\hearth-data
+  -> 05_extract_keypoints.py  YOLO11m-pose, every 2nd frame   keypoints.npz (numbers only)
+  -> 06_train.py              locked 60/20/20 split by person, MLP 51-64-64-3, live chart
+                              --final-test: the locked 20%, once            model_3class.pt
+  -> 08_export_weights.py     numpy copy, checked frame-for-frame against PyTorch
+                                                         edge/hearth_edge/posture_mlp.npz
+  -> commit -> Jetson: run_edge.py uses it by default (../POSTURE_MODEL.md)
+```
+
+| Script | What it does | Output |
+|---|---|---|
+| `download_datasets.py` | OCCU (10 videos out of a 10.8 GB zip, by range requests), CAUCAFall (the 100 `.avi` files via Mendeley's API), OF-Synthetic (streams the 9.7 GB tar, keeps 2,203 care-room clips); checksums; re-runnable | videos + `labels\*.csv` in `D:\hearth-data` |
+| `05_extract_keypoints.py` | matches every OmniFall label to its video (stops loudly on a mismatch), runs YOLO11m-pose on labelled stretches, keeps the most confident person per frame with its original label, person and frame size | `keypoints.npz` |
+| `06_train.py` | features (51 numbers per frame), locked split (`split.json`), augmentation (hidden keypoints, mirroring, jitter), class-weighted training with live progress, best epoch by balanced validation accuracy, cut-off table, field test on our recordings; `--final-test` for the locked test (logged) | `model_3class.pt`, `..._curves.png`, `test_log.txt` |
+| `07_finetune_closeups.py` | experiment: teaches "unsure" for close-ups by fine-tuning (kept as a record; not used, see "Decision" below) | `model_closeup*.pt` |
+| `08_export_weights.py` | writes the weights + settings for the Jetson, refuses unless numpy and the Jetson module give the same decisions as PyTorch | `edge/hearth_edge/posture_mlp.npz` |
+
+Re-run everything (after the one-time setup and the GMDCSA24 / Le2i downloads in Step 6):
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\download_datasets.py
+.\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --epochs 15 --classes 3 --out D:\hearth-data\model_3class.pt
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --test-only --out D:\hearth-data\model_3class.pt --min-conf 0.5
+.\.venv-pc\Scripts\python.exe edge\pc\08_export_weights.py
+```
+
+Then commit `edge/hearth_edge/posture_mlp.npz`. `--final-test` is for a finished model only (it
+logs every run). The sections below are the development log, in the order things were done:
+what was tried, measured and decided, with the commands used at each step.
+
+## Development log
+
+Builds on what Person 2 already did (on main), does not redo it:
+`backend/hearth/perception/fall_model.py` + `model.json` already download the HF model pinned to a
 revision, verify its SHA-256, check its labels, and map detections to `posture_prediction`
-(0.25 minimum, several people -> `unknown`); `edge/run_fall_model.py` runs it on a laptop CPU. The
-steps below reuse that code. What nobody has done yet: ONNX export, TensorRT, running it on the
-Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop features.
+(0.25 minimum, several people -> `unknown`); `edge/run_fall_model.py` runs it on a laptop CPU.
 
 | Step | Script | You learn | Project result |
 |---|---|---|---|
@@ -18,8 +57,9 @@ Jetson. The hand-gesture model and the contrast retry stay Person 2's laptop fea
 | 2 | `02_load_model.py` | a Hugging Face model in PyTorch: layers, parameters, raw output tensor; GPU vs CPU | the pinned model via Person 2's `download_weights` / `load_model`, on the GPU |
 | 3 | `03_export_onnx.py` | exporting, checking PyTorch vs ONNX numerically | an ONNX file the Jetson's TensorRT can build |
 | 4 | `04_push_to_hub.py` | Hub repos, commits and pinning, model cards, licenses | the Jetson downloads it from your HF account, pinned to a commit |
-| 5 | on the Jetson | TensorRT engine + runner | `posture_prediction` in Jetson observations (`run_edge.py --fall-model`), same rules as Person 2's `prediction_from_detections` (tested against it); measured in edge/BENCHMARKS.md |
-| 6 | public datasets, then `05_...` onward | datasets, labels, train/test splits, a training loop written by hand, evaluation | our own posture classifier from keypoints, trained on public fall videos, tested on our own recordings |
+| 5 | on the Jetson | TensorRT engine + runner | HF `posture_prediction` from the Jetson (`run_edge.py --fall-model`); measured in edge/BENCHMARKS.md |
+| 6 | datasets, `05`, `06`, `07` | datasets, labels, splits by person, a training loop written by hand, evaluation, fine-tuning | our own posture model: locked test 97.7% right, floor caught 96.1% |
+| 7 | `08`, `edge/hearth_edge/posture_mlp.py` | exporting without PyTorch, checking an exact copy | the model on the Jetson, used by the backend by default |
 
 ## One-time setup
 
@@ -583,3 +623,34 @@ ignored). `08_export_weights.py` runs every frame of our recordings through this
 exporting and requires 100% the same decisions as the PyTorch pipeline (tested: 1,382 of 1,382);
 `edge/tests/test_posture_mlp.py` checks its rules on the laptop (position and size don't change
 the inputs, frame shape is undone, unknown under the cut-off, too few keypoints).
+
+## Step 7c: live on the Jetson (on by default)
+
+```sh
+edge/tools/view_camera.sh                                  # laptop: camera window, nothing sent
+edge/tools/live_test.sh --real                             # with the team backend
+```
+
+(Update: the model is now on by default everywhere and the team backend's config trusts it;
+`--no-posture-mlp` turns it off; the panel's aiming lines were removed. See
+[`../POSTURE_MODEL.md`](../POSTURE_MODEL.md).)
+
+Every frame with a pose (0.56 ms) goes through our model on poseNet's raw keypoints. The panel
+shows a green line: `our model: floor 0.97`, `our model: unknown (0.43)` or `our model: - (too few
+keypoints)`; the terminal status line (every 5 s) adds its label counts for the interval. Not
+added to the observations: the shared contract rejects unknown fields and the backend only
+accepts the Hugging Face model's predictions. If the weights file is missing it logs that and
+runs without it.
+
+Several people in view: our model runs on every pose poseNet finds (the tracked person uses
+their rotated-pass pose when there is one; their plain-pass copy is dropped), left to right:
+`our model, 2 people (left to right): upright 0.98 | FLOOR 0.95  <- someone on the floor`, in
+amber when anyone is on the floor. The status line counts `SOMEONE ON FLOOR (frames)`. The
+tracked person still drives the observations sent to the backend.
+
+Second person lying down: they now get rotated poseNet poses too (`pose_rotate.OthersRotation`):
+every rotated pass sees everyone, so passes made for the tracked person are reused for free; when
+none ran, one extra pass runs at most every 0.5 s while someone else looks lying or incomplete
+(every 1 s otherwise, to find a lying person the plain pass missed). A rotated pose replaces a
+person's plain one only when it clearly beats it (more keypoints, torso visible, same place),
+and is remembered for 1 s. Long panel lines now wrap to the frame width.

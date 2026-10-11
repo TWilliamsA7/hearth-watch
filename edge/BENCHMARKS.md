@@ -5,6 +5,15 @@ Jetson with someone in view and paste the output below:
 
     cd ~/hearth-watch/edge && python3 tools/bench.py --seconds 20
 
+## 2026-10-10 22:45 — our posture model (default) on the Nano
+
+`posture_mlp.py` (numpy, 51 -> 64 -> 64 -> 3): **0.56 ms** per person per frame (500 calls, Jetson
+CPU). Dry run with face detection and the posture model on, nobody in view: **13.3-13.4 FPS**
+(`run_edge.py --dry-run`, the same as without the model). A rotated poseNet pass for someone the
+edge isn't tracking costs one rotated-pass time (~75 ms, see the rotation entry below) at most
+every 0.5 s while someone else looks lying, every 1 s otherwise; FPS with two people in view has
+not been measured yet.
+
 ## 2026-10-10 13:42 — Hugging Face fall model (YOLO11n) built with TensorRT 8.2 on the Nano
 
 `melihuzunoglu/human-fall-detection` @ `97261b0` exported to ONNX (edge/pc/03_export_onnx.py:

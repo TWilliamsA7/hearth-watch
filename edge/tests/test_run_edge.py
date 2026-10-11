@@ -62,6 +62,8 @@ def test_defaults_come_from_config():
     assert args.source == config.SOURCE_ID and args.room == config.ROOM_ID
     assert args.obs_hz == config.OBS_HZ and not args.dry_run
     assert run_edge.parse_args(["--dry-run", "--obs-hz", "5"]).obs_hz == 5.0
+    assert args.posture_mlp and not run_edge.parse_args(["--no-posture-mlp"]).posture_mlp
+    assert run_edge.parse_args(["--posture-mlp"]).posture_mlp   # old spelling still accepted
 
 
 def test_log_survives_a_closed_stderr(monkeypatch):
@@ -108,13 +110,17 @@ def test_model_detection_counts_as_person_when_posenet_lost_them():
 
 
 def test_backend_alerts_on_model_fallen_even_when_pose_drops_out():
-    """Person 2's real FallDetector: the same prediction on every observation (poseNet losing the
-    person on some frames) still completes the 3 s floor hold."""
+    """Person 2's real FallDetector with the team's default config: our posture model's "fallen"
+    on every observation (poseNet losing the person on some frames) completes the 3 s hold."""
     mon = pytest.importorskip("hearth.monitor.detector")
     from hearth.monitor.config import MonitorConfig
+    from hearth_edge import posture_mlp
     det = mon.FallDetector(MonitorConfig.load())
     ids = contract.ObservationIds("jetson-01", start=1791700000)
-    pred, kinds = fallen_prediction(), []
+    pred = {"model_id": posture_mlp.MODEL_ID, "model_revision": "test", "input_processing": "original",
+            "label": "fallen", "confidence": 0.9, "detection_count": 1, "uncertainty_reason": None,
+            "bbox": {"x1": 0.1, "y1": 0.6, "x2": 0.8, "y2": 0.9}}
+    kinds = []
     for i in range(45):                                   # 4.5 s at 10 Hz
         frame = dict(FRAME, t=FRAME["t"] + i * 0.1)
         pose = POSE if i % 3 else None                    # poseNet misses every third frame
@@ -124,3 +130,16 @@ def test_backend_alerts_on_model_fallen_even_when_pose_drops_out():
                                              posture_prediction=pred)
         kinds += [e.event_type for e in det.process(hs.Observation.model_validate(obs))]
     assert kinds.count("possible_fall") == 1
+
+def test_people_in_view_drops_the_tracked_persons_plain_copy_and_sorts():
+    def person(cx, tag):
+        return {"keypoints": {"nose": (cx, 100), "tag": tag}, "bbox": (cx - 20, 50, cx + 20, 400)}
+    tracked = person(305, "tracked, rotated pass")
+    plain = [person(300, "tracked, plain pass"), person(100, "left"), person(550, "right")]
+    got = run_edge.people_in_view(tracked, plain, max_dist=160)
+    assert [p["keypoints"]["tag"] for p, _ in got] == ["left", "tracked, rotated pass", "right"]
+    assert [t for _, t in got] == [False, True, False]
+    assert [p["keypoints"]["tag"] for p, _ in run_edge.people_in_view(None, plain, 160)] == \
+        ["left", "tracked, plain pass", "right"]
+    # nobody near the tracked pose in the plain pass (e.g. upright pass skipped): nothing dropped
+    assert len(run_edge.people_in_view(tracked, [person(100, "left")], 160)) == 2

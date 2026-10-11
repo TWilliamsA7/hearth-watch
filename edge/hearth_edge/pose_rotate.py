@@ -166,3 +166,76 @@ def unrotate_pose(pose, k, width, height):
     xs = [c[0] for c in corners]
     ys = [c[1] for c in corners]
     return {"keypoints": kps, "bbox": (min(xs), min(ys), max(xs), max(ys))}
+
+
+def largest(poses):
+    """The pose with the biggest box, or None."""
+    best, best_area = None, -1.0
+    for p in poses:
+        l, t, r, b = p["bbox"]
+        area = max(0.0, r - l) * max(0.0, b - t)
+        if area > best_area:
+            best, best_area = p, area
+    return best
+
+
+class OthersRotation(object):
+    """Rotated poses for the people the edge is NOT tracking (our posture model only).
+
+    The tracked person gets rotated passes from RotationPolicy; anyone else lying down only gets
+    the plain pass, which often finds just head and shoulders (or nobody). This keeps the poses
+    found on rotated frames (each pass sees everyone, so a pass made for the tracked person is
+    reused for free) for KEEP_S, and asks for one extra pass now and then when nobody else made
+    one: every LYING_EVERY_S while someone else looks lying or incomplete, every SEARCH_EVERY_S
+    otherwise (to find a lying person the plain pass missed entirely). One pass costs ~75 ms.
+    """
+
+    KEEP_S = 1.0
+    LYING_EVERY_S = 0.5
+    SEARCH_EVERY_S = 1.0
+
+    def __init__(self):
+        self.cache = []           # [(t, pose)] good rotated poses, newest kept per place
+        self.last_pass_t = None
+        self._k = 1
+
+    def wants_pass(self, others, t, passes_this_frame):
+        """Direction (+1 / -1) for one extra rotated pass this frame, or None."""
+        if passes_this_frame:
+            self.last_pass_t = t
+            return None
+        lying = [p for p in others if looks_lying_or_incomplete(p)]
+        every = self.LYING_EVERY_S if lying else self.SEARCH_EVERY_S
+        if self.last_pass_t is not None and t - self.last_pass_t < every:
+            return None
+        self.last_pass_t = t
+        self._k = -self._k
+        return (preferred_direction(lying[0]) if lying else None) or self._k
+
+    def remember(self, poses, t):
+        good = [p for p in poses if len(p["keypoints"]) >= MIN_ROTATED_KEYPOINTS
+                and features.torso_visible(p["keypoints"])]
+        keep = [(ct, c) for ct, c in self.cache if t - ct <= self.KEEP_S
+                and not any(boxes_overlap(c["bbox"], g["bbox"]) for g in good)]
+        self.cache = keep + [(t, g) for g in good]
+
+    def merge(self, tracked, others, t):
+        """Others with a remembered rotated pose swapped in where it clearly beats the plain one,
+        plus remembered people the plain pass missed (not overlapping anyone in view)."""
+        fresh = [c for ct, c in self.cache if t - ct <= self.KEEP_S]
+        used, out = set(), []
+        for p in others:
+            best = None
+            for i, c in enumerate(fresh):
+                if i not in used and better_rotated(p, c) and (
+                        best is None or len(c["keypoints"]) > len(fresh[best]["keypoints"])):
+                    best = i
+            if best is not None:
+                used.add(best)
+            out.append(fresh[best] if best is not None else p)
+        everyone = ([tracked] if tracked is not None else []) + others
+        for i, c in enumerate(fresh):
+            if i not in used and not any(boxes_overlap(c["bbox"], q["bbox"]) for q in everyone):
+                out.append(c)
+                everyone.append(c)
+        return out

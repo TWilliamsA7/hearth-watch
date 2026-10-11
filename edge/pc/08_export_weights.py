@@ -13,7 +13,7 @@ must copy exactly into edge\\hearth_edge\\posture_mlp.npz (~30 KB, committed wit
 Then it proves the copy is faithful: the same inputs go through PyTorch and through a plain
 numpy version of the network, on validation frames and on our Jetson recordings, and the scores,
 the chosen class and the final decision (with "unknown") are compared frame by frame. Finally the
-written file is loaded through the Jetson's own module (edge\hearth_edge\posture_mlp.py) and
+written file is loaded through the Jetson's own module (edge\\hearth_edge\\posture_mlp.py) and
 every frame of our recordings goes through it from raw keypoints to label: its decisions must
 match the PyTorch pipeline's, which proves the Jetson builds the inputs exactly like training.
 """

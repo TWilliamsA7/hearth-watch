@@ -7,6 +7,8 @@ and replayed data alike. No raw video leaves the Jetson; the optional video prev
 the laptop's window over the USB link and is never recorded.
 
 For running the demo, see **[DEMO.md](DEMO.md)**. Measured speed/memory: **[BENCHMARKS.md](BENCHMARKS.md)**.
+Our own posture model (upright / sitting / floor, trained in `pc/`, **on by default** and the
+model the backend's alerts use): **[POSTURE_MODEL.md](POSTURE_MODEL.md)**.
 
 ## Hardware and software
 
@@ -20,6 +22,27 @@ For running the demo, see **[DEMO.md](DEMO.md)**. Measured speed/memory: **[BENC
 - Edge code is standard-library Python 3.6 (plus the JetPack-provided `jetson_inference`,
   `jetson_utils`, `cv2`, `numpy`). Laptop tools and tests use the repo's `.venv` (Python 3.11+).
 
+## How it works (one frame)
+
+```
+USB camera (Logitech C270, MJPEG 640x480, ~13 FPS)
+  -> poseNet resnet18-body (TensorRT): every person's keypoints              pose.py
+  -> rotated poseNet passes for people who look lying / incomplete           pose_rotate.py
+  -> tracker: the person the edge follows (a passer-by can't take over)      features.py
+  -> posture numbers for that person: torso angle, head/hip height,
+     box shape, hip velocity (joints missing <= 0.3 s bridged)               features.py
+  -> our posture model on everyone: upright / sitting / floor                posture_mlp.py
+  -> face check (res10, background thread, every 0.5 s)                      face.py
+  -> Observation dict (shared contract), ~10/s, batched over USB             contract.py, client.py
+     + heartbeat every second (FPS, model time, memory)
+  -> optional: video preview to the laptop (skeleton + info panel)           overlay.py
+```
+
+The backend (Person 2) decides what is a possible fall. With our posture model's prediction on
+every observation it uses the model's label (3 s of "fallen" -> possible_fall; details in
+[POSTURE_MODEL.md](POSTURE_MODEL.md)); with `--no-posture-mlp` it uses its pose rules on the
+posture numbers instead.
+
 ## Run it
 
 ```sh
@@ -27,6 +50,7 @@ For running the demo, see **[DEMO.md](DEMO.md)**. Measured speed/memory: **[BENC
 python3 run_edge.py                      # send to the backend at http://192.168.55.100:8000
 python3 run_edge.py --dry-run            # print observations as JSON, send nothing
 python3 run_edge.py --stream rtp://192.168.55.100:1234   # + video preview for the laptop
+python3 run_edge.py --no-posture-mlp     # without our posture model (on by default, POSTURE_MODEL.md)
 python3 run_edge.py --help               # all options (face, rates, recording, ...)
 ```
 
@@ -39,6 +63,9 @@ Most of the time, use the one-command laptop tools below instead.
   features: `torso_angle_deg` (0 upright, 90 lying), `head_y`, `hip_y` (0 = top of frame),
   `bbox_aspect` (only when part of the torso is visible), `vertical_velocity` (+ = moving down).
   Anything not measurable is omitted, never guessed.
+- `posture_prediction` from our posture model on **every** observation (`model_id`
+  `hearth/posture-mlp`, trusted by the team backend's config). With `--no-posture-mlp
+  --fall-model`: the Hugging Face model's prediction instead.
 - `face_present` is true/false on frames where a face check ran (about every 0.5 s, on a
   background thread) and null on all others ("did not run", not "no face").
 - `POST /ingest/heartbeat` every second with FPS, model time and memory, **only while camera
@@ -57,8 +84,9 @@ Most of the time, use the one-command laptop tools below instead.
 | `client.py` | Batched sending, heartbeats, retry/backoff, bounded buffer |
 | `face.py` | res10 face presence with head close-up, on a background thread |
 | `recorder.py` | JSONL recordings (keypoints/numbers only, never video) |
-| `overlay.py`, `backend_view.py` | Preview info panel; the backend's own posture/alert view |
-| `pose_rotate.py`, `control.py` | Rotated poseNet passes for lying people; stdin commands for sessions |
+| `overlay.py`, `backend_view.py` | Preview info panel (long lines wrap to the frame width); the backend's own posture/alert view |
+| `pose_rotate.py`, `control.py` | Rotated poseNet passes for lying people (`RotationPolicy` for the followed person, `OthersRotation` for everyone else); stdin commands for sessions |
+| `posture_mlp.py`, `posture_mlp.npz` | Our posture model (on by default): numpy network + trained weights, see [POSTURE_MODEL.md](POSTURE_MODEL.md) |
 | `fall_model.py`, `fall_decode.py`, `fall_rules.py` | Optional Hugging Face fall model on TensorRT (`--fall-model`), see below |
 
 ## Laptop tools (`tools/`)
@@ -86,16 +114,21 @@ Most of the time, use the one-command laptop tools below instead.
 
 - Works live end to end (2026-10-10): lying across the mat raises a possible-fall alert after
   ~3 s and standing up records recovery (see DEMO.md, BENCHMARKS.md).
-- The team backend's floor thresholds are calibrated for one camera position (about 1.5-2 m high,
-  ~3.5 m from the mat, tilted down): floor head/hip lines 0.40/0.45, upright hips above 0.65.
-  If the camera moves, re-check with `tools/record_clips.sh` and `tools/check_rules.py`.
+- Our posture model (default) only needs the whole body in view; a head-only close-up is its
+  one known false "floor" (POSTURE_MODEL.md, pc/RESULTS.md).
+- Without it (`--no-posture-mlp`), the backend's pose rules use height thresholds calibrated for
+  one camera position (about 1.5-2 m high, ~3.5 m from the mat, tilted down): head/hips below
+  0.40/0.45 = floor, hips above 0.65 = upright. If the camera moves, re-check with
+  `tools/record_clips.sh` and `tools/check_rules.py`.
 - People lying down: plain poseNet often finds only the head and shoulders, so when the upright
   pose looks lying or incomplete a rotated poseNet pass is added (`pose_rotate.py`; lying
   across went from 0% to 100% head+shoulders+hips). `--no-rotation` turns it off. Lying with the
   feet **toward** the camera still hides the hips and foreshortens the body (torso ~19 degrees):
   a single-camera limit rotation cannot fix.
-- One person per room: the edge follows the person it tracked a moment ago, so a passer-by in
-  the background can't take over; a second person lying down at the same time is not handled.
+- One person per room for the observations: the edge follows the person it tracked a moment
+  ago, so a passer-by can't take over. Our posture model still checks everyone in view (the panel
+  warns if anyone is on the floor), and if someone else is on the floor the backend is told about
+  them instead (POSTURE_MODEL.md).
 - Face detection at 3 m and with a covered mouth is not yet measured.
 
 ## Optional: fall model on the Jetson (YOLO11n + TensorRT, `--fall-model`)
@@ -122,6 +155,9 @@ python3 run_edge.py --fall-model --dry-run
 - If poseNet loses the person but the model sees them, the observation says
   `person_detected: true` with the prediction and no keypoints, so a lying person poseNet
   can't find still counts.
+- Now panel-only by default: our posture model is what the backend trusts (POSTURE_MODEL.md).
+  To send the HF model instead: `--no-posture-mlp --fall-model`, with a backend config whose
+  `fall_model_id` is the HF model's.
 - With a prediction present, the backend trusts the model over the pose rules (see below), so
   alerts depend on the model's call. If the engine is missing, the edge logs it and keeps sending
   pose evidence only.
