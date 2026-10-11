@@ -21,6 +21,7 @@ from hearth.monitor.service import MonitorService
 from hearth.sim.mount import mount_simulation
 from hearth.monitor.appointments import Appointments, Appointment, AppointmentInput, CheckIn
 from hearth.api.face_demo import create_face_router
+from hearth.api.camera_preview import create_preview_router
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
@@ -58,6 +59,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
     app.state.monitor = monitor
+    app.include_router(create_preview_router(monitor))
     app.state.appointments = appointments
     app.include_router(create_face_router(appointments, monitor))
 

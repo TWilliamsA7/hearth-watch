@@ -1,6 +1,8 @@
 {
   "room_id": "room-01",
-  "additional_room_ids": ["room-02"],
+  "additional_room_ids": [
+    "room-02"
+  ],
   "gesture_hold_seconds": 2.0,
   "gesture_release_seconds": 1.0,
   "gesture_cooldown_seconds": 10.0,
@@ -24,7 +26,7 @@
   "upright_hip_y_max": 0.65,
   "floor_angle_min_deg": 60.0,
   "floor_angle_max_deg": 120.0,
-  "floor_head_y_min": 0.40,
+  "floor_head_y_min": 0.4,
   "floor_hip_y_min": 0.45,
   "floor_bbox_aspect_min": 1.0,
   "descending_velocity_min": 0.15,
@@ -32,6 +34,11 @@
   "event_capacity": 10000,
   "dedupe_capacity": 20000,
   "websocket_queue_capacity": 512,
-  "cors_origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
-  "zones": []
+  "cors_origins": [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+  ],
+  "zones": [],
+  "hand_max_observation_gap_seconds": 2.5,
+  "hand_min_confirmations": 3
 }

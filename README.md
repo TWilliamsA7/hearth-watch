@@ -360,3 +360,18 @@ The caregiver appointment card shows today's room-01 schedule and arrival/overdu
 Use `http://127.0.0.1:5173/face-check-in` for optional enrollment. Recognition remains disabled unless `HEARTH_FACE_DEMO=1`, a persistent `HEARTH_FACE_KEY`, optional dependencies and models are configured in the API process. Install with `.\.venv\Scripts\python.exe -m pip install -e "backend[face-demo]"`; download/check models with `.\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check`. Keep the original encryption key private and stable; changing it prevents existing enrollment records from being read. Enrollment and incident naming require separate opt-ins. Run the local camera client with `--patient-recognition --hand-gestures --backend http://127.0.0.1:5173`; ordinary fall detection still works without identity. Physical camera accuracy must be tested separately from API integration.
 
 The Vite proxy preserves Host and Origin and remains loopback-bound, so recognition's local-only and same-origin checks are retained. Do not expose this development proxy publicly.
+
+### Annotated webcam inside the main dashboard
+
+For CPU laptop testing, add `--laptop` to the camera command. This uses 384px posture inference, 640px hand inference, and disables the extra contrast retry. Live capture consumes the newest frame, and dashboard preview uploads run in a separate worker with only one pending frame. Slow uploads cannot queue old images or block alert ingestion. Console output includes inference time, frame gaps and total pipeline time.
+
+The configured hand-model gap allowance is 2.5 seconds, with at least three confident same-hand observations and a two-second hold. Low confidence, no detection, ambiguity, larger gaps or a large hand position change clear pending evidence. Pose-based gesture and fall gap thresholds remain separate. If the preview says `Hand: unknown (0%)`, no hand was detected; if confidence is below the configured 65% threshold, no request is generated. Use one hand, good lighting, and keep the fist clearly visible. This slower-sampling allowance cannot establish what happened between camera observations.
+
+Restart the backend and Vite after installing this change. Stop the enrollment browser camera, then run from the repository root:
+
+```powershell
+$env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --device cpu --backend http://127.0.0.1:5173 --room room-01 --patient-recognition --hand-gestures --dashboard-preview
+```
+
+Choose **Live camera** above the main feed at http://127.0.0.1:5173/. The same camera frames feed inference and the embedded annotated image, including posture and hand bounding boxes. Preview sharing is explicit, uses a local backend, keeps only the latest JPEG in memory and does not record video. Frames become unavailable after three seconds without an update. Source selection isolates each preview; simulation and replay do not display the live camera. Remove --patient-recognition to run without enrolled identity. Add --preview only if a separate OpenCV window is also wanted. The current preview transport is for laptop testing, not a Jetson-to-laptop video connection.

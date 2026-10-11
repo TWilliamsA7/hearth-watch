@@ -1,5 +1,6 @@
-"""Camera/video/image inference. Frames stay local; only structured observations are sent."""
+"""Camera inference with optional local annotated dashboard preview."""
 import argparse
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -70,6 +71,7 @@ def main(argv=None):
     parser.add_argument("--max-fps", type=float, default=config.max_fps)
     parser.add_argument("--max-frames", type=int)
     parser.add_argument("--video-fps", type=float, help="Override missing/incorrect video FPS metadata")
+    parser.add_argument("--dashboard-preview", action="store_true", help="Share annotated frames with the local dashboard; no frame recording")
     parser.add_argument("--preview", action="store_true", help="Show local annotated video; Q closes it")
     parser.add_argument("--dry-run", action="store_true", help="Print observations without contacting backend")
     parser.add_argument("--record", type=Path, help="Also write observations and heartbeats to this JSONL file "
@@ -84,7 +86,15 @@ def main(argv=None):
                         help="Preview guidance only; backend hand_help_label controls alerts")
     parser.add_argument("--patient-recognition", action="store_true",
                         help="Opt-in staged patient demo: match faces locally and name fall alerts")
+    parser.add_argument('--laptop', action='store_true', help='CPU preset: posture 384px, hand 640px, no contrast retry')
     args = parser.parse_args(argv)
+    if args.laptop:
+        config = replace(config, image_size=384)
+        args.posture_enhancement = 'none'
+    if args.dashboard_preview:
+        from urllib.parse import urlparse
+        if args.camera is None or args.dry_run or urlparse(args.backend).hostname not in {"localhost", "127.0.0.1", "::1"}:
+            parser.error("--dashboard-preview requires a live camera and local backend")
     if args.patient_recognition and (args.camera is None or args.dry_run):
         parser.error("--patient-recognition requires a live --camera and local backend")
     patient_client = None
@@ -105,6 +115,8 @@ def main(argv=None):
         return
     model = load_model(args.weights, config, args.runtime_dir)
     hand_config = hand_settings() if args.hand_gestures else None
+    if hand_config and args.laptop:
+        hand_config = replace(hand_config, image_size=640)
     hand_model = (load_model(args.hand_weights, hand_config, args.runtime_dir, expected_labels=HAND_LABELS)
                   if hand_config else None)
     import cv2
@@ -126,6 +138,9 @@ def main(argv=None):
     cap = None
     if args.camera is not None:
         cap = cv2.VideoCapture(args.camera)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     elif args.video:
         if not args.video.is_file():
             parser.error("Video file does not exist")
@@ -133,6 +148,27 @@ def main(argv=None):
     if cap is not None and not cap.isOpened():
         cap.release()
         raise RuntimeError("Cannot open camera/video source")
+    camera_reader = None
+    preview_sender = None
+    camera_sequence = 0
+    if args.camera is not None:
+        from .live_io import LatestCamera
+        camera_reader = LatestCamera(cap)
+    if args.dashboard_preview:
+        from .live_io import LatestPreview
+        from urllib.parse import quote
+        from urllib.request import build_opener, ProxyHandler
+        preview_url = args.backend.rstrip('/') + f"/camera-preview/{quote(args.room, safe='')}/{quote(args.source_id, safe='')}"
+        preview_opener = build_opener(ProxyHandler({}))
+        def send_preview(annotated):
+            scale = min(1., 640/annotated.shape[1])
+            resized = cv2.resize(annotated, (round(annotated.shape[1]*scale), round(annotated.shape[0]*scale)))
+            ok, jpeg = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 65])
+            if ok:
+                request = Request(preview_url, data=jpeg.tobytes(), headers={'Content-Type':'image/jpeg'}, method='POST')
+                with preview_opener.open(request, timeout=1) as reply:
+                    reply.read()
+        preview_sender = LatestPreview(send_preview)
     video_fps, stride = None, 1
     if args.video:
         video_fps = args.video_fps if args.video_fps is not None else cap.get(cv2.CAP_PROP_FPS)
@@ -165,6 +201,8 @@ def main(argv=None):
     recorder = Recorder(args.record) if args.record else None
     processed, frame_index = 0, -1
     last_warning = float("-inf")
+    last_preview = float("-inf")
+    previous_frame_time = None
     started = time.monotonic()
     try:
         while True:
@@ -174,7 +212,11 @@ def main(argv=None):
                 if frame is None:
                     raise RuntimeError("Cannot read image")
             else:
-                ok, frame = cap.read()
+                if camera_reader:
+                    frame, capture_time, camera_sequence = camera_reader.read(camera_sequence)
+                    ok = True
+                else:
+                    ok, frame = cap.read()
                 if not ok:
                     if args.camera is not None:
                         raise RuntimeError("Camera stopped delivering frames")
@@ -183,7 +225,9 @@ def main(argv=None):
                 if args.video and frame_index % stride:
                     continue
             timestamp = (start_time + timedelta(seconds=frame_index/video_fps)
-                         if args.video else datetime.now(timezone.utc))
+                         if args.video else capture_time if camera_reader else datetime.now(timezone.utc))
+            frame_gap = (timestamp - previous_frame_time).total_seconds() if previous_frame_time else 0
+            previous_frame_time = timestamp
             inference_start = time.perf_counter()
             observation, result = infer_posture(model, frame, settings=config, device=args.device,
                 context=context, timestamp=timestamp, enhancement=args.posture_enhancement,
@@ -194,6 +238,7 @@ def main(argv=None):
             metrics["inference_ms"] = (time.perf_counter()-inference_start)*1000
             if hand_result is not None:
                 observation.hand_gesture_prediction = hand_prediction(hand_result, hand_config)
+            patient_caption = "Identity unconfirmed"
             processed += 1
             metrics["fps"] = processed / max(time.monotonic()-started, .001)
             if recorder is not None:
@@ -233,19 +278,25 @@ def main(argv=None):
                 prediction = observation.posture_prediction
                 print(f"{context['source_type']} {args.room}: {prediction.label} "
                       f"score={prediction.confidence} detections={prediction.detection_count} "
-                      f"input={prediction.input_processing} inference_ms={metrics['inference_ms']:.0f}", flush=True)
+                      f"input={prediction.input_processing} inference_ms={metrics['inference_ms']:.0f} frame_gap_s={frame_gap:.2f} pipeline_ms={(time.monotonic()-tick)*1000:.0f}", flush=True)
                 if observation.hand_gesture_prediction:
                     gesture = observation.hand_gesture_prediction
                     print(f"hand: {gesture.label} score={gesture.confidence} detections={gesture.detection_count}", flush=True)
-            if args.preview:
+            if args.preview or args.dashboard_preview:
                 annotated = result.plot(img=frame.copy())
                 if hand_result is not None:
                     annotated = hand_result.plot(img=annotated)
                 annotated = draw_status(annotated, observation,
                                         posture_threshold=args.posture_retry_threshold, help_label=args.help_gesture)
-                cv2.imshow("Hearth local model preview - Q to quit", annotated)
-                if cv2.waitKey(1) & 0xff == ord("q"):
-                    break
+                if patient_client:
+                    cv2.putText(annotated, patient_caption, (12, annotated.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, .7, (255,255,255), 2)
+                if args.dashboard_preview and time.monotonic()-last_preview >= .3:
+                    last_preview = time.monotonic()
+                    preview_sender.submit(annotated)
+                if args.preview:
+                    cv2.imshow("Hearth local model preview - Q to quit", annotated)
+                    if cv2.waitKey(1) & 0xff == ord("q"):
+                        break
             if args.image or (args.max_frames is not None and processed >= args.max_frames):
                 break
             if not (recorder is not None and args.dry_run and args.video):  # offline: no real-time pacing
@@ -253,6 +304,19 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
+        if preview_sender:
+            preview_sender.close()
+        if camera_reader:
+            camera_reader.close()
+        if args.dashboard_preview:
+            from urllib.parse import quote
+            from urllib.request import build_opener, ProxyHandler
+            try:
+                request = Request(args.backend.rstrip('/')+f"/camera-preview/{quote(args.room, safe='')}/{quote(args.source_id, safe='')}", method='DELETE')
+                with build_opener(ProxyHandler({})).open(request, timeout=1) as reply:
+                    reply.read()
+            except OSError:
+                pass
         if patient_client:
             patient_client.close()
         if recorder is not None:
@@ -261,7 +325,7 @@ def main(argv=None):
         stop.set()
         if thread:
             thread.join(timeout=3)
-        if cap is not None:
+        if cap is not None and camera_reader is None:
             cap.release()
         if args.preview:
             cv2.destroyAllWindows()

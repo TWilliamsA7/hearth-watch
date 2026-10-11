@@ -10,7 +10,7 @@ export default defineConfig({
     proxy: Object.fromEntries([
       '/appointments', '/alerts', '/events', '/sources', '/rooms', '/health',
       '/ingest', '/help-requests', '/nurse-sessions', '/ws', '/sim', '/eval',
-      '/face-demo', '/face-check-in', '/assets/face-check-in.js', '/assets/style.css',
+      '/camera-preview', '/face-demo', '/face-check-in', '/assets/face-check-in.js', '/assets/style.css',
     ].map(path => [path, { target: 'http://127.0.0.1:8002', ws: true }])),
   },
 });
