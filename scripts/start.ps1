@@ -96,6 +96,13 @@ if ($LASTEXITCODE) {
     & $python -m pip install --disable-pip-version-check -q -e "$root\backend[face-demo]"
     if ($LASTEXITCODE) { Write-Host 'Could not install the face recognition packages; everything else will run.' -ForegroundColor Yellow }
 }
+# The Jetson's video reaches the dashboard through a relay that decodes it with PyAV.
+& $python -c 'import av' 2>$null
+if ($LASTEXITCODE -and -not $NoJetson) {
+    Write-Host 'Installing the Jetson video relay package...'
+    & $python -m pip install --disable-pip-version-check -q -e "$root\backend[jetson]"
+    if ($LASTEXITCODE) { Write-Host 'Could not install PyAV; the Jetson video will not show (its skeletons still will).' -ForegroundColor Yellow }
+}
 & $python -c 'import sys; sys.path.insert(0, ''backend''); from hearth.perception.face_demo import MODELS, DEFAULT_DIR, verify; [verify(DEFAULT_DIR / p.split(''/'')[1], h) for p, h in MODELS.items()]' 2>$null
 if ($LASTEXITCODE) {
     Write-Host 'Downloading the face recognition models...'

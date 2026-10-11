@@ -1,6 +1,6 @@
 """Relay the Jetson's camera stream (RTP/H.264 from run_edge.py --stream) into the dashboard.
 
-Decodes the stream with OpenCV's FFmpeg and posts the newest frame as a JPEG to the server's
+Decodes the stream with PyAV (FFmpeg; OpenCV's build can't open RTP from an SDP file) and posts the newest frame as a JPEG to the server's
 local camera preview (/camera-preview/<room>/<source>), the same place the laptop webcam client
 uses, so the dashboard's Live camera view shows it. Nothing is recorded; only the latest frame
 is kept. The dashboard draws the skeletons and posture labels from the observations.
@@ -8,7 +8,6 @@ is kept. The dashboard draws the skeletons and posture labels from the observati
     python -m hearth.perception.stream_relay --backend http://127.0.0.1:8000 --source jetson-01
 """
 import argparse
-import os
 from pathlib import Path
 import tempfile
 import time
@@ -17,10 +16,10 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from .live_io import LatestPreview
 
-# Low latency: no input buffering or probing, drop late frames.
-os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS",
-                      "protocol_whitelist;file,udp,rtp|fflags;nobuffer|flags;low_delay|"
-                      "probesize;32|analyzeduration;0|max_delay;0")
+# The SDP file names an RTP stream, so those protocols must be allowed; low latency: no input
+# buffering, little probing.
+OPTIONS = {"protocol_whitelist": "file,udp,rtp", "fflags": "nobuffer", "flags": "low_delay",
+           "probesize": "32768", "analyzeduration": "0", "max_delay": "0", "reorder_queue_size": "0"}
 
 SDP = """v=0
 o=- 0 0 IN IP4 {jetson}
@@ -43,6 +42,7 @@ def main(argv=None):
     ap.add_argument("--max-fps", type=float, default=8.0, help="preview uploads per second")
     args = ap.parse_args(argv)
 
+    import av
     import cv2
 
     sdp = Path(tempfile.gettempdir()) / f"hearth-{args.source}.sdp"
@@ -61,20 +61,22 @@ def main(argv=None):
     print(f"[relay] waiting for {args.source}'s stream on udp {args.port}", flush=True)
     try:
         while True:  # the Jetson may start later or restart: reopen until stopped
-            capture = cv2.VideoCapture(str(sdp), cv2.CAP_FFMPEG)
             last, frames = 0.0, 0
-            while capture.isOpened():
-                ok, frame = capture.read()
-                if not ok:
-                    break
-                frames += 1
-                if frames == 1:
-                    print(f"[relay] {args.source} stream: {frame.shape[1]}x{frame.shape[0]}", flush=True)
-                now = time.monotonic()
-                if now - last >= 1 / args.max_fps:
-                    last = now
-                    preview.submit(frame)
-            capture.release()
+            try:
+                with av.open(str(sdp), options=OPTIONS, timeout=(10, 5)) as container:
+                    for decoded in container.decode(video=0):
+                        now = time.monotonic()
+                        if now - last < 1 / args.max_fps:
+                            continue  # decode every frame (H.264 needs it), upload a few
+                        last = now
+                        frame = decoded.to_ndarray(format="bgr24")
+                        frames += 1
+                        if frames == 1:
+                            print(f"[relay] {args.source} stream: {frame.shape[1]}x{frame.shape[0]}", flush=True)
+                        preview.submit(frame)
+            except (av.FFmpegError, OSError) as error:
+                if frames:
+                    print(f"[relay] {args.source} stream stopped ({error}); waiting for it again", flush=True)
             time.sleep(1)
     except KeyboardInterrupt:
         pass
