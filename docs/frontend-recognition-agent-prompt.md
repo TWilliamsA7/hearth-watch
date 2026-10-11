@@ -1,5 +1,7 @@
 # Frontend agent prompt: optional patient recognition
 
+> **Superseded design note.** The dashboard now includes enrollment and recognition check-in (`/room#recognition`), served by the same server; `/face-check-in` redirects there. See the root README and [face-demo.md](face-demo.md) for current behavior.
+
 Copy the text below into the frontend AI agent. This is a task specification based on the monitoring working tree audited on October 11, 2026. Backend changes must be present in the server being tested; do not assume a different branch or an old running server has these endpoints.
 
 ---
@@ -76,7 +78,7 @@ For native enrollment controls, use TWO initially unchecked choices:
 
 Do not force choice 2 to enroll or check in. The current API does not provide an in-place named-alert preference update: to change that enrollment permission, explain withdrawal and reenrollment; do not create a toggle that changes only frontend state. Link/unlink appointments without recapturing the face.
 
-An alias has 1–40 characters. Enrollment requires exactly three separate base64 JPEG/PNG frames without a data-URL prefix. Each decoded image must be at most 800,000 bytes, between 160x120 and 1280x960; 640x480 JPEG is suitable. Start the camera only on an explicit button click, show its active state, stop tracks on stop/unmount/pagehide, and discard frames after the request. Stop the enrollment camera before running the fall-model camera process so two clients do not compete for the webcam.
+An alias has 1â€“40 characters. Enrollment requires exactly three separate base64 JPEG/PNG frames without a data-URL prefix. Each decoded image must be at most 800,000 bytes, between 160x120 and 1280x960; 640x480 JPEG is suitable. Start the camera only on an explicit button click, show its active state, stop tracks on stop/unmount/pagehide, and discard frames after the request. Stop the enrollment camera before running the fall-model camera process so two clients do not compete for the webcam.
 
 Recognition states include `confirming`, `recognized`, `unknown`, `new_frame_required`; errors may indicate no face, poor lighting, expired session, or disabled setup. `/observe`, used by the camera pipeline rather than this dashboard, additionally returns `tracked`, `face_not_visible`, or `identity_unconfirmed`. Do not use the diagnostic response as a live patient-location roster.
 
@@ -106,9 +108,9 @@ Valid `identity_method` values are `face_match` and `recent_face_body_track`. A 
 
 Display examples:
 
-- **Possible fall — Alex**, Room 01, event time, **Face match confirmed** or **Recent face match associated with body track**, and **Accept request**.
-- **Help requested — Alex**, with the actual gesture/request description.
-- **Possible fall — Identity unconfirmed** when no authorized match is attached. Preserve prominence and nurse actions; anonymity must not downgrade the incident.
+- **Possible fall â€” Alex**, Room 01, event time, **Face match confirmed** or **Recent face match associated with body track**, and **Accept request**.
+- **Help requested â€” Alex**, with the actual gesture/request description.
+- **Possible fall â€” Identity unconfirmed** when no authorized match is attached. Preserve prominence and nurse actions; anonymity must not downgrade the incident.
 
 Always keep "possible" for a fall. Do not label match scores as percent certainty. The name belongs to the incident at its recorded time; an 8-second matching timeout does not retroactively erase that incident's label. Withdrawal stops new matching but does not erase previous alerts.
 

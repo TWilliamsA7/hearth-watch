@@ -6,9 +6,47 @@ Hearth shows how local edge computer vision could help caregivers in assisted-li
 
 **Hearth is not a game.** It is a care-monitoring simulation and evaluation environment. The primary hackathon target is the Full Sail challenge (a serious simulation using face detection and/or pathfinding). Face detection is the Full Sail feature; pose-based possible-fall detection is the safety application.
 
+## Quick start
+
+One command starts everything: the monitoring server, the dashboard and the Sim Studio, all on **one port**.
+
+```powershell
+# Once, from the repository root (Python 3.11+, Node 22):
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev,face-demo]'
+
+# Every time:
+.\scripts\start.ps1
+```
+
+Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm packages and builds it; later runs rebuild only when its sources changed. Ctrl+C stops everything the script started.
+
+| Option | Adds |
+| --- | --- |
+| `-Lan` | Listen on the network too, so the Jetson can post to `http://<laptop-ip>:8000` (allow the port in Windows Firewall) |
+| `-Camera 0` | This laptop's webcam as a live source, with its annotated feed in the dashboard (needs `./backend[vision]` and the models; see below) |
+| `-Replay` | Recorded clips replayed as `replay-01`, no Jetson needed; `-Replay -People` plays two people at once |
+| `-Dev` | A Vite dev server with hot reload on http://127.0.0.1:5173/, forwarding to the server |
+| `-Port 8010` | Another port, if 8000 is taken |
+| `-NoBuild` | Use the existing build without npm |
+
+Optional sources that fail (no webcam, no models) are reported and the rest keeps running. Face recognition turns on when `.env.face-demo` exists; `scripts/face_id_demo.sh` creates it (see [docs/face-demo.md](docs/face-demo.md)).
+
+**What is where** (all on the same server):
+
+| Address | What |
+| --- | --- |
+| `/` | Caregiver view: main feed (simulated 3D room, live camera or recorded replay), nurse session and coverage, incident alerts with accept/resolve, source health, event log, appointments, staged incidents, scripted scenarios and evaluation reports |
+| `/room` | Patient view: help (SOS) button, appointments and check-in, opt-in face recognition check-in (`/room#recognition`) |
+| `/studio/` | Sim Studio, the developer tool for the live simulator: resident inspector, overlays, actor commands, live-camera calibration |
+| `/studio/runs` | Recorded run player: saved sim runs against ground truth |
+| `/docs` | API reference |
+
+Both views have a room picker for every configured room. The header's developer menu links to the Studio, run player and API reference.
+
 ## Status
 
-The Person 2 monitoring core is implemented: shared schemas and generated TypeScript types, FastAPI ingestion and WebSocket, possible-fall rules, alert lifecycle, source health, an in-memory event log with JSONL export, a fake-observation producer, and automated tests. It now includes held-arm help requests, a manual help button, nurse subscriptions, exclusive nurse acceptance, and built-in nurse/room pages. Bed/chair zone downgrading is available but disabled until zones are configured. Edge inference and the simulator/evaluator remain separate integrations; Person 4 can reuse these APIs in the planned React dashboard.
+The monitoring core, live simulator and evaluator, laptop model runner, Jetson edge client, appointments and opt-in patient recognition all feed **one server** and **one dashboard** (`frontend/`, served from `frontend/dist`). Shared schemas and generated TypeScript types, FastAPI ingestion and WebSockets, possible-fall rules, alert lifecycle, source health, held-arm/hand-signal/button help requests, nurse subscriptions with exclusive acceptance, and an in-memory event log with JSONL export are all implemented and tested. Bed/chair zone downgrading is available but disabled until zones are configured.
 
 Detection thresholds are initial demo parameters, not tuned or validated on real camera traces. Synthetic tests exercise software behavior; they are not measured clinical accuracy.
 
@@ -45,27 +83,28 @@ python -m venv .venv
 
 The check should print posture labels `fallen`, `sitting`, `standing` and hand labels including `fist`. No detections on a blank frame is expected. This verifies runtime compatibility, not camera accuracy. Installation of PyTorch is larger than the model weights.
 
-### 2. Start or restart the backend — terminal 1
+### 2. Start Hearth with the webcam
 
-Stop the previous backend with Ctrl+C first. Restarting is required after shared-schema or configuration changes.
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
-```
-
-For a Jetson connection, use `--host 0.0.0.0` instead. If the port is occupied, stop the existing server or choose another port; change the camera command and dashboard URL to match.
-
-### 3. Start the camera — terminal 2
-
-Close other apps/runners using this webcam. Run from the same repository folder:
+Close other apps using this webcam, then from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --preview --hand-gestures --backend http://127.0.0.1:8000 --room room-01
+.\scripts\start.ps1 -Camera 0
 ```
 
-The preview draws body/hand boxes and shows **STANDING / SITTING / LYING / UNKNOWN**. Terminal output includes raw posture and hand labels, confidence, input processing and inference time. `fallen` in terminal/JSON corresponds to Lying in the UI. Press Q in the preview or Ctrl+C in the terminal to stop.
+This starts the server and runs `edge/run_fall_model.py --camera 0 --hand-gestures --dashboard-preview` against it. Restart (Ctrl+C, then run again) after shared-schema or configuration changes. In the dashboard at http://127.0.0.1:8000/, choose **Live camera** above the main feed: it shows the annotated frames with body/hand boxes and **STANDING / SITTING / LYING / UNKNOWN**. The terminal shows raw posture and hand labels, confidence, input processing and inference time. `fallen` in terminal/JSON corresponds to Lying in the UI.
 
-Open [the nurse dashboard](http://127.0.0.1:8000/nurses), enter a display name, select **room-01**, **Possible falls** and **Help requests**, keep **On duty** checked, and start the session.
+To run the camera client yourself instead (for example with a separate OpenCV window), start Hearth without `-Camera` and in a second terminal run:
+
+```powershell
+$env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --preview --hand-gestures --dashboard-preview --backend http://127.0.0.1:8000 --room room-01
+```
+
+Add `--laptop` on a slow CPU (384px posture, 640px hand inference, no contrast retry). Press Q in the preview or Ctrl+C to stop.
+
+### 3. Start a nurse session
+
+In the caregiver view, open **Nurse session**, enter a display name, keep **room-01**, **Possible falls** and **Help requests** checked and **On duty** on, and start the session.
 
 ### 4. Test the expected behavior
 
@@ -122,23 +161,18 @@ The live config supports both producers: supplied model predictions are authorit
 - **Slow inference breaks the hold:** inspect `inference_ms`; compare with `--posture-enhancement none`. Raising `--max-fps` does not make the model run faster.
 - **Temporary-directory permission error during installation/tests:** create `.venv/tmp`, then set `$env:TEMP` and `$env:TMP` to its absolute path in that terminal and retry.
 
-AngelCare 8B is a separate, unverified GPU experiment; it is not part of these CPU-laptop commands or nurse alerts. See [its setup notes](docs/angelcare-live.md) if an appropriate GPU machine becomes available.
+AngelCare 8B is a separate, unverified GPU experiment; it is not part of these CPU-laptop commands or nurse alerts, and its setup notes are not in this repository.
 
 ## Nurse desk and help requests
 
-Start or restart the server with the command below, then open:
-
-- `http://127.0.0.1:8000/nurses` — nurse coverage preferences, live alert queue, named acceptance, resolution, source health and timeline.
-- `http://127.0.0.1:8000/room` — room help button and visible request/acknowledgement confirmation.
-
-These pages are served by FastAPI from `backend/hearth/api/static/`, with no Node install, CDN or frontend build. They use the same APIs available to the React frontend.
+Start Hearth (`.\scripts\start.ps1`), then open the dashboard. The **caregiver view** (`/`) holds the nurse session: coverage preferences, the live alert list with named acceptance and resolution, source health and the event log. The **patient view** (`/room`) holds the room help button with visible request/acknowledgement confirmation. A nurse session belongs to its browser tab and survives a reload of that tab; it ends when the server restarts.
 
 **Minimum demo:**
 
-1. Open `/nurses`, enter a display name, choose `room-01` and **Help requests**, keep **On duty** checked, and start the session. Click **Enable alert sound** if desired.
-2. Open `/room` in a separate tab and press **Request help**. A labelled **BUTTON REQUEST** alert appears at the care desk.
-3. Accept the request in the nurse tab. The room panel shows the nurse's acknowledgement. Resolve it to allow a fresh request.
-4. Open a second nurse tab with a different name and the same coverage. Both see matching alerts and who accepted them; only the first accepting nurse owns the alert and can resolve it.
+1. In the caregiver view, open **Nurse session**, enter a display name, keep `room-01` and **Help requests** checked and **On duty** on, and start the session. Click **Enable alert sound** if desired.
+2. Open `/room` in a separate tab and press **SOS**. A **Button request** alert appears in the caregiver view.
+3. Accept the request in the nurse tab. The patient view shows the nurse's acknowledgement. Resolve it to allow a fresh request; **Show resolved** keeps it visible.
+4. Open a second caregiver tab with a different name and the same coverage. Both see matching alerts and who accepted them; only the first accepting nurse owns the alert and can resolve it.
 5. Change the second nurse's coverage to **Camera / source offline** only and save. Help requests will no longer be routed there. Off-duty sessions receive no new matching requests; their already accepted work remains visible.
 6. To test a gesture without hardware, run the synthetic trace below. A brief wave or an interrupted gesture should not produce a help request.
 
@@ -160,15 +194,13 @@ Profiles, subscriptions, ownership, and events are in memory and clear when the 
 
 ## Run the monitoring core
 
-From the repository root, with Python 3.11+ (PowerShell):
+`.\scripts\start.ps1` is the normal way to run it. The server alone, without building the dashboard (its pages then explain how to build it), is:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ./shared/python -e './backend[dev]'
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-For Jetson access over the local network, use `--host 0.0.0.0` and the laptop's LAN address. Run **one worker**: state is in memory. Interactive API documentation is at `http://127.0.0.1:8000/docs`. Once dependencies are installed, the backend and scripts work without internet.
+For Jetson access over the local network, use `-Lan` (or `--host 0.0.0.0`) and the laptop's LAN address. Run **one worker**: state is in memory. Interactive API documentation is at `http://127.0.0.1:8000/docs`. Once dependencies are installed, the backend and scripts work without internet.
 
 In a second terminal, run the stub (no Jetson or frontend needed):
 
@@ -237,12 +269,7 @@ The event log retains the latest 10,000 events by default; JSONL export includes
 
 The live engine (`backend/hearth/sim/live/`) generates a furnished room from a seed and fills it with autonomous residents who sit, rest, walk to the window, browse the shelves, bend to pick things up, leave and come back, and hold seated or standing conversations. Each resident runs their own state machine; nothing is scripted in advance. A pinhole camera in the room produces the same contract Observations as every other source, through the same monitor. Ground truth is written as it happens and never reaches the monitor.
 
-```powershell
-# Backend (mounts /sim, /sim/live and /eval on the monitoring core)
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
-# Studio (in frontend/room-view; set HEARTH_BACKEND if the backend isn't on :8000)
-npm install; npm run dev    # then open http://localhost:5174/studio.html
-```
+The dashboard's main feed shows this room (**Simulation** source) with the controls an operator needs: play/pause, speed, staging a fall, inactivity, pacing or exit loitering (for the person clicked in the 3D view, or someone suitable), resetting one person, and generating a new room. The full **Sim Studio** is the developer tool for the same engine: run `.\scripts\start.ps1` and open http://127.0.0.1:8000/studio/ (or use the developer menu in the dashboard header). To work on the Studio itself with hot reload, run `npm run dev` in `frontend/room-view` and open http://localhost:5174/studio.html (it forwards to `HEARTH_BACKEND`, default `:8000`).
 
 In the Studio, press **Generate room**:
 
@@ -276,20 +303,21 @@ The backend supports `POST /appointments`, `GET /appointments`,
 `/appointments/{id}/check-in` and `/appointments/{id}/cancel`.
 Use an ISO timestamp with a timezone. The default grace period is **900 seconds**:
 arrival not confirmed at scheduled time + 15 minutes creates one
-`appointment_overdue` alert. Nurses select **Appointment check-in overdue** and the
-destination room in `/nurses`, then save their coverage. Alerts use the usual live
+`appointment_overdue` alert. Nurses select **Appointment reminders** and the
+destination room in the dashboard's nurse session, then save their coverage. Alerts use the usual live
 WebSocket, accept/acknowledge, and resolve workflow. Late check-in records recovery;
 human review still resolves the alert. Cancelling/rescheduling closes an obsolete
 reminder. Appointments and their reminder state survive restart in
 `data/appointments.sqlite` (override with `HEARTH_APPOINTMENTS_DB`); nurse sessions
 must reconnect after restart. Use one backend worker.
 
-For a judge demo, restart the backend from this checkout on port 8002, then run in a
-second PowerShell terminal:
+In the dashboard, schedule from **Schedule an appointment** (caregiver or patient view),
+check in from the patient view, and subscribe nurses to **Appointment reminders**; the
+overdue alert names the patient and the scheduled time. For a compressed judge demo of the
+reminder, with Hearth running, run in a second PowerShell terminal:
 
 ```powershell
-cd C:\Users\Sam\Documents\GitHub\hearth-watch
-$backend = 'http://127.0.0.1:8002'
+$backend = 'http://127.0.0.1:8000'
 $body = @{
     resident_label = 'Demo guest'
     room_id = 'room-01'
@@ -301,8 +329,8 @@ $appointment = Invoke-RestMethod "$backend/appointments" -Method Post -ContentTy
 $appointment
 ```
 
-Open `/nurses`, enable appointment reminders for room-01, and start/save the nurse
-session. In 15 seconds its **SIMULATED** appointment alert appears. To demonstrate
+In the caregiver view, enable **Appointment reminders** for room-01 and start/save the
+nurse session. In 15 seconds its **SIMULATED** appointment alert appears. To demonstrate
 arrival, run:
 
 ```powershell
@@ -312,8 +340,6 @@ Invoke-RestMethod "$backend/appointments/$($appointment.appointment_id)/check-in
 
 Repeat with a new appointment and check in before the deadline to show that no
 reminder is sent. This is a compressed demonstration of the real 15-minute rule.
-Appointment management/check-in is available through `/docs`; the nurse page displays
-the resulting alerts, not an appointment calendar yet.
 
 **Optional face-assisted demo:** use the existing Jetson face detector in room-01,
 then send `{"method":"face_assisted_demo","token":"<appointment token>","source":"<Jetson source ID>"}`
@@ -321,8 +347,9 @@ to the same check-in endpoint. This requires `demo: true`, a valid appointment t
 and fresh live `person_detected` / `face_present` observations from that camera.
 It confirms a token check-in while someone is visible, **not that the camera
 recognized the scheduled person**. Camera presence alone never checks anyone in.
-No face training or identity embeddings are added. The laptop posture/hand runner
-alone does not emit face detections. Manual check-in uses `{"method":"manual"}`.
+This method does no identity matching; opt-in recognition is separate (see
+[Optional patient recognition](#optional-patient-recognition)). The laptop posture/hand
+runner alone does not emit face detections. Manual check-in uses `{"method":"manual"}`.
 
 The hackathon API has no authentication; the demo token is not a security or identity
 guarantee, and appointment APIs expose it locally for demonstration. Use fictional
@@ -344,7 +371,7 @@ Out of scope — do not add these:
 
 - Hallways, building maps, pathfinding, resident navigation.
 - Multiple cameras or cross-camera tracking.
-- Face **recognition**, identity assignment, biometric databases.
+- Face recognition beyond the opt-in, consented patient check-in under [Optional patient recognition](#optional-patient-recognition): no identity assignment without enrollment, no biometric store beyond its encrypted, expiring enrollments.
 - Gait analysis, fall-risk scores, clinical predictions, custom fall-model training.
 - Cloud services, runtime internet dependencies, physical props, robots.
 
@@ -370,11 +397,16 @@ Jetson Nano 2GB                              |
                                              |
                                         WebSocket
                                              |
-                                    React dashboard
-                                      room view, skeleton, alerts,
-                                      timeline, scenario controls,
-                                      evaluation / after-action report
+                                    React dashboard (same server and port)
+                                      caregiver view: room feed, skeleton,
+                                      alerts, nurse session, scenario
+                                      controls, evaluation report
+                                      patient view: help, appointments,
+                                      opt-in recognition check-in
+                                    Sim Studio (/studio/, developer tool)
 ```
+
+`scripts/start.ps1` builds `frontend/dist` (dashboard) and `frontend/room-view/dist` (Studio and run player); `backend/hearth/api/frontend.py` serves them next to the API, so the browser, the Jetson and the camera client all use one address.
 
 ## Critical invariants
 
@@ -396,7 +428,9 @@ backend/            FastAPI app on the laptop (Python 3.11+)
   hearth/eval/        compares monitor events against ground truth
   tests/
 edge/               Jetson Nano code
-frontend/           React + TypeScript + Vite dashboard (SVG/Canvas, no 3D engine)
+frontend/           React + TypeScript + Vite dashboard (SVG skeletons, three.js 3D room)
+  room-view/          3D/2D room renderer package, Sim Studio and run player (dev/)
+scripts/            start.ps1 (start everything), face_id_demo.sh (Jetson face ID setup)
 shared/             the contract every component speaks
   python/             Pydantic models: the source of truth
   schema/             generated JSON Schema (do not edit by hand)
@@ -480,7 +514,7 @@ Never ask a judge to fall. Never imply lying down proves a fall.
 
 - Alerts are **possible** safety events for human review, not diagnoses or certified fall detection.
 - Do not claim clinical validation, measured accuracy beyond what was actually tested, or HIPAA compliance. Report live test results as small-sample.
-- Face detection is not identification. No enrollment or biometric identification.
+- Face detection is not identification. Identification happens only for patients who opted in to recognition, and alerts name them only with a second, separate opt-in.
 - Skeleton data can still be sensitive; do not describe it as anonymous.
 - Test only with consenting teammates and synthetic resident profiles. Label all simulated data as simulated.
 
@@ -507,11 +541,11 @@ Pose-only upright detection can include sitting: it is not a three-class posture
 
 ### Test the integrated simulator and evaluator
 
-Start the backend using the laptop setup above, then open <http://127.0.0.1:8000/docs>:
+The dashboard's **Scenario controls and evaluation** panel (play icon in the header) runs these from the UI: load, play, pause, reset, run again, the completed run's report, earlier runs, the live room's report and the batch summary. To drive them by API, start Hearth and open <http://127.0.0.1:8000/docs>:
 
 1. Execute `GET /sim/scenarios`; it should list the scenario library.
 2. Execute `POST /sim/load` with `{"scenario_id":"possible-fall-01","seed":42}`.
-3. Execute `POST /sim/play`. Watch `/room` or `/nurses` for a visibly **SIMULATED** source and a possible-fall alert. Select room-01 and fall alerts in the nurse page.
+3. Execute `POST /sim/play`. Watch the dashboard for a visibly **SIMULATED** source and a possible-fall alert.
 4. Once `GET /sim/status` says `ended`, copy its `run_id`. `GET /eval/runs/{run_id}` returns the actual-versus-observed report. `GET /alerts?run_id=...` isolates that run's alerts.
 5. `POST /sim/reset`, then play again; a new run ID prevents old observations or incidents from contaminating the replay. `/sim/pause` and `/sim/speed` (body `{"speed":4}`) control playback.
 
@@ -530,45 +564,24 @@ The default factory uses the real monitor with a virtual receipt clock; no test 
 
 The real monitor can alert on intentional lying too: sustained floor posture is a **possible** fall, not proof of an accident. The evaluator reports those false positives rather than hiding them. Calibrated bed/chair polygons downgrade alerts but do not remove them; scenario room-meter geometry is not automatically converted into camera-frame suppression polygons.
 
-The React room-view development page on port 5174 currently plays **recorded** runs; the live pages are `/room` and `/nurses` on the backend. The simulator and evaluation APIs are connected, while a combined React scenario/evaluation control page remains dashboard work. Both frontend development ports 5173 and 5174 are allowed by the default backend CORS config. See [component interfaces](docs/interfaces.md) for the clocks, ingestion seam and routes.
+Recorded runs (`python -m hearth.sim run`) play back at http://127.0.0.1:8000/studio/runs. The development ports 5173 (`start.ps1 -Dev`) and 5174 (Studio dev server) are allowed by the default backend CORS config. See [component interfaces](docs/interfaces.md) for the clocks, ingestion seam and routes.
 
 ## Optional patient recognition
 
-The nurse dashboard includes opt-in demo patient enrollment using **YuNet and SFace from Hugging Face**. The laptop camera can check in linked appointments and label possible-fall/help alerts with a confirmed demo patient name. See [setup, model details, and demo testing](docs/face-demo.md).
+The dashboard's patient view includes opt-in patient enrollment using **YuNet and SFace from Hugging Face** (`/room#recognition`). The laptop camera can check in linked appointments and label possible-fall/help alerts with a confirmed patient name. See [setup, model details, and demo testing](docs/face-demo.md).
 
 For cross-branch integration, see [recognition placement, poseNet envelope, and dashboard handoff](docs/recognition-integration.md).
 
 Frontend handoff: [copy-paste recognition integration prompt for the frontend AI agent](docs/frontend-recognition-agent-prompt.md). See the [current behavior audit](docs/recognition-safety-audit.md) for verified behavior and remaining security/deployment work.
 
-## Integrated dashboard: open port 5173
+### Recognition with the dashboard
 
-The existing React dashboard is the main UI. Its layout and CSS are unchanged. Vite forwards API and WebSocket routes to the internal Python API on 8002, so the browser uses **http://127.0.0.1:5173/** for schedules, alerts, simulation, and optional recognition setup. Old backend `/nurses` and `/room` routes redirect to the main dashboard. Previously saved test-server addresses are no longer used on startup.
+Recognition stays disabled unless the server has `HEARTH_FACE_DEMO=1`, a persistent `HEARTH_FACE_KEY`, the `face-demo` extra and the downloaded models. `start.ps1` sets the first two from `.env.face-demo` when that file exists. Install with `.\.venv\Scripts\python.exe -m pip install -e "backend[face-demo]"`; download/check models with `.\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check`. Keep the encryption key private and stable; a new key cannot read existing enrollments. Enrollment and incident naming require separate opt-ins. Recognition accepts requests only from the page this computer's server served (loopback and same origin), so enroll on the laptop itself.
 
-After installing repository Python dependencies and running `npm.cmd install` in `frontend`, stop old development servers and run from the repository root:
-
-```powershell
-.\scripts\dashboard.ps1
-```
-
-Keep this terminal running. Ctrl+C stops Vite and the API process launched by the script. An API process already running is left alone. Restart that process after backend code changes. Port 5173 is strict: Vite fails if occupied rather than silently moving to another port. This launcher binds locally for laptop testing; Jetson transport needs a separately configured backend listener.
-
-The caregiver appointment card shows today's room-01 schedule and arrival/overdue counts. In Patient view, select the intended appointment and press check in. A reminder is generated after the configured grace period (default 15 minutes); unconfirmed arrival is not proof of harm. Recognition-confirmed arrival updates on the next five-second poll.
-
-Use `http://127.0.0.1:5173/face-check-in` for optional enrollment. Recognition remains disabled unless `HEARTH_FACE_DEMO=1`, a persistent `HEARTH_FACE_KEY`, optional dependencies and models are configured in the API process. Install with `.\.venv\Scripts\python.exe -m pip install -e "backend[face-demo]"`; download/check models with `.\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check`. Keep the original encryption key private and stable; changing it prevents existing enrollment records from being read. Enrollment and incident naming require separate opt-ins. Run the local camera client with `--patient-recognition --hand-gestures --backend http://127.0.0.1:5173`; ordinary fall detection still works without identity. Physical camera accuracy must be tested separately from API integration.
-
-The Vite proxy preserves Host and Origin and remains loopback-bound, so recognition's local-only and same-origin checks are retained. Do not expose this development proxy publicly.
+With recognition enabled, `.\scripts\start.ps1 -Camera 0` adds `--patient-recognition` to the webcam client; fall detection works the same without identity. Stop the enrollment camera in the browser before the webcam client needs the same camera. Physical camera accuracy must be tested separately from API integration.
 
 ### Annotated webcam inside the main dashboard
 
-For CPU laptop testing, add `--laptop` to the camera command. This uses 384px posture inference, 640px hand inference, and disables the extra contrast retry. Live capture consumes the newest frame, and dashboard preview uploads run in a separate worker with only one pending frame. Slow uploads cannot queue old images or block alert ingestion. Console output includes inference time, frame gaps and total pipeline time.
+`-Camera` shares the annotated frames with the dashboard (`--dashboard-preview`): choose **Live camera** above the main feed. The same camera frames feed inference and the image, including posture and hand bounding boxes. Preview sharing is explicit, goes only to the local server, keeps only the latest JPEG in memory and does not record video. Frames become unavailable after three seconds without an update. Live capture consumes the newest frame, and preview uploads run in a separate worker with only one pending frame, so slow uploads cannot queue old images or block alert ingestion. This preview is for laptop testing, not a Jetson-to-laptop video connection.
 
 The configured hand-model gap allowance is 2.5 seconds, with at least three confident same-hand observations and a two-second hold. Low confidence, no detection, ambiguity, larger gaps or a large hand position change clear pending evidence. Pose-based gesture and fall gap thresholds remain separate. If the preview says `Hand: unknown (0%)`, no hand was detected; if confidence is below the configured 65% threshold, no request is generated. Use one hand, good lighting, and keep the fist clearly visible. This slower-sampling allowance cannot establish what happened between camera observations.
-
-Restart the backend and Vite after installing this change. Stop the enrollment browser camera, then run from the repository root:
-
-```powershell
-$env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
-.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --device cpu --backend http://127.0.0.1:5173 --room room-01 --patient-recognition --hand-gestures --dashboard-preview
-```
-
-Choose **Live camera** above the main feed at http://127.0.0.1:5173/. The same camera frames feed inference and the embedded annotated image, including posture and hand bounding boxes. Preview sharing is explicit, uses a local backend, keeps only the latest JPEG in memory and does not record video. Frames become unavailable after three seconds without an update. Source selection isolates each preview; simulation and replay do not display the live camera. Remove --patient-recognition to run without enrolled identity. Add --preview only if a separate OpenCV window is also wanted. The current preview transport is for laptop testing, not a Jetson-to-laptop video connection.

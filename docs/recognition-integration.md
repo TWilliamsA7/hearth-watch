@@ -1,5 +1,7 @@
 # Recognition integration decision
 
+> **Superseded design note.** The dashboard now includes enrollment and recognition check-in (`/room#recognition`), served by the same server; `/face-check-in` redirects there. See the root README and [face-demo.md](face-demo.md) for current behavior.
+
 ## Scope and repository findings
 
 This review uses the local `monitoring`, `main`, `gaston/edge`, `feat/dashboard`, and `feat/evolved-simulation` refs available in this checkout. It does not fetch or change another branch. Recognition remains a staged, opt-in demo with fictional patient profiles.
@@ -85,7 +87,7 @@ The existing alert/event transport already carries the fields under `metadata`; 
 - `identity_method`: `face_match` or `recent_face_body_track` (laptop camera), `edge_face_track` (Jetson templates).
 - `identity_demo`: true for this staged workflow.
 
-React should display **Possible fall — <resident_label>** only when `identity_demo` is true and the label is present. Otherwise use **Identity unconfirmed**. Treat identity on an alert as evidence at that incident, not the current occupant of a room. Render names as text, never HTML. Do not infer identity from `source`, simulation names, or `person_id`.
+React should display **Possible fall â€” <resident_label>** only when `identity_demo` is true and the label is present. Otherwise use **Identity unconfirmed**. Treat identity on an alert as evidence at that incident, not the current occupant of a room. Render names as text, never HTML. Do not infer identity from `source`, simulation names, or `person_id`.
 
 Link to the backend's `/face-check-in` page for enrollment for now. A cross-origin React dev page cannot call the local enrollment endpoints directly under the current same-origin policy; changing that needs an explicit authenticated enrollment design. Connect `AppointmentPanel` to `/appointments` and use explicit profile-to-appointment links. Matching alone should not acknowledge or resolve a nurse alert.
 

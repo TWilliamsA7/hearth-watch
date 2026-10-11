@@ -137,16 +137,16 @@ It isn't saved yet. After a backend restart, run Steps 0–2 again; it takes abo
 ## Run it
 
 ```powershell
-.\scripts\demo.ps1              # backend + Studio; then on the Jetson: python3 run_edge.py --backend http://<laptop>:8000
-.\scripts\demo.ps1 -Replay      # no Jetson: Gaston's recorded stand / lie down / stand clips, looped, as replay-01
-.\scripts\demo.ps1 -Replay -People   # the same clips as two people side by side (p2 lies down), with the posture model's calls
+.\scripts\start.ps1 -Lan                # server, dashboard and Studio; then on the Jetson: python3 run_edge.py --backend http://<laptop>:8000
+.\scripts\start.ps1 -Replay             # no Jetson: Gaston's recorded stand / lie down / stand clips, looped, as replay-01
+.\scripts\start.ps1 -Replay -People     # the same clips as two people side by side (p2 lies down), with the posture model's calls
 ```
 
-In the Studio (`http://localhost:5174/studio.html`):
+In the Studio (`http://127.0.0.1:8000/studio/`, or the developer menu in the dashboard header):
 1. **Live camera → Live only (empty room).** This makes a room on the Jetson camera preset and links it. To add residents, generate a room instead, then press **Link into this room**.
 2. **Pick the source:** `jetson-01` for the live Jetson, `replay-01` for recordings.
 3. **Calibrate.** Choose camera **Jetson mount**, then set height, tilt and field of view to match the real camera (edge/DEMO.md: 1.5–2 m up, 10–15° down) and regenerate. Adjust until the avatar stands where the person stands.
-4. **Watch the alert.** Lie down in view for 3 s. The monitor's alert turns the avatar red, shows in the event log and on `/nurses`, and a resident comes over. Get up, and they stand down.
+4. **Watch the alert.** Lie down in view for 3 s. The monitor's alert turns the avatar red, shows in the event log and in the dashboard's alerts, and a resident comes over. Get up, and they stand down.
 
 The **Real camera** chip on the bottom panel switches the 2D view to the Jetson's own skeleton.
 
@@ -156,5 +156,5 @@ API, if you want it without the Studio: `POST /sim/live/link {"enabled": true, "
 - **Depth is inferred, not measured.** A wrong camera height or tilt puts the person in the wrong place; bodies are clamped inside the room. On the floor, from a low camera, expect up to ~0.3 m error.
 - **Ids are tracks, not identities.** They follow the nearest box from frame to frame: two people crossing closely can swap ids, and someone who leaves for over a second comes back with a new one (a new avatar). **Their height** is shared by everyone, so people of very different heights are placed less accurately.
 - **The simulated room is not the real room.** The furniture is generated, so the real person can appear to stand inside a simulated table. Keep the furniture density low, or use "Live only".
-- **The fall model (`fall-model-01`) can't be placed.** It sends no keypoints. Its alerts still reach the monitor and `/nurses`.
-- **Simulated and live alerts share `room-01`.** On `/nurses` they're labelled by source (SIMULATED or LIVE). The contract's `Alert` has no `person_id`; the monitor puts it in `metadata.person_id`.
+- **The fall model (`fall-model-01`) can't be placed.** It sends no keypoints. Its alerts still reach the monitor and the dashboard.
+- **Simulated and live alerts share `room-01`.** In the dashboard they're labelled by source (Simulation or Live camera). The contract's `Alert` has no `person_id`; the monitor puts it in `metadata.person_id`.

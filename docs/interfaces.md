@@ -47,10 +47,10 @@ one exists). `python -m hearth.eval batch --seeds 1` writes JSON and Markdown re
 under `recordings/eval` at the repository root by default. The summary API reads that
 default directory. Reports describe synthetic scenarios, not clinical accuracy.
 
-The room-view development page currently plays recorded runs. The live nurse and
-room pages are served by FastAPI at `/nurses` and `/room`; simulator control is also
-available through `/docs`. A full React scenario/evaluation dashboard remains a
-dashboard task. Frontend development origins on ports 5173 and 5174 are allowed by
+The dashboard (`frontend/`, served at `/`, `/room` and `/nurses`) drives the scripted
+simulator, the live room and the evaluation reports; the Sim Studio is at `/studio/`
+and the recorded-run player at `/studio/runs`, all from the same server. Development
+origins on ports 5173 (`start.ps1 -Dev`) and 5174 (Studio dev server) are allowed by
 the default monitor config.
 
 ## Optional patient identity integration

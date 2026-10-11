@@ -1,6 +1,6 @@
-# Optional patient recognition — laptop demo
+# Optional patient recognition: laptop demo
 
-This local hackathon demo uses consenting teammates playing fictional residents. Open **Patient enrollment** from the nurse dashboard, or visit `/face-check-in`.
+This local hackathon demo uses consenting teammates playing fictional residents. Enrollment is in the dashboard's patient view, under **Face recognition check-in** (`http://127.0.0.1:8000/room#recognition`).
 
 ## Hugging Face models
 
@@ -16,27 +16,29 @@ From the repository root, with the existing project environment installed:
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e "./backend[vision,face-demo]"
 .\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check
-$env:HEARTH_FACE_DEMO = '1'
-$env:HEARTH_FACE_KEY = (& .\.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())").Trim()
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8002
+# Once: keep this file private and stable (git-ignored; scripts/face_id_demo.sh makes the same file).
+$key = (& .\.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())").Trim()
+Set-Content -Encoding ascii .env.face-demo "HEARTH_FACE_KEY=$key"
+
+.\scripts\start.ps1
 ```
 
-Generate the encryption key once, and keep that PowerShell window open. Restarting the backend in the same window retains the key. A different key cannot decrypt existing enrollments; preserve the original key privately if retaining enrollments across sessions. Do not commit the key. Withdraw all enrollments before changing keys.
+`start.ps1` reads `.env.face-demo` and turns recognition on (`HEARTH_FACE_DEMO=1`). Create the key once and keep the file. A different key cannot decrypt existing enrollments; preserve the original key privately if retaining enrollments across sessions. Do not commit the key. Withdraw all enrollments before changing keys.
 
 The feature is disabled unless explicitly enabled. Its API accepts loopback requests only.
 
 ## Demo steps
 
-1. Open `http://127.0.0.1:8002/face-check-in`.
-2. Enter a fictional alias and select the room. Click **Create demo appointment** if testing arrival; this schedules it 30 seconds ahead with a 15-second grace period.
-3. Select an appointment only if you want recognition check-in. Confirm face-enrollment consent and separately select **Also show my demo name** if testing named safety alerts, then start the camera.
-4. Enroll three views, following the prompts. Keep one face in view with good lighting.
-5. Start recognition. Three consecutive matching frames confirm the demo patient. A linked, open demo appointment in the same room is marked arrived.
-6. Verify the appointment through `GET /appointments` in `/docs`. Its method should be `face_recognition_demo`.
+1. Open `http://127.0.0.1:8000/room#recognition` and pick the room in the header.
+2. To test arrival, schedule an appointment under **My appointments â†’ Schedule an appointment** in the same view (use the patient's name and a time a few minutes ahead).
+3. Select an appointment only if you want recognition check-in. Confirm face-enrollment consent and separately select **Also show my name on possible-fall and camera help-signal alerts** if testing named safety alerts, then click **Start camera**.
+4. Click **Capture 3 views and enroll**, following the prompts. Keep one face in view with good lighting.
+5. Click **Check in with recognition**. Three consecutive matching frames confirm the patient. A linked, open appointment in the same room is marked arrived.
+6. Verify the appointment through `GET /appointments` in `/docs`. Its method should be `face_recognition`; the appointment list shows **Recognized arrival**.
 7. To demonstrate a late arrival alert, wait until the appointment grace period has passed before recognizing. Arrival records recovery; nurse acknowledgment and resolution remain separate actions.
 8. Use **Withdraw & delete** to remove the enrollment and invalidate recognition sessions. Stop the camera when finished.
 
-Rescheduling rotates the appointment token, so an old enrollment cannot check in the rescheduled appointment. Select the rescheduled appointment and click **Link selected appointment** beside the enrolled patient. Enrollment can be reused for multiple explicitly linked demo appointments. Recognition accepts arrival starting 15 minutes before the scheduled time, so seeing someone today does not check them into tomorrow's appointment. Ordinary appointments cannot be linked to this feature.
+Rescheduling rotates the appointment token, so an old enrollment cannot check in the rescheduled appointment. Select the rescheduled appointment and click **Link selected appointment** beside the enrolled patient. Enrollment can be reused for multiple explicitly linked appointments. Recognition accepts arrival starting 15 minutes before the scheduled time, so seeing someone today does not check them into tomorrow's appointment.
 
 ## Named fall alerts from the laptop camera
 
@@ -46,15 +48,18 @@ If you enrolled using the previous check-in-only version, withdraw that enrollme
 2. Keep the backend running. In a second PowerShell window from the repository root:
 
 ```powershell
+$env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
 .\.venv\Scripts\python.exe edge/run_fall_model.py --download-only
-.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --backend http://127.0.0.1:8002 --room room-01 --preview --patient-recognition
+.\.venv\Scripts\python.exe edge/run_fall_model.py --camera 0 --backend http://127.0.0.1:8000 --room room-01 --preview --patient-recognition
 ```
+
+Or let the start script run it: stop Hearth, then `.\scripts\start.ps1 -Camera 0` (with `.env.face-demo` present it adds `--patient-recognition`).
 
 Use `--camera 1` if the Logitech USB camera is device 1. The same script can test an integrated laptop webcam or a Logitech webcam attached to the laptop. Add `--hand-gestures` after downloading that model if testing help gestures too.
 
-3. Open `/nurses`, start a nurse session, and select room-01 and possible-fall alerts.
+3. In the caregiver view (`/`), start a nurse session and select room-01 and possible-fall alerts.
 4. Stand alone in view, facing the camera. Wait for your demo name in the preview/terminal. Three distinct matching frames are required. Any linked open demo appointments for this room are checked in.
-5. Stage the existing lie-down demonstration on a mat; do not perform a real fall. Once the fall detector's hold passes, the nurse alert should read **Possible fall — Alex**, using your enrolled demo name. The detector still reports a possible fall, not a confirmed injury.
+5. Stage the existing lie-down demonstration on a mat; do not perform a real fall. Once the fall detector's hold passes, the nurse alert should read **Possible fall Â· Alex**, using your enrolled demo name. The detector still reports a possible fall, not a confirmed injury.
 6. If the face turns away, its confirmed name can persist for up to **8 seconds** while a single body remains continuously detected. Identity clears on a gap, an abrupt box change, multiple people, an ambiguous/unknown face, expiration, or enrollment withdrawal. The alert then shows **Identity unconfirmed**.
 7. Stop the process with Q in the preview or Ctrl+C, and withdraw enrollment when done.
 
@@ -67,18 +72,19 @@ The Jetson computes each person's face template itself and sends only that, neve
 1. On the laptop, choose a token and start the backend with it, as well as the key from above:
 
 ```powershell
-$env:HEARTH_EDGE_FACE_TOKEN = (& .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
-.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 0.0.0.0 --port 8000
+$token = (& .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
+Add-Content -Encoding ascii .env.face-demo "HEARTH_EDGE_FACE_TOKEN=$token"
+.\scripts\start.ps1 -Lan
 ```
 
-2. Enroll at `http://127.0.0.1:8000/face-check-in` **on the laptop** (enrollment stays loopback-only) and select **Also show my demo name**.
+2. Enroll at `http://127.0.0.1:8000/room#recognition` **on the laptop** (enrollment stays loopback-only) and select **Also show my name on possible-fall and camera help-signal alerts**.
 3. On the Jetson, once: `bash ~/hearth-watch/edge/tools/get_face_id_model.sh`. Then put the same token in a file readable only by you, and run:
 
 ```bash
 python3 run_edge.py --face-id --face-id-token-file ~/.hearth-face-token
 ```
 
-4. Face the camera from close enough that your eyes are at least 20 px apart in the frame. The status line counts face templates. A nurse's possible-fall alert for that person then reads **Possible fall · <alias>**, while other people's alerts stay unnamed.
+4. Face the camera from close enough that your eyes are at least 20 px apart in the frame. The status line counts face templates. A nurse's possible-fall alert for that person then reads **Possible fall Â· <alias>**, while other people's alerts stay unnamed.
 
 ## Logitech camera on Jetson (earlier notes)
 

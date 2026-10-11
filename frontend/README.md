@@ -1,136 +1,76 @@
 # Hearth dashboard
 
-React + TypeScript dashboard for Room 01. Starts in Simulation mode connected to http://127.0.0.1:8000, using the existing live 3D room from `room-view`.
-Use Connection settings to choose a different server or return to the static UI preview. Choose **Live
-camera**, **Simulation**, or **Recorded replay** to keep source types separate.
+The single Hearth interface: React + TypeScript, built with Vite and served by the Hearth server itself, next to the API, on one port. Start it from the repository root:
 
-## Start
+```powershell
+.\scripts\start.ps1          # then open http://127.0.0.1:8000/
+.\scripts\start.ps1 -Dev     # also a hot-reload dev server on http://127.0.0.1:5173/
+```
 
-With Node.js 22 installed, open a PowerShell terminal in `frontend`:
+`start.ps1` installs packages and rebuilds `dist/` when sources changed. Working on the dashboard directly:
 
 ```powershell
 npm.cmd install
-npm.cmd run dev
+npm.cmd test          # node --test over src/*.test.ts
+npm.cmd run build     # generate types, typecheck, build dist/
+npm.cmd run dev       # http://127.0.0.1:5173/, forwarding to HEARTH_BACKEND (default http://127.0.0.1:8000)
 ```
 
-Open the address Vite prints, normally http://127.0.0.1:5173. Keep the server on
-port 5173: the monitoring branch permits this origin. The default backend address
-is http://127.0.0.1:8000. Enter the laptop's backend address if it runs elsewhere.
+## Views
 
-```powershell
-npm.cmd test
-npm.cmd run build
-```
+**Caregiver** (`/`, also `/nurses`)
 
-The dashboard uses local fonts/assets and works without an external service once
-dependencies are installed. Generated files and the npm lockfile are checked in.
+- **Main feed:** the room in view from one source type at a time, kept separate: **Simulation** (the live 3D room), **Live camera** (the webcam's annotated frames) or **Recorded replay** (skeletons from a replay).
+- **Simulation controls:** play/pause, speed, room settings and generation. The header stages a fall, inactivity, pacing or exit loitering for the resident clicked in the 3D room (or someone suitable); a selected resident can be reset.
+- **Nurse session:** coverage (rooms and situations), on duty, alert sound. The session belongs to the tab and survives a reload.
+- **Incident alerts:** every alert in the nurse's coverage, with reason, identity and recovery wording, accept/resolve, and counts with **Show resolved**. Before a session starts, the room's alerts are shown read-only.
+- **Source health** and the **event log**; skeleton feed; posture measurements; caregiver response; today's appointments, with scheduling and cancelling.
+- **Scenario controls and evaluation** (play icon): scripted scenarios, the completed run's report, earlier runs, the live room's report so far, and the batch summary.
+- **Developer tools** (signal icon): the Sim Studio, the recorded-run player and the API reference.
 
-## Files and responsibilities
+**Patient** (`/room`)
+
+- The SOS help button, with request and acknowledgement status, the help-gesture instruction and camera status.
+- Appointments, with check-in and scheduling.
+- **Face recognition check-in** (`/room#recognition`): opt-in enrollment from three camera views, linking appointments, three-match check-in, and withdrawal. It is disabled with an explanation unless the server enables recognition (see the root README).
+
+A **room picker** in the header switches both views between the configured rooms.
+
+## Files
 
 | File | Purpose |
 | --- | --- |
-| `src/main.tsx` | Starts React and loads CSS. |
-| `src/App.tsx` | Dashboard layout, source selection, preview states, alert acknowledgement. |
-| `src/RoomView.tsx` | Draws observed skeletons or model bounding boxes in camera coordinates. |
-| `src/ResidentPanel.tsx` | Resident help requests with confirmed server receipt and explicit preview states. |
-| `src/useRoomFeed.ts` | Opens the monitoring WebSocket, reconnects, and cleans up connections. |
-| `src/feedState.ts` | Keeps observations, health, alerts, and events separate; handles freshness and filtering. |
-| `src/protocol.ts` | Validates incoming messages against the teammates' JSON Schemas. |
-| `src/api.ts` | Calls the exact monitoring, simulator, and evaluation endpoints. |
-| `src/SimulatorPanel.tsx` | Scenario controls and measured evaluation/after-action results. |
-| `src/demoData.ts` | Example data used only in preview mode. |
-| `src/styles.css` | Layout, colors, mobile behavior. |
-| `contracts/` | Schema snapshots and synthetic integration fixtures with reviewed branch revisions. |
-| `src/generated/` | TypeScript generated from schema snapshots; do not edit by hand. |
-| `src/feedState.test.ts` | Contract, isolation, freshness, alert, and endpoint regression checks. |
-| `COMPATIBILITY.md` | Verified integrations and remaining backend merge blockers. |
-| `DEMO.md` | Demo preparation and rehearsal. |
-| `DESIGN.md` | Visual design, palette, and bringing Adobe exports into the app. |
-| `src/Icon.tsx` | Small local SVG interface icons. |
+| `src/App.tsx` | Layout, views, room and source selection, simulation and developer controls. |
+| `src/useRoomFeed.ts`, `src/feedState.ts` | Room WebSocket, reconnects, observation freshness and filtering by room and source type. |
+| `src/useNurseSession.ts`, `src/NurseControls.tsx` | Nurse session, its WebSocket and source health, coverage form. |
+| `src/IncidentList.tsx`, `src/CareResponsePanel.tsx`, `src/alertText.ts` | Alert lists and the shared wording for alerts and posture. |
+| `src/SourceHealth.tsx` | Per-source online/stale state and reported posture. |
+| `src/ResidentPanel.tsx`, `src/RecognitionPanel.tsx` | Patient view: help, appointments, recognition check-in. |
+| `src/AppointmentPanel.tsx`, `src/useAppointments.ts` | Schedule, check-in, cancel. |
+| `src/useLiveSimulation.ts`, `src/liveSimulation.ts`, `src/LiveSimulationView.tsx`, `src/RoomSettingsPanel.tsx` | Live 3D room via `@hearth/room-view`. |
+| `src/SimulatorPanel.tsx` | Scripted scenarios and evaluation reports. |
+| `src/LiveCameraView.tsx` | Annotated webcam frames from `/camera-preview`. |
+| `src/RoomView.tsx`, `src/FeatureSpark.tsx` | Skeleton drawing and feature sparklines. |
+| `src/api.ts`, `src/protocol.ts` | Endpoint calls; validation of server messages against the contract schemas. |
+| `src/useRooms.ts` | Configured rooms and the gesture hold time. |
+| `contracts/`, `src/generated/` | Schema snapshots and fixtures; types generated from them (`npm run generate:types`, do not edit). |
+| `room-view/` | The renderer package, plus the Sim Studio and run player in `room-view/dev/` (built to `room-view/dist/`, served at `/studio/`). |
+| `DESIGN.md`, `DEMO.md` | Visual design notes; demo rehearsal. |
 
-## Backend interfaces
+No observation means unknown, even if heartbeats keep a source online. Observations expire three seconds after arrival; a stale flag from the server also hides an old reconnect snapshot. Simulation clocks can differ from wall time, so freshness never uses observation timestamps. Face `null`, `false` and `true` stay distinct. WebGL 2 is required for the 3D room.
 
-- `WS /ws/room/room-01`: initial state and ongoing observations, source health,
-  events, and authoritative alert updates. No raw video is requested.
-- `POST /alerts/{alert_id}/ack`: acknowledgement. The alert changes only when the
-  backend broadcasts the updated status; no optimistic acknowledgement or resolution.
-- `POST /help-requests`: resident help request with `request_id` and `room_id`.
-  Manual alerts are displayed alongside the selected observation source type.
-  The UI confirms receipt only; it does not promise a caregiver has been dispatched.
-- `GET /sim/scenarios`, `GET /sim/status`: available scenarios and controller state.
-- `POST /sim/load`: JSON `{ "scenario_id": "possible-fall-01" }`.
-- `POST /sim/play`, `/sim/pause`, `/sim/reset`: controller actions.
-- **Run again** calls reset then play, preserving the simulation seed. This is
-  labeled simulation, not recorded replay.
-- `GET /eval/runs/{run_id}`: completed-run report, fetched automatically at run end.
-- `GET /eval/summary`: optional saved batch summary, fetched by its button.
+## Removed or disabled, and why
 
-No current observation means unknown, even if heartbeats keep the source online.
-Observations expire after three seconds of arrival-time silence. A backend stale
-flag also hides an old reconnect snapshot. Simulation clocks can differ from wall
-time, so the frontend does not calculate freshness from observation timestamps.
-Face `null`, `false`, and `true` remain different. Low-confidence keypoints are
-hidden; unknown confidence is shown with dashed connections.
+Consolidating the dashboards removed these:
 
-## Updating contracts
+- **The server's standalone pages** (`/nurses`, `/room` and `/face-check-in` from `backend/hearth/api/static/`). Their features now live here: alert wording, overdue appointments, identity lines, resolved alerts, source health, sessions that survive a reload, every room, the gesture instruction, and enrollment. `/face-check-in` redirects to `/room#recognition`.
+- **Preview mode and its example data.** That covers "Return to preview", the example schedule, "Hello, Margaret" and the "Acknowledge example" button. They showed invented data next to real controls. The dashboard is always served by a Hearth server now.
+- **The "Connect to monitoring" address box.** It wrote an address that was never read back. The page talks to the server that served it.
+- **`scripts/dashboard.ps1`, `scripts/demo.ps1`** (replaced by `start.ps1`).
+- **`frontend/scripts/demo_backend.py`, `verify_demo.py`, `verify-branches.py`, `sync-branch-contracts.mjs`.** These were a stand-in backend and tools for comparing the separate team branches, all now merged. The fixtures they produced stay as test data.
+- **The separate Sim Studio dev server on :5174.** It still works for Studio development (`npm run dev` in `room-view`); the built Studio is served at `/studio/`.
 
-After fetching reviewed teammate changes:
+Kept on purpose:
 
-```powershell
-npm.cmd run sync:contracts
-npm.cmd run generate:types
-npm.cmd test
-npm.cmd run build
-```
-
-`sync:contracts` reads the monitoring and simulation branches without switching
-branches. After the team has merged a unified shared contract and simulator API
-schema into this checkout, use `npm.cmd run sync:contracts -- --local` instead.
-Commit schema snapshots and generated types together. This dashboard accepts each
-current branch's output schema; it does not make their Python schemas interchangeable.
-
-To repeat the real branch API checks, install `fastapi`, `httpx`, `pydantic>=2.7,<3`,
-and `pyyaml` in a Python environment, then run
-`python scripts/verify-branches.py` from `frontend`. The script reads branch files
-into temporary directories and regenerates synthetic API fixtures. It does not
-test physical camera inference or merge branches.
-
-## Live 3D simulation
-
-Start the standard monitoring backend from the repository root in a configured Python environment:
-
-```powershell
-python -m pip install -e shared/python -e backend
-python -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
-```
-
-In another terminal, run `npm.cmd install` then `npm.cmd run dev -- --strictPort` from `frontend`. Open http://127.0.0.1:5173. The dashboard automatically connects to the live simulation. When no room exists, it generates six residents in a furnished room and starts playback. An existing run is reused without changing its paused/playing state.
-
-Click a resident to select them, drag to orbit, and scroll to zoom. **Simulate fall** triggers a fall for the selected resident, or lets the engine choose; recovery occurs after 30 seconds on the floor. **Reset** resets the same room and resumes playback. **Play/Pause** controls the live engine.
-
-Open **Room settings** beside Play/Pause to edit the seed, residents, room width and depth, furniture density, camera location and height, field of view, lighting, activity, and socialising. Jetson camera presets also expose tilt and default to the C270's 43° field of view. **Generate room** replaces the current room and starts playback; **Generate paused** creates it without starting playback. Settings initially reflect the current run, and edits apply when you generate.
-
-The main feed shows simulated world positions. The skeleton, measurements, events, and incident alerts still come from the monitoring feed and may differ from ground truth. Live camera and Recorded replay retain their observation views. Scripted scenario controls remain separate: playing a scripted scenario pauses the live room, and its Play button resumes it.
-
-The backend must remain running. If it is unavailable, the main feed shows a disconnected state and reconnects automatically. Use **Retry connection** after a request failure. WebGL 2 and browser hardware acceleration are required for the 3D view. The mannequin asset and its license are bundled locally in `room-view/assets/models`.
-### Wrong-server error (404)
-
-A 404 on `/sim/live/status` means the connected server does not expose the live simulation API. Connect to the standard `hearth.api.app:app` backend rather than an older running demo server. If port 8000 is already occupied, run the standard backend with `--port 8001`, then set **Connection settings → Return to preview → Monitoring server address** to `http://127.0.0.1:8001` and choose **Connect to monitoring**. The dashboard remembers the last connected address across reloads.
-
-## Integrated dashboard: open port 5173
-
-The existing React dashboard is the main UI. Its layout and CSS are unchanged. Vite forwards API and WebSocket routes to the internal Python API on 8002, so the browser uses **http://127.0.0.1:5173/** for schedules, alerts, simulation, and optional recognition setup. Old backend `/nurses` and `/room` routes redirect to the main dashboard. Previously saved test-server addresses are no longer used on startup.
-
-After installing repository Python dependencies and running `npm.cmd install` in `frontend`, stop old development servers and run from the repository root:
-
-```powershell
-.\scripts\dashboard.ps1
-```
-
-Keep this terminal running. Ctrl+C stops Vite and the API process launched by the script. An API process already running is left alone. Restart that process after backend code changes. Port 5173 is strict: Vite fails if occupied rather than silently moving to another port. This launcher binds locally for laptop testing; Jetson transport needs a separately configured backend listener.
-
-The caregiver appointment card shows today's room-01 schedule and arrival/overdue counts. In Patient view, select the intended appointment and press check in. A reminder is generated after the configured grace period (default 15 minutes); unconfirmed arrival is not proof of harm. Recognition-confirmed arrival updates on the next five-second poll.
-
-Use `http://127.0.0.1:5173/face-check-in` for optional enrollment. Recognition remains disabled unless `HEARTH_FACE_DEMO=1`, a persistent `HEARTH_FACE_KEY`, optional dependencies and models are configured in the API process. Install with `.\.venv\Scripts\python.exe -m pip install -e "backend[face-demo]"`; download/check models with `.\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check`. Keep the original encryption key private and stable; changing it prevents existing enrollment records from being read. Enrollment and incident naming require separate opt-ins. Run the local camera client with `--patient-recognition --hand-gestures --backend http://127.0.0.1:5173`; ordinary fall detection still works without identity. Physical camera accuracy must be tested separately from API integration.
-
-The Vite proxy preserves Host and Origin and remains loopback-bound, so recognition's local-only and same-origin checks are retained. Do not expose this development proxy publicly.
+- **The Recorded replay tab.** It shows any `replay` source; `start.ps1 -Replay` provides one, and the tab explains this when nothing is playing.
+- **The alert-acknowledge API call in `api.ts`.** Unassigned alerts still support `/ack` on the server; the UI uses accept/resolve.
