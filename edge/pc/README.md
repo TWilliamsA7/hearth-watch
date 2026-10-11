@@ -572,3 +572,14 @@ feature recipe, the source model's SHA-256 and the locked test result. Before wr
 same inputs through PyTorch and a plain numpy copy of the network (validation frames and our
 recordings) and refuses to export unless scores, classes and decisions match (tested: largest
 difference ~4e-6, 100% identical). The Jetson's numpy 1.13 loads the file (checked).
+
+## Step 7b: `edge/hearth_edge/posture_mlp.py` - the model running on the Jetson
+
+`PostureMLP().predict(keypoints, width, height)` takes poseNet's keypoints as `run_edge.py` has
+them (`{name: (x, y)}` in pixels) and returns `{"label", "confidence", "probabilities"}`: label
+"unknown" under the 0.50 cut-off, `None` with fewer than 4 keypoints. numpy only, Python 3.6;
+0.56 ms per frame on the Nano. Inputs are built exactly as in training (poseNet's extra `neck`
+ignored). `08_export_weights.py` runs every frame of our recordings through this module after
+exporting and requires 100% the same decisions as the PyTorch pipeline (tested: 1,382 of 1,382);
+`edge/tests/test_posture_mlp.py` checks its rules on the laptop (position and size don't change
+the inputs, frame shape is undone, unknown under the cut-off, too few keypoints).
