@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "generate:types": "node scripts/generate-types.mjs",
-    "sync:contracts": "node scripts/sync-branch-contracts.mjs",
     "test": "node --experimental-strip-types --test src/*.test.ts",
     "build": "npm run generate:types && tsc --noEmit && vite build",
     "preview": "vite preview"
