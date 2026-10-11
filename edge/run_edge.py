@@ -318,7 +318,7 @@ def start_face_id(args, face, log):
             def send(template):
                 log("face template for %s (dry run: not sent)" % template["person_id"])
         else:
-            sender = fid.TemplateSender(args.backend, token)
+            sender = fid.TemplateSender(args.backend, token, log=log)  # [edge ...] lines, like the rest
             sender.start()
             send = sender.offer
         check = fid.FaceIdCheck(face.detect_bgr, engine, send, args.source, args.room,

@@ -62,7 +62,7 @@ This is a conservative single-person demo association, not a validated multi-per
 
 ## Named alerts from the Jetson camera (several people)
 
-The Jetson computes each person's face template itself and sends only that, never frames. See [the integration contract](recognition-integration.md#jetson-face-templates-implemented-after-merging-multi-person-tracking).
+The Jetson computes each person's face template itself and sends only that, never frames. `scripts/face_id_demo.sh` (Git Bash or Linux, on the laptop) does all of the steps below and re-runs safely; `--help` lists its options. See [the integration contract](recognition-integration.md#jetson-face-templates-implemented-after-merging-multi-person-tracking).
 
 1. On the laptop, choose a token and start the backend with it, as well as the key from above:
 
