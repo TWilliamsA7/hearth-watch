@@ -82,6 +82,11 @@ def test_a_recognized_live_participant_is_named_in_the_live_room(hearth):
     assert (people["p1"]["recognized"], people["p1"]["name"]) == (True, "Alex")
     assert (people["p2"]["recognized"], people["p2"]["name"]) == (True, None)  # no consent to be named
     assert {p.person_id for p in world.frame().people if p.kind == "live"} == {f"live-{SOURCE}-p1", f"live-{SOURCE}-p2"}
+    # Camera labels use the same consent-filtered identities, including when unlinked.
+    current = client.get("/rooms/room-01/identities").json()
+    assert {p["person_id"]: p["name"] for p in current} == {"p1": "Alex", "p2": None}
+    client.post("/sim/live/link", json={"enabled": False, "source": SOURCE})
+    assert client.get("/rooms/room-01/identities").json() == current
 
 
 def test_unenrolled_people_stay_anonymous(hearth):

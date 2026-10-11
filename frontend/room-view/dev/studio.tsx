@@ -25,7 +25,8 @@ import {
   type Pick,
   type ServerMessage,
   type StudioSettings,
-  LIVE_SOURCES, liveName, liveNames, modelText, type CalibrateResult, type LinkStatus,
+  LIVE_SOURCES, liveName, liveDisplayName, liveNames, linkStateText, recordedName, useIdentities,
+  modelText, type CalibrateResult, type LinkStatus,
 } from "../src";
 
 type FallMotion = "trip" | "faint" | "collapse" | "sit_miss" | "stand_up";
@@ -81,6 +82,8 @@ interface LogLine {
   text: string;
   alert: boolean;
   live: boolean;
+  name: string | null;
+  source: string;
 }
 
 
@@ -105,6 +108,7 @@ function useMonitorFeed(liveSource: string | null) {
         eventsById.current.set(e.event_id, person);
         if (e.event_type === "face_present" || e.event_type === "face_absent" || e.event_type === "person_visible") return;
         setLog((l) => [{ key: e.event_id, at: e.timestamp, kind: e.event_type, person, text: "", live,
+          name: recordedName(e.metadata), source: e.source,
           alert: e.event_type === "possible_fall" }, ...l].slice(0, 80));  // prettier-ignore
       } else if (msg.type === "alert") {
         const a = msg.data;
@@ -146,6 +150,7 @@ function Studio() {
   const [copied, setCopied] = useState(false);
   const client = useLive(useMemo(() => new LiveClient(wsUrl("/sim/live/ws")), []));
   const [link, setLink] = useState<LinkStatus | null>(null);
+  const identities = useIdentities('', ROOM_ID);
   const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
   const [liveHeight, setLiveHeight] = useState(1.7);
   const maxPeople = link?.max_people ?? 3;
@@ -451,11 +456,7 @@ function Studio() {
           )}
           {link?.enabled && (
             <p className="hint">
-              {link.state === "live" ? `In the room: ${link.people.filter((q) => q.state === "live").map((q) =>
-                  `${link.people.length > 1 ? `${liveName(q.person_id, link.source)} ` : ""}${q.label ?? q.posture}${q.alert_open ? " (ALERT OPEN)" : ""}`).join(" · ")}`
-                : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
-                : link.state === "outside" ? "Outside the tracked area: step back inside the tape"
-                : `No fresh frames from ${link.source}`}
+              {linkStateText(link)}
             </p>
           )}
           <p className="hint">Tape a rectangle on the floor (the tracked area) with an X at its centre, mount the camera
@@ -473,7 +474,7 @@ function Studio() {
         </section>
 
         <section>
-          <h3>Incidents {selected ? `· ${selected.toUpperCase()}` : "· anyone suitable"}</h3>
+          <h3>Incidents {selected ? `· ${selected.startsWith('live-') ? liveDisplayName(selected, link) : selected.toUpperCase()}` : "· anyone suitable"}</h3>
           <div className="row">
             <label>Fall</label>
             <select value={fallMotion} onChange={(e) => setFallMotion(e.target.value as FallMotion | "")}>
@@ -509,7 +510,7 @@ function Studio() {
               return (
                 <div key={p.person_id} className={`person ${live ? "live" : ""} ${selected === p.person_id ? "sel" : ""}`} onClick={() => setSelected(selected === p.person_id ? null : p.person_id)}>
                   <span className="swatch" style={{ background: live ? LIVE_APPEARANCE.top : info?.appearance.top }} />
-                  <span className="pid">{live ? liveName(p.person_id, link?.source) : p.person_id?.toUpperCase()}</span>
+                  <span className="pid">{live ? liveDisplayName(p.person_id, link) : p.person_id?.toUpperCase()}</span>
                   <span className="doing">{p.incident ? `⚠ ${p.incident}` : live && p.model ? `model: ${modelText(p.model)}` : p.activity}</span>
                   {!hideTruth && <span className={`tag ${p.label}`}>{p.label.replace("_intentional", "")}</span>}
                 </div>
@@ -551,7 +552,7 @@ function Studio() {
         )}
         {menu && selected && world && (
           <div className="cmd-menu" style={{ left: menu.x, top: menu.y }}>
-            <div className="cmd-title">{selected.toUpperCase()} â†’ {describePick(menu.pick, world)}</div>
+            <div className="cmd-title">{selected.startsWith('live-') ? liveDisplayName(selected, link) : selected.toUpperCase()} â†’ {describePick(menu.pick, world)}</div>
             {actionsFor(menu.pick, world).map(([label, cmd]) => (
               <button key={label} onClick={() => {
                 setMenu(null);
@@ -597,7 +598,11 @@ function Studio() {
           {me && me.kind === "live" && (
             <dl className="kv">
               <dt>Live person</dt>
-              <dd><b>{liveName(me.person_id, link?.source)}</b> · {link?.source ?? me.person_id}, a real camera, not simulated</dd>
+              <dd><b>{liveDisplayName(me.person_id, link)}</b> · {link?.source ?? me.person_id}, a real camera, not simulated</dd>
+              <dt>Identity</dt>
+              <dd>{link?.people.find(q => q.person_id === me.person_id)?.recognized
+                ? link.people.find(q => q.person_id === me.person_id)?.name ? 'Recognized' : 'Recognized (not named: no consent)'
+                : 'Not recognized'}</dd>
               <dt>Monitor says</dt>
               <dd>{me.label} ({me.posture})</dd>
               <dt>Camera's model</dt>
@@ -689,6 +694,7 @@ function Studio() {
           <div className="cam-inner">
             {showReal && link?.enabled ? (
               <RoomView key={link.source} feed={feed} scene={null} roomId={ROOM_ID} source={link.source}
+                identities={identities}
                 alertPersonIds={link.people.filter((q) => q.alert_open && q.track_id).map((q) => q.track_id!)}
                 alertActive={link.alert_open} style={{ height: "100%", width: "auto", maxWidth: "100%" }} />
             ) : (
@@ -705,7 +711,7 @@ function Studio() {
               <li key={l.key} className={l.alert ? "alert" : ""}>
                 <span className="when">{new Date(l.at).toLocaleTimeString()}</span>
                 <span>{l.kind.replace(/_/g, " ")}</span>
-                <span>{l.live ? liveName(l.person, link?.source) : l.person?.toUpperCase() ?? ""}</span>
+                <span>{l.name ?? (l.live ? liveName(l.person, l.source) : l.person?.toUpperCase() ?? "")}</span>
                 <span className="hint">{l.text}</span>
               </li>
             ))}

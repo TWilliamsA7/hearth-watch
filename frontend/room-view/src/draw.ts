@@ -1,5 +1,6 @@
 import { BONES, HEAD_POINTS } from "./skeleton";
 import type { Keypoint, Scene, SceneObject, SourceType } from "./types";
+import { identityFor, recognizedName, type DisplayIdentity, type IdentityTrack } from './identity';
 
 /**
  * ok       recent data is arriving
@@ -13,6 +14,7 @@ export type FeedStatus = "ok" | "waiting" | "stale" | "offline";
 /** One person in the frame. personId is null for a single-person source. */
 export interface PersonFrame {
   personId: string | null;
+  track?: IdentityTrack;
   keypoints: Keypoint[];
   /** null = face detection did not run on this frame. */
   facePresent: boolean | null;
@@ -81,6 +83,7 @@ export function drawRoom(
   frame: FrameState,
   scene: Scene = EMPTY_SCENE,
   theme: Theme = DEFAULT_THEME,
+  identities: readonly DisplayIdentity[] = [],
 ): void {
   const px = (x: number) => x * width;
   const py = (y: number) => y * height;
@@ -103,7 +106,9 @@ export function drawRoom(
     const alert = person.alert || (frame.alertActive && person.personId === null);
     drawSkeleton(ctx, person.keypoints, px, py, unit, alert ? theme.alert : theme.bone, theme);
     if (person.facePresent && live) drawFaceBox(ctx, person.keypoints, px, py, unit, theme);
-    if (person.personId) drawTag(ctx, person, px, py, unit, alert ? theme.alert : theme.muted);
+    const name = recognizedName(person.track ? identityFor(person.track, identities) : undefined)
+      ?? person.personId?.toUpperCase();
+    if (name) drawTag(ctx, person, px, py, unit, alert ? theme.alert : theme.muted, name);
   }
   ctx.globalAlpha = 1;
   for (const o of occluders) drawObject(ctx, o, px, py, theme); // in front of the person
@@ -139,7 +144,7 @@ function backToFront(people: PersonFrame[]): PersonFrame[] {
   return [...people].sort((a, b) => lowest(a) - lowest(b));
 }
 
-/** Anonymous tag ("P1") above the head. A track label, never an identity. */
+/** Backend-approved display name, or anonymous track label, above the head. */
 function drawTag(
   ctx: CanvasRenderingContext2D,
   person: PersonFrame,
@@ -147,13 +152,14 @@ function drawTag(
   py: (y: number) => number,
   unit: number,
   color: string,
+  name: string,
 ): void {
   const top = person.keypoints.reduce((a, k) => (k.y < a.y ? k : a));
   ctx.fillStyle = color;
   ctx.font = `600 ${Math.round(unit * 0.03)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  ctx.fillText(person.personId!.toUpperCase(), px(top.x), py(top.y) - unit * 0.085); // above the face label
+  ctx.fillText(name, px(top.x), py(top.y) - unit * 0.085); // above the face label
   ctx.textAlign = "start";
 }
 

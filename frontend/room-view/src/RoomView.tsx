@@ -4,9 +4,11 @@ import { DEFAULT_THEME, EMPTY_SCENE, drawRoom, type Theme } from "./draw";
 import type { FeedSource } from "./feed";
 import type { Scene } from "./types";
 import { INITIAL_VIEW, frameAt, reduce, type ViewFilter, type ViewModel } from "./viewModel";
+import type { DisplayIdentity } from './identity';
 
 export interface RoomViewProps extends ViewFilter {
   feed: FeedSource;
+  identities?: readonly DisplayIdentity[];
   /** Room geometry. Simulated runs supply it (RunInfo.scene); live rooms may omit it. */
   scene?: Scene | null;
   /** Owned by the dashboard's alert state (open, not yet resolved). Draws the red room border. */
@@ -24,7 +26,8 @@ export interface RoomViewProps extends ViewFilter {
 
 /**
  * The camera view: room backdrop plus every observed skeleton, drawn from contract
- * Observations only. Several people are told apart by person_id and tagged P1, P2...
+ * Observations. Optional backend identities supply consent-filtered names;
+ * anonymous people keep their P1, P2... track tags.
  * Ground truth never reaches this component.
  * Sizes itself to its container's width; height follows the scene's frame aspect.
  */
@@ -35,6 +38,7 @@ export function RoomView({
   source,
   alertActive = false,
   alertPersonIds,
+  identities = [],
   staleAfterMs = 3000,
   smoothing = true,
   theme = DEFAULT_THEME,
@@ -43,8 +47,8 @@ export function RoomView({
 }: RoomViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const vm = useRef<ViewModel>(INITIAL_VIEW);
-  const props = useRef({ scene, alertActive, alertPersonIds, staleAfterMs, smoothing, theme });
-  props.current = { scene, alertActive, alertPersonIds, staleAfterMs, smoothing, theme };
+  const props = useRef({ scene, alertActive, alertPersonIds, staleAfterMs, smoothing, theme, identities });
+  props.current = { scene, alertActive, alertPersonIds, staleAfterMs, smoothing, theme, identities };
 
   useEffect(() => {
     vm.current = INITIAL_VIEW;
@@ -69,7 +73,7 @@ export function RoomView({
         canvas.height = height;
       }
       const frame = frameAt(vm.current, feed.now(), p);
-      drawRoom(ctx, width, height, frame, sc, p.theme);
+      drawRoom(ctx, width, height, frame, sc, p.theme, p.identities);
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);

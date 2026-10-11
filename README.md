@@ -58,12 +58,12 @@ Simulator ground truth ─────→ Evaluator ←─ Monitor events
 
 ## Hugging Face models
 
-| Model | How we use it |
-| --- | --- |
+| Model                                                                                           | How we use it                                                                                                                            |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | [melihuzunoglu/human-fall-detection](https://huggingface.co/melihuzunoglu/human-fall-detection) | Detects standing, sitting, and lying postures. The checkpoint's lying label is `fallen`; monitoring adds confidence and hold-time rules. |
-| [SuperSura/hand-gesture-yolo26n](https://huggingface.co/SuperSura/hand-gesture-yolo26n) | Classifies hand gestures. A sustained, confident `fist` is the configured help signal. |
-| [OpenCV YuNet](https://huggingface.co/opencv/face_detection_yunet) | Locates a face for enrollment and recognition. |
-| [OpenCV SFace](https://huggingface.co/opencv/face_recognition_sface) | Generates embeddings that are compared with explicitly enrolled profiles. |
+| [SuperSura/hand-gesture-yolo26n](https://huggingface.co/SuperSura/hand-gesture-yolo26n)         | Classifies hand gestures. A sustained, confident `fist` is the configured help signal.                                                   |
+| [OpenCV YuNet](https://huggingface.co/opencv/face_detection_yunet)                              | Locates a face for enrollment and recognition.                                                                                           |
+| [OpenCV SFace](https://huggingface.co/opencv/face_recognition_sface)                            | Generates embeddings that are compared with explicitly enrolled profiles.                                                                |
 
 We use pretrained weights, pinned revisions, and checksum verification. Internet access is needed for installation and model downloads. Downloaded models run locally. We did not train these models.
 
@@ -158,15 +158,15 @@ $env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
 
 Choose **Live camera** in the caregiver dashboard.
 
-| Option | Purpose |
-| --- | --- |
-| `--camera 0` | Selects the webcam; change the index if necessary. |
-| `--device cpu --laptop` | Uses the CPU and laptop inference preset. |
-| `--backend ...:5173` | Sends requests through the dashboard's backend proxy. |
-| `--room room-01` | Matches the room selected in caregiver coverage. |
+| Option                  | Purpose                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `--camera 0`            | Selects the webcam; change the index if necessary.                               |
+| `--device cpu --laptop` | Uses the CPU and laptop inference preset.                                        |
+| `--backend ...:5173`    | Sends requests through the dashboard's backend proxy.                            |
+| `--room room-01`        | Matches the room selected in caregiver coverage.                                 |
 | `--patient-recognition` | Matches enrolled profiles on the monitoring frames. Omit for unnamed monitoring. |
-| `--hand-gestures` | Enables the fist classifier. |
-| `--dashboard-preview` | Sends the annotated preview to the local dashboard. |
+| `--hand-gestures`       | Enables the fist classifier.                                                     |
+| `--dashboard-preview`   | Sends the annotated preview to the local dashboard.                              |
 
 Keep your face and body visible. For a named incident, first wait for `patient: Your Name (recognized)` in the terminal. Matching requires three consistent frames and reliable body evidence. Initial model warm-up can take several seconds.
 
@@ -242,18 +242,18 @@ Open **http://127.0.0.1:5174/studio.html**. This is the simulation development p
 
 ## Troubleshooting
 
-| Symptom | What to check |
-| --- | --- |
-| `vite` is not recognized | Run `npm.cmd install` in the frontend package you are starting. |
-| Appointment card is empty | Schedule an appointment for today's local date. The simulator does not create appointments. |
-| No caregiver alert | Verify an active nurse session, room, alert categories, On duty, and connection status. |
-| Camera cannot start | Stop the enrollment camera, other camera tabs, and other webcam apps before starting Python. |
-| Identity stays unconfirmed | Check incident-naming consent, `--patient-recognition`, face visibility, body confidence, and terminal output. Gaps over one second can reset identity confirmation. |
-| Fist does not alert | Check for one confident fist, a completed hold, and sufficient consecutive detections. Lower the hand between requests and allow the cooldown. |
-| Camera is laggy | Use `--laptop`; inspect `inference_ms`, `frame_gap_s`, and `pipeline_ms`. Recognition and both models share the laptop's processing budget. |
-| Recognition says Disabled | Set the environment variables in the launch terminal and restart the backend. |
-| Recognition says unavailable | Verify dependencies, models, and the original encryption key. |
-| API returns 404 | Confirm the checkout contains the integration and restart an old backend process. |
+| Symptom                      | What to check                                                                                                                                                        |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vite` is not recognized     | Run `npm.cmd install` in the frontend package you are starting.                                                                                                      |
+| Appointment card is empty    | Schedule an appointment for today's local date. The simulator does not create appointments.                                                                          |
+| No caregiver alert           | Verify an active nurse session, room, alert categories, On duty, and connection status.                                                                              |
+| Camera cannot start          | Stop the enrollment camera, other camera tabs, and other webcam apps before starting Python.                                                                         |
+| Identity stays unconfirmed   | Check incident-naming consent, `--patient-recognition`, face visibility, body confidence, and terminal output. Gaps over one second can reset identity confirmation. |
+| Fist does not alert          | Check for one confident fist, a completed hold, and sufficient consecutive detections. Lower the hand between requests and allow the cooldown.                       |
+| Camera is laggy              | Use `--laptop`; inspect `inference_ms`, `frame_gap_s`, and `pipeline_ms`. Recognition and both models share the laptop's processing budget.                          |
+| Recognition says Disabled    | Set the environment variables in the launch terminal and restart the backend.                                                                                        |
+| Recognition says unavailable | Verify dependencies, models, and the original encryption key.                                                                                                        |
+| API returns 404              | Confirm the checkout contains the integration and restart an old backend process.                                                                                    |
 
 Check recognition status and model loading from the repository root:
 

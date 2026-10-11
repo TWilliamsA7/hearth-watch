@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FeedState } from './feedState';
 import { sourceTypeLabels } from './alertText';
+import { recordedName } from '@hearth/room-view';
 
 type FeedEvent = FeedState['events'][number];
 type Tone = 'alert' | 'ok' | 'warn' | 'note';
@@ -19,7 +20,7 @@ const NOTABLE: Record<string, { tone: Tone; text: (who: string, e: FeedEvent) =>
 };
 
 function who(event: FeedEvent): string {
-  const name = typeof event.metadata?.resident_label === 'string' ? event.metadata.resident_label : null;
+  const name = recordedName(event.metadata);
   const person = 'person_id' in event && event.person_id ? event.person_id.toUpperCase() : null;
   return name ?? (person ? `${person}` : 'Someone');
 }
@@ -37,7 +38,7 @@ export default function EventLog({ events, notable }: { events: FeedEvent[]; not
         const notable = NOTABLE[event.event_type];
         return <li key={event.event_id} className={notable ? `tone-${notable.tone}` : 'tone-quiet'}>
           <time>{new Date(event.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</time>
-          <span className="what">{notable ? notable.text(who(event), event) : `${event.event_type.replaceAll('_', ' ')}${'person_id' in event && event.person_id ? ` · ${event.person_id.toUpperCase()}` : ''}`}</span>
+          <span className="what">{notable ? notable.text(who(event), event) : `${event.event_type.replaceAll('_', ' ')}${recordedName(event.metadata) || ('person_id' in event && event.person_id) ? ` · ${who(event)}` : ''}`}</span>
           <span className="where">{sourceTypeLabels[event.source_type] ?? event.source_type} · {event.source}</span>
         </li>;
       })}</ol>}

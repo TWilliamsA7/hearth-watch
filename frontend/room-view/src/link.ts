@@ -1,5 +1,6 @@
 // The live camera link (/sim/live/link): real people a camera sees, played out in the simulated room.
 // Shapes follow backend/hearth/sim/live/link.py.
+import { recognizedName } from './identity';
 
 export interface ModelCall {
   model_id: string;
@@ -62,11 +63,17 @@ export const liveName = (personId: string | null | undefined, source: string | u
 
 /** Their enrolled name when recognized and they agreed to it, else "LIVE P2". */
 export const livePersonName = (person: LivePersonStatus, source: string | undefined) =>
-  person.name ?? liveName(person.person_id, source);
+  recognizedName(person) ?? liveName(person.person_id, source);
+
+export const liveDisplayName = (personId: string | null | undefined, link: LinkStatus | null | undefined) =>
+  recognizedName(link?.people.find(person => person.person_id === personId)) ?? liveName(personId, link?.source);
 
 /** person_id -> name for everyone the link has recognized by name (for LiveView3D's liveNames). */
 export const liveNames = (link: LinkStatus | null | undefined): Record<string, string> =>
-  Object.fromEntries((link?.people ?? []).flatMap((p) => (p.name ? [[p.person_id, p.name]] : [])));
+  Object.fromEntries((link?.people ?? []).flatMap((p) => {
+    const name = recognizedName(p);
+    return name ? [[p.person_id, name]] : [];
+  }));
 
 /** "sitting 93%": what the camera's own posture model says. */
 export const modelText = (m: ModelCall | null | undefined) =>

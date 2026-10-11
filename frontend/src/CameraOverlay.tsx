@@ -1,6 +1,7 @@
 import type { Alert } from './generated/contract';
 import type { RoomObservation } from './protocol';
 import { bones } from './RoomView';
+import { identityFor, recognizedName, type DisplayIdentity } from '@hearth/room-view';
 
 // What the camera's pipeline sees, drawn over its video in the dashboard's colors: each person's
 // skeleton, their posture-model call, and red when the monitor has an open alert for them.
@@ -8,8 +9,9 @@ import { bones } from './RoomView';
 const postureColor: Record<string, string> = { standing: 'var(--ok)', upright: 'var(--ok)', sitting: 'var(--amber)', fallen: 'var(--ember)', floor: 'var(--ember)' };
 const postureName: Record<string, string> = { standing: 'Standing', upright: 'Upright', sitting: 'Sitting', fallen: 'On the floor', floor: 'On the floor' };
 
-export default function CameraOverlay({ width, height, observations, alerts }: {
+export default function CameraOverlay({ width, height, observations, alerts, identities = [] }: {
   width: number; height: number; observations: RoomObservation[]; alerts: Alert[];
+  identities?: readonly DisplayIdentity[];
 }) {
   const scale = width / 640;
   return <svg className="camera-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -20,7 +22,8 @@ export default function CameraOverlay({ width, height, observations, alerts }: {
       const alert = alerts.find(a => a.status !== 'resolved' && a.source === observation.source && (a.metadata.person_id ?? null) === personId);
       const color = alert ? 'var(--ember)' : prediction ? postureColor[prediction.label] ?? 'var(--amber)' : 'var(--amber)';
       const top = points.length ? points.reduce((a, b) => (b.y < a.y ? b : a)) : null;
-      const label = `${personId ? personId.toUpperCase() + ' · ' : ''}${prediction ? `${postureName[prediction.label] ?? prediction.label} ${prediction.confidence == null ? '' : Math.round(prediction.confidence * 100) + '%'}` : 'Pose only'}${alert ? ' · ALERT' : ''}`;
+      const name = recognizedName(identityFor(observation, identities)) ?? personId?.toUpperCase();
+      const label = `${name ? name + ' · ' : ''}${prediction ? `${postureName[prediction.label] ?? prediction.label} ${prediction.confidence == null ? '' : Math.round(prediction.confidence * 100) + '%'}` : 'Pose only'}${alert ? ' · ALERT' : ''}`;
       const x = (v: number) => v * width, y = (v: number) => v * height;
       return <g key={`${observation.source}:${personId}`} stroke={color} strokeLinecap="round" strokeLinejoin="round">
         {bones.map(([a, b]) => {
