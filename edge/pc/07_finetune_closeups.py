@@ -19,9 +19,16 @@ How:
    at a very low learning rate (1e-4, a tenth of normal) so it shifts instead of forgetting.
 3. Saying "unsure" about a real posture is punished hard: on every frame that really is
    upright, sitting or floor, the loss gets an extra --unsure-penalty x (probability it gave
-   to "other"). Only the crops make "other" worth saying.
+   to "other"), multiplied by (1 + --floor-penalty) on frames that really are FLOOR (genuine
+   floor frames can look like close-ups; calling them "other" would miss a fall). Only the
+   crops make "other" worth saying.
 4. Keep it only if it's safe: each epoch is checked on the validation people (never trained on)
-   and saved only if floor caught on REAL frames stays at or above the starting model's.
+   and saved only if floor caught on REAL frames stays at or above the starting model's (minus
+   --floor-tolerance points, default 0).
+
+First run (2026-10-10, penalty 3, no floor extra): close-ups -> unknown 4% -> 95% in 6 epochs,
+lying close-ups still floor 87%, real accuracy 94.4 -> 94.8%, but floor caught 93.1 -> 92.2%, so
+nothing was kept under the zero-tolerance rule.
 
 Reports per epoch: real validation frames (answers, right when answering, floor caught) and the
 validation crops (upright/sitting close-ups -> unknown, lying close-ups -> floor). At the end,
@@ -151,6 +158,10 @@ def main():
     ap.add_argument("--share", type=float, default=0.2, help="share of training frames made close-ups")
     ap.add_argument("--unsure-penalty", type=float, default=3.0,
                     help="extra loss per unit of probability put on 'other' for a real posture")
+    ap.add_argument("--floor-penalty", type=float, default=0.0,
+                    help="extra multiplier on the unsure penalty for frames that are really floor")
+    ap.add_argument("--floor-tolerance", type=float, default=0.0,
+                    help="points of floor caught an epoch may lose and still be kept (default 0)")
     ap.add_argument("--min-conf", type=float, default=0.5, help="cut-off for unknown")
     ap.add_argument("--recordings", type=Path, default=Path("recordings"))
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -198,7 +209,8 @@ def main():
             posture = y != OTHER
             if posture.any():           # punish "unsure" on frames that really are a posture
                 p_other = torch.softmax(scores[posture], dim=1)[:, OTHER]
-                loss = loss + args.unsure_penalty * p_other.mean()
+                extra = 1.0 + args.floor_penalty * (y[posture] == FLOOR).float()
+                loss = loss + args.unsure_penalty * (p_other * extra).mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -206,7 +218,7 @@ def main():
                 print("\r  epoch %d/%d batch %d/%d loss %.3f" % (epoch, args.epochs, i, len(loader),
                                                                 loss.item()), end="", flush=True)
         m = measure(model, loaders, device, args.min_conf)
-        safe = m["floor"] >= floor_bar - 1e-9
+        safe = m["floor"] >= floor_bar - args.floor_tolerance / 100.0 - 1e-9
         mark = ""
         if safe and (best is None or m["up_crops"] > best[0]):
             best = (m["up_crops"], epoch)
@@ -222,8 +234,9 @@ def main():
                                                  mark, time.time() - t0))
 
     if best is None:
-        print("\nNo epoch kept floor caught at %.1f%% or better: keep model_3class.pt. Try a lower "
-              "--unsure-penalty or --share, or fewer epochs." % (100 * floor_bar))
+        print("\nNo epoch kept floor caught at %.1f%% or better (tolerance %.1f points): keep "
+              "model_3class.pt. Try --floor-penalty (e.g. 5), or allow --floor-tolerance 1."
+              % (100 * floor_bar, args.floor_tolerance))
         return
     print("\nkept epoch %d -> %s" % (best[1], args.out))
     model.load_state_dict(torch.load(args.out, map_location=device)["state_dict"])

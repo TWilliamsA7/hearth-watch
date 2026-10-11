@@ -368,6 +368,16 @@ close-ups. With only head and shoulders in view (stand-...053107) it confidently
   lying -> floor); then the field test. Output `D:\hearth-data\model_closeup.pt`, readable by
   `06_train.py --test-only / --final-test --out ...`.
 
+First run (2026-10-10, defaults): close-ups -> unknown rose from 4% to 95% by epoch 6, lying
+close-ups stayed floor (87%), real accuracy went 94.4 -> 94.8%, but floor caught dipped
+93.1 -> 92.2% (about 20 of 2,062 floor frames: genuine floor frames that look like close-ups), so
+the zero-tolerance rule kept nothing. Options:
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-penalty 5        # punish "unsure" 6x on real floor frames
+.\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-tolerance 1      # or accept up to 1 point less floor caught
+```
+
 Then: pick `model_3class.pt` or `model_closeup.pt`, freeze it, and run `06_train.py --final-test`
 on it once.
 
