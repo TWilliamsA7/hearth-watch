@@ -28,7 +28,7 @@ frontend/dist/
 *.avi
 *.mkv
 scenarios/generated/
-!recordings/.gitkeep
+recordings/sim/
 
 # Editors / OS
 .vscode/

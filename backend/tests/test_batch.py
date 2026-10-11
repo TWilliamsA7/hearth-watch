@@ -115,3 +115,42 @@ def test_camera_events_are_reported_once_not_per_person():
         m.ingest(Observation(obs_id=pid, timestamp=SIM_EPOCH, source="sim", source_type="simulation",
                              room_id="room-01", person_id=pid, person_detected=True))
     assert len(m.advance_to(SIM_EPOCH + timedelta(seconds=5))) == 1
+
+
+# --- the real monitoring core behind the seam ---
+
+
+def test_default_monitor_is_the_real_service():
+    from hearth.eval.batch import DEFAULT_MONITOR
+    from hearth.eval.real_monitor import ServiceMonitor
+
+    assert isinstance(load_monitor_factory(DEFAULT_MONITOR)(), ServiceMonitor)
+
+
+def test_real_monitor_detects_the_scripted_fall_and_the_outage():
+    from hearth.eval.real_monitor import create_monitor
+
+    fall, _ = evaluate_run(SCENARIOS["possible-fall-01"], None, create_monitor)
+    assert fall.counts.true_positives == 1 and fall.counts.false_positives == 0
+    walk, _ = evaluate_run(SCENARIOS["walk-and-sit-01"], None, create_monitor)
+    assert walk.counts.false_positives == 0
+    outage, _ = evaluate_run(SCENARIOS["camera-outage-01"], None, create_monitor)
+    assert next(s for s in outage.segments if s.truth_label == "camera_outage").detected
+
+
+def test_monitor_overrides_reach_the_real_service(monkeypatch):
+    from hearth.eval.real_monitor import OVERRIDES_ENV, create_monitor
+
+    monkeypatch.setenv(OVERRIDES_ENV, '{"floor_hold_seconds": 600}')
+    report, _ = evaluate_run(SCENARIOS["possible-fall-01"], None, create_monitor)
+    assert report.counts.true_positives == 0 and report.counts.missed == 1
+
+
+def test_cli_rejects_an_unknown_monitor_setting(tmp_path, monkeypatch):
+    from hearth.eval.real_monitor import CONFIG_ENV, OVERRIDES_ENV
+
+    # The CLI writes these for worker processes; setenv here makes the test restore them.
+    monkeypatch.setenv(OVERRIDES_ENV, "{}")
+    monkeypatch.setenv(CONFIG_ENV, "")
+    with pytest.raises(Exception, match="no_such_threshold"):
+        main(["batch", "--seeds", "1", "--set", "no_such_threshold=1", "--out", str(tmp_path)])

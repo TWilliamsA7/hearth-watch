@@ -47,7 +47,7 @@ class StubMonitor:
         f = obs.features
         if f is None or f.torso_angle_deg is None or f.hip_y is None:
             return out
-        if (f.vertical_velocity or 0.0) > 0.35:
+        if (f.vertical_velocity or 0.0) > 0.25:  # EMA-smoothed like the edge, so peaks are lower
             self._fast_drop_at = obs.timestamp
         on_floor = f.torso_angle_deg > 60 and f.hip_y > 0.75
         if not on_floor:

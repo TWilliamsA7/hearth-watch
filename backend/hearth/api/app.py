@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager, suppress
 import os
 from pathlib import Path
 
+import anyio
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -16,15 +18,24 @@ from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            SourceStatus, SourceStatusMessage)
 from hearth.monitor.config import MonitorConfig
 from hearth.monitor.service import MonitorService
+from hearth.sim.mount import mount_simulation
 
 
-def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None) -> FastAPI:
+def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
+               with_simulation: bool = True) -> FastAPI:
     monitor = service or MonitorService(config or MonitorConfig.load(os.environ.get("HEARTH_CONFIG")))
+
+    simulation = None
 
     async def check_health():
         while True:
             await asyncio.sleep(monitor.config.health_poll_seconds)
-            monitor.check_health()
+            if simulation is not None:
+                with simulation.watch() as raised:
+                    monitor.check_health()
+                simulation.observe(raised)
+            else:
+                monitor.check_health()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -35,10 +46,14 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+            if simulation is not None:
+                await simulation.close()
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
-    # Person 3 can include a scenario router here and use the same service.
     app.state.monitor = monitor
+    if with_simulation:
+        # The simulator and evaluator (Person 3) feed this same service through ingest().
+        simulation = mount_simulation(app, monitor)
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
     static = Path(__file__).with_name("static")
@@ -176,33 +191,33 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
             raise HTTPException(409, str(exc)) from exc
 
     async def stream(websocket: WebSocket, queue: asyncio.Queue, initial_payloads: list[dict]):
-        async def send_messages():
+        # An anyio task group (not raw asyncio tasks) so cancellation composes with
+        # Starlette's own cancel scopes when a client disconnects mid-send.
+        async def send_messages(group):
             for message in initial_payloads:
                 await websocket.send_json(message)
             while True:
                 message = await queue.get()
                 if message is None:
                     await websocket.close(code=1013, reason="Reconnect to refresh state")
-                    return
+                    break
                 await websocket.send_json(message)
+            group.cancel_scope.cancel()
 
-        async def receive_disconnect():
+        async def receive_disconnect(group):
             while True:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
-                    return
+                    break
+            group.cancel_scope.cancel()
 
-        tasks = [asyncio.create_task(send_messages()), asyncio.create_task(receive_disconnect())]
         try:
-            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                with suppress(WebSocketDisconnect):
-                    task.result()
+            with suppress(WebSocketDisconnect):
+                async with anyio.create_task_group() as group:
+                    group.start_soon(send_messages, group)
+                    group.start_soon(receive_disconnect, group)
         finally:
             monitor.unsubscribe(queue)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
 
     @app.websocket("/ws/nurse/{nurse_id}")
     async def nurse_feed(websocket: WebSocket, nurse_id: str):

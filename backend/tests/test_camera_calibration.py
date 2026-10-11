@@ -1,7 +1,7 @@
 import pytest
 from conftest import observation
 from hearth.monitor.config import MonitorConfig
-from hearth.monitor.detector import FallDetector, source_key
+from hearth.monitor.detector import FallDetector, track_key
 
 
 def test_mid_frame_floor_alert_and_standing_recovery_use_independent_bounds():
@@ -15,7 +15,7 @@ def test_mid_frame_floor_alert_and_standing_recovery_use_independent_bounds():
     assert len([e for e in events if e.event_type == 'possible_fall']) == 1
     events = detector.process(observation(3.2, standing))
     assert [e.event_type for e in events] == ['recovered']
-    assert detector.states[source_key(observation(0))].posture == 'upright'
+    assert detector.states[track_key(observation(0))].posture == 'upright'
 
 
 @pytest.mark.parametrize('features', [
@@ -40,3 +40,13 @@ def test_floor_calibration_does_not_override_confident_model_sitting():
                           posture_prediction=prediction('sitting'))
         events += det.process(obs)
     assert not [e for e in events if e.event_type=='possible_fall']
+
+
+def test_code_defaults_match_the_shipped_config():
+    """Tests build MonitorConfig() from code defaults; they should exercise what ships.
+
+    posture_mode is the one deliberate difference: the code defaults to the model, and
+    config.json uses pose_fallback because the Jetson sends pose features, not predictions."""
+    shipped, default = MonitorConfig.load().model_dump(), MonitorConfig().model_dump()
+    differ = {k for k in shipped if shipped[k] != default[k]}
+    assert differ <= {"posture_mode", "additional_room_ids"}, {k: (default[k], shipped[k]) for k in differ}

@@ -108,7 +108,7 @@ In a second terminal, run the stub (no Jetson or frontend needed):
 For nurse-owned alerts, `POST /alerts/{alert_id}/resolve` requires the owning `{nurse_id}`. The original `/ack` flow remains available for unassigned alerts. Each alert has a `kind`: `possible_fall`, `help_requested`, or `source_offline`. Human acceptance is not proof that assistance has physically arrived. Source reconnection records recovery on an offline alert but does not resolve it automatically.
 
 - **Person 1:** Existing observation fields remain valid. Send heartbeat context (`source`, `source_type`, `room_id`, and any scenario/run IDs) matching observations. Features must follow the normalized conventions below; missing features remain `null`. Frames with no person still send `person_detected: false`.
-- **Person 3:** Send observations through the same ingest API, or use `app.state.monitor.ingest(observations)` on the backend event loop. Mount scenario-control routes onto the same FastAPI app. Keep ground truth in `hearth.sim`/`hearth.eval`; retrieve monitor events with `run_id` for scoring. Assign a new run ID for every reset/replay, even with the same scenario and seed. A run's timestamps must advance strictly; duplicate/equal/older samples do not advance detection.
+- **Person 3:** `/sim` and `/eval` are mounted on the main app (`create_app(simulation=False)` leaves them out); simulated records go through `MonitorService.ingest`/`heartbeat` like a camera's. Monitor state is keyed per person (`person_id`), so several residents in one frame are tracked separately. Offline evaluation (`python -m hearth.eval batch|study|real`) runs the real `MonitorService` on record time; see [`docs/real-data-evaluation.md`](docs/real-data-evaluation.md). Keep ground truth in `hearth.sim`/`hearth.eval`; retrieve monitor events with `run_id` for scoring. Assign a new run ID for every reset/replay, even with the same scenario and seed. A run's timestamps must advance strictly; duplicate/equal/older samples do not advance detection.
 - **Person 4:** Import generated server types from `shared/types/hearth.ts`. Use the `type` discriminator on `ServerMessage`. Upsert events by `event_id`, alerts by `alert_id`, and source/latest-observation records by `(room_id, source_type, source, scenario_id, run_id)`. Reconnect repeats retained history, so deduplicate it. The optional HTTP snapshot provides the same current state. Display `observation_stale` separately from `online`, and always preserve source labels. Recovery is shown with `recovered_at`; it does not automatically acknowledge or resolve an alert.
 
 WebSocket clients that fall behind are closed with code 1013 and should reconnect to refresh state. CORS permits localhost Vite on port 5173 by default; other origins can be configured.
@@ -132,6 +132,40 @@ Example `zones` configuration (replace with calibrated geometry):
 ```
 
 The event log retains the latest 10,000 events by default; JSONL export includes only those retained events. Export before the capacity is exceeded or the backend restarts. Alerts and source/run state stay in memory until restart; this is a single-session hackathon backend, not durable storage. Old simulation runs remain visible by ID and can be filtered by the dashboard/evaluator.
+
+## Live simulation (Sim Studio)
+
+The live engine (`backend/hearth/sim/live/`) generates a furnished room from a seed and fills it with autonomous residents who sit, rest, walk to the window, browse the shelves, bend to pick things up, leave and come back, and hold seated or standing conversations. Each resident runs their own state machine; nothing is scripted in advance. A pinhole camera in the room produces the same contract Observations as every other source, through the same monitor. Ground truth is written as it happens and never reaches the monitor.
+
+```powershell
+# Backend (mounts /sim, /sim/live and /eval on the monitoring core)
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
+# Studio (in frontend/room-view; set HEARTH_BACKEND if the backend isn't on :8000)
+npm install; npm run dev    # then open http://localhost:5174/studio.html
+```
+
+In the Studio, press **Generate room**:
+
+- **Left panel:** choose the seed, size, residents, furniture, camera and lighting; set the behaviour sliders; trigger incidents (fall, inactivity, pacing, exit loitering) for the selected resident.
+- **Right panel:** click anyone to inspect their plan, history, camera visibility and incidents.
+- **Bottom strip:** what the camera reports (the monitor's input) and the monitor's events.
+- **Keys:** `Space` plays and pauses, `1`–`4` switch views (orbit, top, camera point of view, follow), `F` follows the selected resident, and `H` hides ground truth for blind demos.
+
+Headless runs write the usual run files and can be scored against the real monitor:
+
+```powershell
+.\.venv\Scripts\python.exe -m hearth.sim live --people 6 --seed 3 --duration 300 --fall-at 120 --evaluate
+.\.venv\Scripts\python.exe -m hearth.sim live --scenario live-fall-01 --evaluate
+```
+
+Incidents happen only when triggered, scheduled (`EngineSpec.incidents`) or given a rate (`EngineSpec.incident_rates`, zero by default). Manual and scheduled falls are staged where the camera has a clear, side-on view. Set `in_view: false` for unbiased validation.
+
+**Simulated finding.** The pose rules' floor thresholds (`floor_head_y_min` 0.40, `floor_hip_y_min` 0.45, torso angle 60–120°) were calibrated for one mat-level camera. Seen from a camera high in a corner, falls at the back of the room project above those lines. A body lying along the camera's view also reads as an angle past 120°, and noise flickering past that limit resets the 3 s hold. Results on 12 seeded live runs with one staged fall each:
+
+- 3 of the 12 falls were detected.
+- No run raised a false alert.
+
+These are simulated results only, not measured accuracy. The thresholds need per-camera calibration before they mean anything.
 
 ## Scope
 

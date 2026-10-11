@@ -1,4 +1,5 @@
 // Generate TypeScript types from the JSON Schemas; never edit the output by hand.
+// --check: write nothing; exit 1 if the committed files differ from what would be generated.
 //   shared/schema/hearth.schema.json  -> src/generated/contract.ts  (shared contract)
 //   backend/schema/sim.schema.json    -> src/generated/sim.ts       (sim + evaluation API)
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -46,6 +47,9 @@ function draft7Tuples(node) {
   return out;
 }
 
+const check = process.argv.includes("--check");
+const normalize = (text) => text.replace(/\r\n/g, "\n");
+let stale = 0;
 await mkdir(outDir, { recursive: true });
 for (const { schema, out, name } of targets) {
   const bundle = JSON.parse(await readFile(resolve(repo, schema), "utf8"));
@@ -63,6 +67,15 @@ for (const { schema, out, name } of targets) {
     unreachableDefinitions: true,
     format: true,
   });
+  if (check) {
+    const current = await readFile(resolve(outDir, out), "utf8").catch(() => "");
+    if (normalize(current) !== normalize(ts)) {
+      stale += 1;
+      console.error(`src/generated/${out} is stale: run npm run gen:types (schema: ${schema})`);
+    }
+    continue;
+  }
   await writeFile(resolve(outDir, out), ts);
   console.log(`wrote src/generated/${out}`);
 }
+if (stale) process.exit(1);
