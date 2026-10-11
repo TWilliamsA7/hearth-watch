@@ -74,7 +74,7 @@ The frame-bridge design above was replaced by computing the face template **on t
 - **run_id.** The live edge sends no `run_id`, since a per-run id would change the source key and strand the previous run's offline alert. Person ids restart at `p1` after a restart, so the source going offline (a restart always outlasts the 3 s source timeout) clears every name on that source.
 - **Edge never learns names.** The route answers only `status`, `matches` and `checked_in`.
 
-Not yet measured: SFace engine build and latency on the Nano, FPS and memory with poseNet, the posture MLP and SFace together, and poseNet eye/nose accuracy at the C270's real distances. Id swaps when two people cross remain a tracking limitation; the uniqueness rule and TTL limit, but do not prevent, a swapped name.
+Measured on the Nano: the SFace FP16 engine builds with TensorRT 8.2 (trtexec PASSED, 20 MB) and runs at 17.5 ms per face of GPU compute. Not yet measured: FPS and memory with poseNet, the posture MLP and SFace together, and poseNet eye/nose accuracy at the C270's real distances. Id swaps when two people cross remain a tracking limitation; the uniqueness rule and TTL limit, but do not prevent, a swapped name.
 
 ## Dashboard integration contract
 

@@ -153,7 +153,7 @@ python3 run_edge.py --face-id --dry-run                  # logs when a template 
 - **When SFace runs.** The face check (res10, every 0.5 s) takes each person's head box in turn. Only when it finds a face there, and poseNet has that person's eyes and nose at least 20 px apart (`FACE_ID_MIN_EYE_PX`), does SFace run (GPU, FP16), aligned with those three points.
 - **What is sent.** The 128-value template with the person's anonymous `person_id`, posted on its own thread (newest per person) to the laptop's `/face-demo/edge-embeddings` with `HEARTH_EDGE_FACE_TOKEN`. **No frames or face crops leave the Jetson.** The laptop matches the template against opted-in enrollments and names that person's alerts. The edge never learns the name.
 - **What doesn't change.** Monitoring never waits on it. A missing engine, a missing token or `--single-person` logs a reason and carries on unnamed. While on, `face_present` still goes on the followed person's observation, but it reports whichever person's head was checked.
-- **Not yet measured on the Nano:** engine build, time per face, and FPS and memory alongside poseNet and the posture model. Record them here.
+- **Measured on the Nano (2026-10-11):** TensorRT 8.2 builds SFace FP16 in about 6 min (a 20 MB engine). It runs at 17.5 ms per face of GPU compute with trtexec (57/s). This is only paid when a face is in someone's head box, at most once per 0.5 s face check. **Not yet measured:** FPS and memory alongside poseNet and the posture model.
 
 ## Optional: fall model on the Jetson (YOLO11n + TensorRT, `--fall-model`)
 
