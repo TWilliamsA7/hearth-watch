@@ -53,6 +53,33 @@ def _unit(a: Vec3) -> Vec3:
     return (a[0] / n, a[1] / n, a[2] / n)
 
 
+def camera_basis(forward: Vec3) -> tuple[Vec3, Vec3, Vec3]:
+    """(forward, right, up) unit vectors for a camera looking along `forward`, image upright."""
+    f = _unit(forward)
+    up = (0.0, 1.0, 0.0) if abs(f[1]) < 0.95 else (0.0, 0.0, -1.0)
+    r = _unit(_cross(f, up))
+    return f, r, _cross(r, f)
+
+
+def jetson_pose(width: float, depth: float, height: float, spec: CameraSpec) -> tuple[Vec3, Vec3]:
+    """(position, forward) of the Jetson presets. Shared with calibration, so both agree exactly.
+
+    jetson: middle of the front wall, looking straight in, tilted down.
+    jetson_corner: above a front corner of the tracked area (the room), looking at its centre
+    turned by `pan` degrees (+ = right), tilted down."""
+    t = math.radians(spec.tilt)
+    if spec.preset == "jetson_corner":
+        side = -1.0 if spec.corner == "left" else 1.0
+        pos = (side * (width / 2 - 0.05), height, -0.05)
+        dx, dz = 0.0 - pos[0], -depth / 2 - pos[2]
+        yaw = math.atan2(dx, dz) - math.radians(spec.pan)  # heading of the view across the floor
+        hx, hz = math.sin(yaw), math.cos(yaw)
+    else:
+        pos = (0.0, height, -0.12)
+        hx, hz = 0.0, -1.0
+    return pos, (hx * math.cos(t), -math.sin(t), hz * math.cos(t))
+
+
 def placement(room: Room, spec: CameraSpec) -> tuple[Vec3, Vec3]:
     """(position, target) for a preset."""
     w, d = room.width, room.depth
@@ -64,10 +91,10 @@ def placement(room: Room, spec: CameraSpec) -> tuple[Vec3, Vec3]:
         return (w / 2 - 0.15, h, -0.15), look
     if spec.preset == "front":
         return (0.0, h, -0.12), (0.0, 0.5, -d * 0.6)
-    if spec.preset == "jetson":
-        # The Jetson's mount: centre of the front wall, tilted down, aimed `reach` metres in.
+    if spec.preset in ("jetson", "jetson_corner"):
+        pos, f = jetson_pose(w, d, h, spec)
         reach = min(spec.reach, d - 0.2)
-        return (0.0, h, -0.12), (0.0, h - reach * math.tan(math.radians(spec.tilt)), -0.12 - reach)
+        return pos, (pos[0] + f[0] * reach, pos[1] + f[1] * reach, pos[2] + f[2] * reach)
     return (0.0, room.height - 0.05, -d / 2 + 0.001), (0.0, 0.0, -d / 2)  # ceiling, looking straight down
 
 
@@ -103,10 +130,7 @@ class Camera:
         self.position, self.target = placement(room, spec)
         # Looking straight down from the ceiling needs a wide lens to see the room.
         self.fov, self.aspect = (max(spec.fov, 100.0) if spec.preset == "ceiling" else spec.fov), spec.aspect
-        f = _unit(_sub(self.target, self.position))
-        up = (0.0, 1.0, 0.0) if abs(f[1]) < 0.95 else (0.0, 0.0, -1.0)
-        r = _unit(_cross(f, up))
-        self.forward, self.right, self.up = f, r, _cross(r, f)
+        self.forward, self.right, self.up = camera_basis(_sub(self.target, self.position))
         self.tan_v = math.tan(math.radians(self.fov) / 2)
         self.tan_h = self.tan_v * self.aspect
         self.boxes: list[Box3] = [b for p in room.pieces for b in occluding_parts(p)]

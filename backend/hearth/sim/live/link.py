@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hearth.monitor.detector import track_key
 from hearth.sim.live.controller import LiveController
 from hearth.sim.live.avatar import LiveAvatar
-from hearth.sim.live.calibrate import C270_FOV, CalibrationFrame, frame_from, solve
+from hearth.sim.live.calibrate import C270_FOV, CalibrationFrame, frame_from, solve, solve_pan
 from hearth.sim.live.lift import LiftedBody
 
 # No fresh frame for this long: the person is shown as gone. The Jetson pauses for a few
@@ -60,22 +60,29 @@ class CameraInfo(BaseModel):
     height: float
     tilt: float
     fov: float
+    corner: str = "left"
+    pan: float = 0.0
 
 
 class CalibrateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    seconds: float = Field(default=12.0, ge=1.0, le=30.0,
-                           description="How long to watch the person walking about, upright, in view.")
+    step: Literal["walk", "centre"] = Field(
+        default="walk", description="walk: height and tilt (walk about); centre: pan (stand on the centre mark).")
+    seconds: float | None = Field(default=None, ge=1.0, le=30.0,
+                                  description="How long to watch; default 12 s for walk, 3 s for centre.")
     height: float = Field(default=1.7, ge=1.2, le=2.1, description="The person's height in metres.")
 
 
 class CalibrateResult(BaseModel):
     ok: bool
+    step: str = "walk"
     frames: int
     height: float | None = None
     tilt: float | None = None
     fov: float | None = None
     rms: float | None = Field(default=None, description="Fit error, as a fraction of the frame height.")
+    pan: float | None = Field(default=None, description="Step centre: degrees the camera is turned (+ = right).")
+    off_by: float | None = Field(default=None, description="Step centre: metres between where you stood and the mark.")
     reason: str = ""
     camera: CameraInfo | None = Field(default=None, description="The simulated camera now in use.")
 
@@ -83,7 +90,7 @@ class CalibrateResult(BaseModel):
 class LinkStatus(BaseModel):
     enabled: bool
     source: str
-    state: Literal["off", "waiting", "live", "stale"]
+    state: Literal["off", "waiting", "live", "stale", "outside"]
     person_id: str
     last_seen: datetime | None = None
     posture: str | None = None
@@ -125,13 +132,13 @@ class LiveLink:
         return self.status()
 
     def status(self) -> LinkStatus:
-        state: Literal["off", "waiting", "live", "stale"]
+        state: Literal["off", "waiting", "live", "stale", "outside"]
         if not self.enabled:
             state = "off"
         elif self._last_seen is None:
             state = "waiting"
         else:
-            state = "live" if self._present else "stale"
+            state = "outside" if self.avatar.outside else "live" if self._present else "stale"
         return LinkStatus(enabled=self.enabled, source=self.source, state=state, person_id=self.person_id,
                           last_seen=self._last_seen, posture=self._posture if self._present else None,
                           label=self._label if self._present else None, alert_open=self.alert_open,
@@ -142,15 +149,17 @@ class LiveLink:
         if w is None:
             return None
         c = w.spec.camera
-        return CameraInfo(preset=c.preset, height=c.height, tilt=c.tilt, fov=w.camera.fov)
+        return CameraInfo(preset=c.preset, height=c.height, tilt=c.tilt, fov=w.camera.fov, corner=c.corner, pan=c.pan)
 
     async def calibrate(self, req: CalibrateRequest) -> CalibrateResult:
-        """Watch the linked person walking about upright, work out the real camera's height and
-        tilt, and use them for the simulated camera."""
+        """Step "walk": watch the linked person walking about upright; work out the real camera's
+        height and tilt. Step "centre": watch them standing on the area's centre mark; work out
+        which way a corner camera points (pan). Each result is applied to the simulated camera."""
         loop = asyncio.get_running_loop()
         frames: list[CalibrationFrame] = []
         seen: set[str] = set()
-        end = loop.time() + req.seconds
+        seconds = req.seconds if req.seconds is not None else (12.0 if req.step == "walk" else 3.0)
+        end = loop.time() + seconds
         while loop.time() < end:
             obs = self._latest()
             if obs is not None and obs.obs_id not in seen and obs.keypoints and self._fresh():
@@ -158,17 +167,31 @@ class LiveLink:
                 if (f := frame_from([(k.name, k.x, k.y) for k in obs.keypoints])) is not None:
                     frames.append(f)
             await asyncio.sleep(0.05)
-        result = await asyncio.to_thread(solve, frames, req.height, fov=C270_FOV)
-        out = CalibrateResult(ok=result.ok, frames=result.frames, height=result.height, tilt=result.tilt,
-                              fov=result.fov, rms=result.rms, reason=result.reason)  # fmt: skip
-        log.warning("calibration from %s: %d frames seen, %d usable -> %s", self.source, len(seen), result.frames,
-                    f"height {result.height} m, tilt {result.tilt} deg, fit {result.rms}" if result.ok
-                    else f"FAILED: {result.reason}")  # fmt: skip
         w = self.controller.world
-        if result.ok and w is not None and result.height is not None and result.tilt is not None:
-            spec = w.spec.camera.model_copy(update={"preset": "jetson", "height": result.height,
-                                                    "tilt": result.tilt, "fov": result.fov})  # fmt: skip
-            w.set_camera(spec)
+        if w is None:
+            raise RuntimeError("no room")
+        cam, room = w.spec.camera, w.room
+        if req.step == "centre":
+            pan = await asyncio.to_thread(solve_pan, frames, req.height, cam, room.width, room.depth)
+            out = CalibrateResult(ok=pan.ok, step="centre", frames=pan.frames, pan=pan.pan, off_by=pan.off_by,
+                                  reason=pan.reason)  # fmt: skip
+            summary = f"pan {pan.pan} deg, {pan.off_by} m off the mark" if pan.ok else f"FAILED: {pan.reason}"
+            update = {"pan": pan.pan} if pan.ok else None
+        else:
+            preset = cam.preset if cam.preset in ("jetson", "jetson_corner") else "jetson"
+            spec = cam.model_copy(update={"preset": preset})
+            result = await asyncio.to_thread(solve, frames, req.height, fov=C270_FOV, spec=spec, width=room.width,
+                                             depth=room.depth)  # fmt: skip
+            out = CalibrateResult(ok=result.ok, step="walk", frames=result.frames, height=result.height,
+                                  tilt=result.tilt, fov=result.fov, rms=result.rms, reason=result.reason)  # fmt: skip
+            summary = (f"height {result.height} m, tilt {result.tilt} deg, fit {result.rms}" if result.ok
+                       else f"FAILED: {result.reason}")  # fmt: skip
+            update = ({"preset": preset, "height": result.height, "tilt": result.tilt, "fov": result.fov}
+                      if result.ok else None)  # fmt: skip
+        log.warning("calibration (%s) from %s: %d frames seen, %d usable -> %s", req.step, self.source, len(seen),
+                    out.frames, summary)  # fmt: skip
+        if update is not None:
+            w.set_camera(w.spec.camera.model_copy(update=update))
             self.height = req.height
             self.avatar = LiveAvatar(req.height)  # positions were measured with the old camera
             self.controller.announce_world()
@@ -220,6 +243,11 @@ class LiveLink:
         a = self.avatar
         a.update(keypoints, posture or a.posture, w.camera, w.room, now)
         if not a.ready:
+            return
+        if a.outside:  # left the tracked area: not in the simulated room
+            if self._present:
+                w.set_external(self.source, None)
+                self._present = False
             return
         self._posture = a.posture
         e = w.set_external(self.source, LiftedBody(a.joints(), a.root, a.heading, a.height), posture=a.posture,

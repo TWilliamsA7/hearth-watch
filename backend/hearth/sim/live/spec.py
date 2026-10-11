@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 IncidentKind = Literal["fall", "inactivity", "pacing", "exit_loiter"]
 FallMotion = Literal["trip", "faint", "collapse", "sit_miss", "stand_up"]
-CameraPreset = Literal["corner_left", "corner_right", "front", "ceiling", "jetson"]
+CameraPreset = Literal["corner_left", "corner_right", "front", "ceiling", "jetson", "jetson_corner"]
 Lighting = Literal["day", "evening", "dim"]
 
 
@@ -41,11 +41,17 @@ class CameraSpec(_Model):
     reach: Annotated[float, Field(gt=0.5, le=12.0)] = Field(
         default=3.5, description="Preset 'jetson': metres into the room where the view centre is aimed."
     )
+    corner: Literal["left", "right"] = Field(
+        default="left", description="Preset 'jetson_corner': which front corner of the tracked area the camera is above."
+    )
+    pan: Annotated[float, Field(ge=-60.0, le=60.0)] = Field(
+        default=0.0, description="Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right)."
+    )
 
     @model_validator(mode="after")
     def _jetson_lens(self) -> CameraSpec:
         # The Jetson's Logitech C270 sees about 43 degrees vertically (55 diagonal at 4:3), not 62.
-        if self.preset == "jetson" and "fov" not in self.model_fields_set:
+        if self.preset in ("jetson", "jetson_corner") and "fov" not in self.model_fields_set:
             object.__setattr__(self, "fov", 43.0)
         return self
 

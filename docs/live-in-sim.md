@@ -25,6 +25,23 @@ Jetson (run_edge.py, poseNet) ──POST /ingest/observations──▶ MonitorSe
 - **What the engine never does with them:** they get no ground truth, no behaviour and no incidents. The simulated camera never reports them, because their own camera does.
 - **Pausing.** The live person keeps moving while the simulation is paused.
 
+## Set up the tracked area (do this once)
+
+The real room is larger than one camera can track well. Track part of it:
+
+1. **Tape a rectangle on the floor**, for example 5 m wide and 4 m deep, and put an **X at its centre**.
+2. **Mount the camera high above one front corner**, 2.2–2.5 m up, aimed at the X and tilted 30–35° down.
+   - Why: from a camera at head height, looking level, the floor only comes into view about 4 m away. Feet and knees drop out of frame, and depth has to be guessed from body proportions. From a high corner, your feet stay in view across the area, and position errors roughly halve.
+3. In the Studio's **Live camera** panel:
+   - set the area's width and depth, and which corner the camera is in;
+   - press **Live: tracked area**. The simulated room becomes the taped area, empty, seen from that corner.
+4. **Calibrate:**
+   - **1 · Walk:** for 12 s, walk slowly all over the area (near, far, left, right), upright. This solves the camera's height and tilt.
+   - **2 · Stand on X:** for 3 s, stand still on the centre mark. This solves which way the camera points.
+5. **Check coverage.** Turn on the **Camera FOV** overlay. The shaded floor is what the camera sees. Then walk to each corner of the tape and to the X: the avatar should be within about 20 cm of the same spot.
+
+When you step outside the tape, the avatar leaves the room, and the link reports `outside`.
+
 ## Run it
 
 ```powershell

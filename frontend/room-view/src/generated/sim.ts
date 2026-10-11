@@ -207,7 +207,7 @@ export interface AlertResult {
  * via the `definition` "CameraSpec".
  */
 export interface CameraSpec {
-  preset: "corner_left" | "corner_right" | "front" | "ceiling" | "jetson";
+  preset: "corner_left" | "corner_right" | "front" | "ceiling" | "jetson" | "jetson_corner";
   height: number;
   /**
    * Vertical field of view, degrees.
@@ -223,6 +223,14 @@ export interface CameraSpec {
    * Preset 'jetson': metres into the room where the view centre is aimed.
    */
   reach: number;
+  /**
+   * Preset 'jetson_corner': which front corner of the tracked area the camera is above.
+   */
+  corner: "left" | "right";
+  /**
+   * Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right).
+   */
+  pan: number;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -286,7 +294,7 @@ export interface RoomSpec {
   window: boolean;
 }
 export interface CameraSpec1 {
-  preset: "corner_left" | "corner_right" | "front" | "ceiling" | "jetson";
+  preset: "corner_left" | "corner_right" | "front" | "ceiling" | "jetson" | "jetson_corner";
   height: number;
   /**
    * Vertical field of view, degrees.
@@ -302,6 +310,14 @@ export interface CameraSpec1 {
    * Preset 'jetson': metres into the room where the view centre is aimed.
    */
   reach: number;
+  /**
+   * Preset 'jetson_corner': which front corner of the tracked area the camera is above.
+   */
+  corner: "left" | "right";
+  /**
+   * Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right).
+   */
+  pan: number;
 }
 /**
  * One incident, at a time (scheduled) or now (manual).

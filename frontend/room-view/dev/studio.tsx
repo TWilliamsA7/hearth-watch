@@ -78,17 +78,20 @@ interface LogLine {
 interface LinkStatus {
   enabled: boolean;
   source: string;
-  state: "off" | "waiting" | "live" | "stale";
+  state: "off" | "waiting" | "live" | "stale" | "outside";
   person_id: string;
   last_seen: string | null;
   posture: string | null;
   label: string | null;
   alert_open: boolean;
-  camera: { preset: string; height: number; tilt: number; fov: number } | null;
+  camera: { preset: string; height: number; tilt: number; fov: number; corner: string; pan: number } | null;
 }
 
 interface CalibrateResult {
   ok: boolean;
+  step: "walk" | "centre";
+  pan: number | null;
+  off_by: number | null;
   frames: number;
   height: number | null;
   tilt: number | null;
@@ -148,7 +151,11 @@ function Studio() {
   const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
   const [liveHeight, setLiveHeight] = useState(1.7);
   const [showReal, setShowReal] = useState(false);
-  const [calibrating, setCalibrating] = useState(false);
+  const [calibrating, setCalibrating] = useState<"walk" | "centre" | null>(null);
+  // The tracked area: a rectangle taped on the real floor, with the camera above a front corner.
+  const [areaW, setAreaW] = useState(5);
+  const [areaD, setAreaD] = useState(4);
+  const [camCorner, setCamCorner] = useState<"left" | "right">("left");
   const [calibration, setCalibration] = useState<CalibrateResult | null>(null);
   const { feed, log, alertPersonIds } = useMonitorFeed(link?.enabled ? link.source : null);
   const [error, setError] = useState<string | null>(null);
@@ -223,32 +230,35 @@ function Studio() {
   useEffect(() => {
     if (link?.enabled) setLinkSource(link.source);
   }, [link?.enabled, link?.source]);
-  const calibrate = () =>
+  const calibrate = (step: "walk" | "centre") =>
     run(async () => {
-      setCalibrating(true);
+      setCalibrating(step);
       setCalibration(null);
       try {
-        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { seconds: 12, height: liveHeight });
+        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { step, height: liveHeight });
         setCalibration(r);
         if (r.ok && r.height != null && r.tilt != null) {
-          setPreset("jetson");
           setCamHeight(r.height);
           setCamTilt(r.tilt);
           setCamFov(43);
         }
       } finally {
-        setCalibrating(false);
+        setCalibrating(null);
       }
     });
   const setLinkEnabled = (enabled: boolean, source = linkSource, height = liveHeight) =>
     run(() => api<LinkStatus>("/sim/live/link", { enabled, source, height }).then(setLink));
+  // Live only: the simulated room is the tracked area, empty, seen by the corner camera.
   const liveOnly = () =>
     run(async () => {
       await api("/sim/live/new", {
         seed, play: true,
-        spec: { actors: 0, room: { width, depth, furniture_density: density }, camera: { preset: "jetson", height: camHeight, tilt: camTilt, fov: camFov }, lighting },
+        spec: {
+          actors: 0, room: { width: areaW, depth: areaD, height: 3.2, furniture_density: 0 },
+          camera: { preset: "jetson_corner", corner: camCorner, height: camHeight, tilt: camTilt, fov: camFov, pan: 0 }, lighting,
+        },
       });  // prettier-ignore
-      setPreset("jetson");
+      setPreset("jetson_corner");
       setLink(await api<LinkStatus>("/sim/live/link", { enabled: true, source: linkSource, height: liveHeight }));
     });
 
@@ -326,19 +336,20 @@ function Studio() {
           <Slider label="Furniture" value={density} min={0} max={1} step={0.05} onChange={setDensity} fmt={(v) => `${Math.round(v * 100)}%`} />
           <div className="row">
             <label>Camera</label>
-            <select value={preset} onChange={(e) => { const v = e.target.value as typeof preset; setPreset(v); if (v === "jetson") setCamFov(43); }}>
+            <select value={preset} onChange={(e) => { const v = e.target.value as typeof preset; setPreset(v); if (v === "jetson" || v === "jetson_corner") setCamFov(43); }}>
               <option value="corner_left">Corner (left)</option>
               <option value="corner_right">Corner (right)</option>
               <option value="front">Front wall</option>
               <option value="ceiling">Ceiling</option>
-              <option value="jetson">Jetson mount</option>
+              <option value="jetson">Jetson, front wall</option>
+              <option value="jetson_corner">Jetson, area corner</option>
             </select>
-            {preset === "jetson" && camFov !== 43 && (
+            {(preset === "jetson" || preset === "jetson_corner") && camFov !== 43 && (
               <button title="Logitech C270: 43° vertical" onClick={() => setCamFov(43)}>C270 lens</button>
             )}
           </div>
           <Slider label="Camera height" value={camHeight} min={1.0} max={3.2} step={0.05} onChange={setCamHeight} fmt={(v) => `${v.toFixed(2)} m`} />
-          {preset === "jetson" && (
+          {(preset === "jetson" || preset === "jetson_corner") && (
             <Slider label="Tilt down" value={camTilt} min={-15} max={60} step={1} onChange={setCamTilt} fmt={(v) => `${v}°`} />
           )}
           <Slider label="Field of view" value={camFov} min={30} max={110} step={1} onChange={setCamFov} fmt={(v) => `${v}°`} />
@@ -367,36 +378,55 @@ function Studio() {
           </div>
           <Slider label="Their height" value={liveHeight} min={1.4} max={2.0} step={0.01} fmt={(v) => `${v.toFixed(2)} m`}
             onChange={(v) => { setLiveHeight(v); if (link?.enabled) setLinkEnabled(true, linkSource, v); }} />
+          <Slider label="Area width" value={areaW} min={2} max={10} step={0.1} onChange={setAreaW} fmt={(v) => `${v.toFixed(1)} m`} />
+          <Slider label="Area depth" value={areaD} min={2} max={9} step={0.1} onChange={setAreaD} fmt={(v) => `${v.toFixed(1)} m`} />
+          <div className="row">
+            <label>Camera at</label>
+            <div className="seg">
+              {(["left", "right"] as const).map((c) => (
+                <button key={c} className={camCorner === c ? "on" : ""} onClick={() => setCamCorner(c)}>{c} corner</button>
+              ))}
+            </div>
+          </div>
           <div className="btns">
-            <button className={link?.enabled ? "on" : "primary"} disabled={!world} onClick={() => setLinkEnabled(!link?.enabled)}>
+            <button className="primary" onClick={liveOnly} title="The simulated room becomes the taped area, seen from the corner camera">
+              Live: tracked area
+            </button>
+            <button className={link?.enabled ? "on" : ""} disabled={!world} onClick={() => setLinkEnabled(!link?.enabled)}>
               {link?.enabled ? "Unlink" : "Link into this room"}
             </button>
-            <button onClick={liveOnly}>Live only (empty room)</button>
-            <button disabled={!link?.enabled || calibrating} onClick={calibrate}
-              title="Walk slowly around for 12 s: left, right, nearer, further; upright, head and hips or knees in view">
-              {calibrating ? "Calibrating… walk slowly around" : "Calibrate camera"}
+          </div>
+          <div className="btns">
+            <button disabled={!link?.enabled || calibrating !== null} onClick={() => calibrate("walk")}
+              title="12 s: walk slowly all over the area (near, far, left, right), upright, head and hips or knees in view">
+              {calibrating === "walk" ? "1 · Walk around the area…" : "1 · Calibrate: walk"}
+            </button>
+            <button disabled={!link?.enabled || calibrating !== null || link?.camera?.preset !== "jetson_corner"} onClick={() => calibrate("centre")}
+              title="3 s: stand still on the X at the centre of the area">
+              {calibrating === "centre" ? "2 · Stand on the X…" : "2 · Calibrate: stand on X"}
             </button>
           </div>
           {calibration && (
             <p className="hint" style={{ color: calibration.ok ? "var(--ok)" : "var(--alert)" }}>
-              {calibration.ok
-                ? `Camera set: ${calibration.height?.toFixed(2)} m up, tilted ${calibration.tilt?.toFixed(1)}° (fit ±${Math.round((calibration.rms ?? 0) * 480)} px, ${calibration.frames} frames)`
-                : `Calibration failed: ${calibration.reason}`}
+              {!calibration.ok ? `Calibration failed: ${calibration.reason}`
+                : calibration.step === "centre" ? `Direction set: turned ${calibration.pan?.toFixed(1)}° (you stood ${Math.round((calibration.off_by ?? 0) * 100)} cm from where the X should be)`
+                : `Camera set: ${calibration.height?.toFixed(2)} m up, tilted ${calibration.tilt?.toFixed(1)}° (fit ±${Math.round((calibration.rms ?? 0) * 480)} px, ${calibration.frames} frames). Now step 2.`}
             </p>
           )}
           {link?.camera && (
-            <p className="hint">Simulated camera: {link.camera.preset}, {link.camera.height.toFixed(2)} m, tilt {link.camera.tilt.toFixed(1)}°, fov {Math.round(link.camera.fov)}°</p>
+            <p className="hint">Simulated camera: {link.camera.preset === "jetson_corner" ? `${link.camera.corner} corner` : link.camera.preset}, {link.camera.height.toFixed(2)} m, tilt {link.camera.tilt.toFixed(1)}°, pan {link.camera.pan.toFixed(1)}°, fov {Math.round(link.camera.fov)}°</p>
           )}
           {link?.enabled && (
             <p className="hint">
               {link.state === "live" ? `In the room: ${link.label ?? link.posture}${link.alert_open ? " · ALERT OPEN" : ""}`
                 : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
+                : link.state === "outside" ? "Outside the tracked area: step back inside the tape"
                 : `No fresh frames from ${link.source}`}
             </p>
           )}
-          <p className="hint">The real person is placed from the camera's keypoints. Depth comes from the floor, so set the camera
-            (Jetson mount, height, tilt, field of view) to match the real one and regenerate. Residents walk round them and come
-            to help if the monitor says they have fallen.</p>
+          <p className="hint">Tape a rectangle on the floor (the tracked area) with an X at its centre, mount the camera
+            2.2-2.5 m up above a front corner, aimed at the X and tilted 30-35° down. Press "Live: tracked area", then
+            calibrate: walk, then stand on the X. The shaded floor (Camera FOV overlay) is what the camera sees.</p>
         </section>
 
         <section>

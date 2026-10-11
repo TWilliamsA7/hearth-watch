@@ -45,6 +45,8 @@ POSTURE_HOLD_S = 0.4  # a posture change must hold this long before the body cha
 BLEND_S = 0.6  # how long the body takes to change posture
 ARM_SMOOTH = 0.35  # EMA weight of each new arm direction
 ARM_FORGET_S = 0.5  # an arm unseen this long eases back to the template
+OUTSIDE_MARGIN = 0.3  # metres beyond the tracked area's edge...
+OUTSIDE_S = 1.0  # ...for this long, and the person has left the area
 SHOULDER_WIDTH = 0.24  # of body height, shoulder to shoulder
 
 
@@ -116,6 +118,9 @@ class LiveAvatar:
     _blend_start: float = -math.inf
     _arms: dict[str, _Arm] = field(default_factory=lambda: {"left": _Arm(), "right": _Arm()})
     _t: float = 0.0
+    _outside_since: float | None = None
+    _size_scale: float = 1.0  # size-cue distance correction, learnt against the floor anchor
+    outside: bool = False  # they've been out of the tracked area for a while
 
     @property
     def ready(self) -> bool:
@@ -178,13 +183,86 @@ class LiveAvatar:
             else:
                 self._anchor = "ankles" if "ankles" in steady else steady[0]
                 p = found[self._anchor]
+        if posture in ("standing", "sitting") and self._anchor != "ankles":
+            # Without the feet, the floor anchor rests on a guessed body proportion; the person's
+            # apparent size is a second, independent cue.
+            q = self._size_cue(pts, camera, posture)
+            if q is not None:
+                o = camera.position
+                if p is not None:
+                    # Learn how the size cue's distance compares with the floor anchor's, so it
+                    # stays consistent with it when the anchor drops out (real proportions differ
+                    # a little from the template's).
+                    ratio = math.hypot(p[0] - o[0], p[2] - o[2]) / max(0.1, math.hypot(q[0] - o[0], q[2] - o[2]))
+                    if 0.7 < ratio < 1.3:
+                        self._size_scale += 0.1 * (ratio - self._size_scale)
+                k = self._size_scale
+                q = (o[0] + (q[0] - o[0]) * k, 0.0, o[2] + (q[2] - o[2]) * k, q[3])
+                # Only when there's no floor anchor: at ~3 px of keypoint noise the size cue is a few
+                # percent out (about 10 cm at 3 m), noisier than an anchor, so blending it in every
+                # frame made a still person wander. It keeps them placed when the hips drop out.
+                anchor_lost = self._anchor is None or t - self._avail_last.get(self._anchor, -math.inf) > ANCHOR_GAP_S
+                if p is None and anchor_lost:  # not for a dropped joint or two: hold still instead
+                    p = q
         if p is None and self.root is None and len(pts) >= 2:
             p = _at_distance(camera, pts, FALLBACK_DISTANCE_M)  # a first guess only
         if p is None:
             return None
-        x0, x1 = -room.width / 2 + 0.25, room.width / 2 - 0.25
-        z0, z1 = -room.depth + 0.25, -0.25
-        return (min(max(p[0], x0), x1), min(max(p[2], z0), z1))
+        return (p[0], p[2])
+
+    def _size_cue(self, pts, camera: Camera, posture: str):
+        """(x, 0, z, sigma): where the person stands, from how tall they look. The highest and
+        lowest marks seen (as calibration uses) are a known height apart; find the distance along
+        the low mark's ray at which that height spans what the camera saw."""
+        from hearth.sim.live.calibrate import frame_from
+
+        mark = frame_from([(n, u, v) for n, (u, v) in pts.items()])
+        if mark is None:
+            return None
+        scale = self.height if posture == "standing" else self.height * 0.75  # seated: shorter
+        span = (mark.high_frac - mark.low_frac) * scale
+        d, o = camera.ray(*mark.low), camera.position
+
+        def high_v(s: float) -> float | None:
+            low = (o[0] + d[0] * s, o[1] + d[1] * s, o[2] + d[2] * s)
+            q = camera.project((low[0], low[1] + span, low[2]))
+            return None if q is None else q[1]
+
+        # Further along the ray the person looks smaller: the high mark sits lower in the image.
+        # Scan for where the predicted high mark crosses the one seen, then bisect.
+        target = mark.high[1]
+        prev = None
+        bracket = None
+        for i in range(1, 80):
+            dist = 0.25 * i  # up to 20 m along the ray
+            v = high_v(dist)
+            if v is not None and prev is not None and (prev[1] - target) * (v - target) <= 0:
+                bracket = (prev[0], dist)
+                break
+            prev = (dist, v) if v is not None else None
+        if bracket is None:
+            return None
+        lo, hi = bracket
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            v = high_v(mid)
+            if v is None:
+                return None
+            if (high_v(lo) - target) * (v - target) <= 0:
+                hi = mid
+            else:
+                lo = mid
+        s = (lo + hi) / 2
+        horizontal = math.hypot(d[0], d[2]) * s
+        # Across the view, follow the middle of the torso, not one knee or one hip.
+        torso = _mean(pts, ("neck", "left_shoulder", "right_shoulder", "left_hip", "right_hip"))
+        if torso is not None:
+            d = camera.ray(torso[0], mark.low[1])
+        flat = math.hypot(d[0], d[2]) or 1e-9
+        x, z = o[0] + d[0] / flat * horizontal, o[2] + d[2] / flat * horizontal
+        pixels = max(1e-3, abs(mark.low[1] - mark.high[1]))
+        sigma = math.hypot(x - o[0], z - o[2]) * (0.006 / pixels)  # ~3 px of error in the span
+        return (x, 0.0, z, sigma)
 
     def _measure_heading(self, pts, camera: Camera, posture: str) -> float | None:
         if posture in ("floor", "lying"):
@@ -267,6 +345,10 @@ class LiveAvatar:
                 self.root = (self._fx(meas[0], t), self._fz(meas[1], t))
         if self.root is None:
             return
+        out = (abs(self.root[0]) > room.width / 2 + OUTSIDE_MARGIN
+               or not (-room.depth - OUTSIDE_MARGIN < self.root[1] < OUTSIDE_MARGIN))  # fmt: skip
+        self._outside_since = (self._outside_since if self._outside_since is not None else t) if out else None
+        self.outside = out and t - self._outside_since >= OUTSIDE_S  # type: ignore[operator]
         h = self._measure_heading(pts, camera, self.posture)
         if h is not None:
             self.heading += 0.2 * math.remainder(h - self.heading, 2 * math.pi)

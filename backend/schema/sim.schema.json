@@ -168,7 +168,8 @@
             "corner_right",
             "front",
             "ceiling",
-            "jetson"
+            "jetson",
+            "jetson_corner"
           ],
           "title": "Preset",
           "type": "string"
@@ -217,6 +218,24 @@
           "maximum": 12.0,
           "title": "Reach",
           "type": "number"
+        },
+        "corner": {
+          "default": "left",
+          "description": "Preset 'jetson_corner': which front corner of the tracked area the camera is above.",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "title": "Corner",
+          "type": "string"
+        },
+        "pan": {
+          "default": 0.0,
+          "description": "Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right).",
+          "maximum": 60.0,
+          "minimum": -60.0,
+          "title": "Pan",
+          "type": "number"
         }
       },
       "required": [
@@ -226,7 +245,9 @@
         "aspect",
         "fps",
         "tilt",
-        "reach"
+        "reach",
+        "corner",
+        "pan"
       ],
       "title": "CameraSpec",
       "type": "object"
@@ -295,7 +316,9 @@
             "aspect": 1.3333333333333333,
             "fps": 10.0,
             "tilt": 12.0,
-            "reach": 3.5
+            "reach": 3.5,
+            "corner": "left",
+            "pan": 0.0
           }
         },
         "lighting": {

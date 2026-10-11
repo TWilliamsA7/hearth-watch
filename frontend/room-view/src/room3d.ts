@@ -347,11 +347,48 @@ function cameraMarker(room: WorldRoom, theme: Theme): { body: THREE.Object3D; fr
   const pts: THREE.Vector3[] = [];
   for (const c of corners) pts.push(origin, c);
   corners.forEach((c, i) => pts.push(c, corners[(i + 1) % 4]));
-  const frustum = new THREE.LineSegments(
+  const lines = new THREE.LineSegments(
     new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color: theme.badge.simulation, transparent: true, opacity: 0.5 }),
   );
+  const frustum = new THREE.Group();
+  frustum.add(lines);
+  const coverage = floorCoverage(cam, origin, room, theme);
+  if (coverage) frustum.add(coverage);
   return { body, frustum };
+}
+
+/**
+ * The patch of floor the camera sees (where a person's feet are in view), clipped to the room:
+ * rays through the image border, met with the floor. Shown with the frustum, to see which parts
+ * of a tracked area the camera covers.
+ */
+function floorCoverage(cam: THREE.PerspectiveCamera, origin: THREE.Vector3, room: WorldRoom, theme: Theme): THREE.Object3D | null {
+  const [bx0, bz0, bx1, bz1] = roomBounds(room);
+  const border: [number, number][] = [];
+  const N = 24;
+  for (let i = 0; i < N; i++) border.push([-1 + (2 * i) / N, -1]);
+  for (let i = 0; i < N; i++) border.push([1, -1 + (2 * i) / N]);
+  for (let i = 0; i < N; i++) border.push([1 - (2 * i) / N, 1]);
+  for (let i = 0; i < N; i++) border.push([-1, 1 - (2 * i) / N]);
+  const shape: THREE.Vector2[] = [];
+  for (const [x, y] of border) {
+    const dir = new THREE.Vector3(x, y, 0.5).unproject(cam).sub(origin).normalize();
+    // A ray above the horizon never meets the floor: cap it where it leaves the room.
+    const s = dir.y < -1e-3 ? -origin.y / dir.y : 30;
+    const px = Math.min(Math.max(origin.x + dir.x * s, bx0), bx1);
+    const pz = Math.min(Math.max(origin.z + dir.z * s, bz0), bz1);
+    shape.push(new THREE.Vector2(px, -pz)); // the mesh is laid flat by a -90 degree turn about x
+  }
+  if (shape.length < 3) return null;
+  const mesh = new THREE.Mesh(
+    new THREE.ShapeGeometry(new THREE.Shape(shape)),
+    new THREE.MeshBasicMaterial({ color: theme.badge.simulation, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.012;
+  mesh.renderOrder = 1;
+  return mesh;
 }
 
 export function disposeTree(object: THREE.Object3D): void {

@@ -17,6 +17,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from hearth.sim.live.camera import camera_basis, jetson_pose
+from hearth.sim.live.spec import CameraSpec
+
 
 C270_FOV = 43.0  # degrees, vertical (55 degrees diagonal at 4:3)
 MIN_FRAMES = 10  # each frame is a separate measurement; the fit drops the worst 20%
@@ -25,7 +28,6 @@ MIN_FRAMES = 10  # each frame is a separate measurement; the fit drops the worst
 # image units, across and up/down the frame.
 MIN_SPREAD_U, MIN_SPREAD_V = 0.15, 0.05
 MAX_RMS = 0.025  # of the frame height (about 12 px at 480): a worse fit isn't trusted
-CAMERA_Z = -0.12  # the jetson preset's lens, just in front of the front wall
 MIN_TILT, MAX_TILT = -15.0, 60.0  # degrees down; a camera at head height may look level or up
 
 
@@ -85,14 +87,13 @@ def frame_from(keypoints: list[tuple[str, float, float]]) -> CalibrationFrame | 
 
 
 class _Pinhole:
-    """The jetson preset's camera at a given height and tilt (same maths as live.camera.Camera)."""
+    """A Jetson-preset camera with the given pose (same maths as live.camera.Camera, no furniture)."""
 
-    def __init__(self, height: float, tilt_deg: float, fov_deg: float, aspect: float) -> None:
-        t = math.radians(tilt_deg)
-        self.o = (0.0, height, CAMERA_Z)
-        self.f = (0.0, -math.sin(t), -math.cos(t))
-        self.r = (1.0, 0.0, 0.0)  # forward x world-up, for a camera looking along -z
-        self.u = (0.0, math.cos(t), -math.sin(t))  # right x forward
+    def __init__(self, height: float, tilt_deg: float, fov_deg: float, aspect: float, *,
+                 spec: CameraSpec | None = None, width: float = 7.0, depth: float = 6.0) -> None:  # fmt: skip
+        spec = (spec or CameraSpec(preset="jetson")).model_copy(update={"tilt": tilt_deg, "height": height})
+        self.o, forward = jetson_pose(width, depth, height, spec)
+        self.f, self.r, self.u = camera_basis(forward)
         self.tv = math.tan(math.radians(fov_deg) / 2)
         self.th = self.tv * aspect
 
@@ -133,8 +134,12 @@ def _error(cam: _Pinhole, frames: list[CalibrationFrame], person_height: float) 
 
 
 def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = C270_FOV,
-          aspect: float = 4 / 3) -> Calibration:  # fmt: skip
-    """Best camera height (m) and tilt (degrees down) for these frames of a standing person."""
+          aspect: float = 4 / 3, spec: CameraSpec | None = None, width: float = 7.0,
+          depth: float = 6.0) -> Calibration:  # fmt: skip
+    """Best camera height (m) and tilt (degrees down) for these frames of a standing person.
+
+    spec: the camera preset (jetson, or jetson_corner with its corner); its pan doesn't matter
+    here: turning the camera about the vertical changes where people are, not how tall they look."""
     if len(frames) < MIN_FRAMES:
         return Calibration(False, frames=len(frames), reason=(
             f"only {len(frames)} usable frames (need {MIN_FRAMES}): stay upright with your head and at least "
@@ -149,7 +154,7 @@ def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = 
         best = (math.inf, None, None)
         for h in heights:
             for t in tilts:
-                e = _error(_Pinhole(h, t, fov, aspect), frames, person_height)
+                e = _error(_Pinhole(h, t, fov, aspect, spec=spec, width=width, depth=depth), frames, person_height)
                 if e < best[0]:
                     best = (e, h, t)
         return best
@@ -167,3 +172,47 @@ def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = 
         return Calibration(False, round(h, 2), round(t, 1), fov, len(frames), round(rms, 4),
                            "the fit is poor: stand still and upright, facing the camera, and check the height you entered")  # fmt: skip
     return Calibration(True, round(h, 2), round(t, 1), fov, len(frames), round(rms, 4))
+
+
+@dataclass(frozen=True)
+class PanCalibration:
+    ok: bool
+    pan: float | None = None  # degrees, + = view turned right
+    frames: int = 0
+    off_by: float | None = None  # metres: how far from the centre mark they stood, after correcting
+    reason: str = ""
+
+
+def solve_pan(frames: list[CalibrationFrame], person_height: float, spec: CameraSpec, width: float, depth: float,
+              *, fov: float = C270_FOV, aspect: float = 4 / 3) -> PanCalibration:  # fmt: skip
+    """Which way the corner camera points, from someone standing on the area's centre mark.
+
+    With height and tilt known, each frame puts them at a spot on the floor. The camera is
+    turned (pan) until that spot is the centre of the area."""
+    if len(frames) < 5:
+        return PanCalibration(False, frames=len(frames), reason=(
+            f"only {len(frames)} usable frames: stand on the centre mark, upright, head and hips in view"))
+    cam = _Pinhole(spec.height, spec.tilt, fov, aspect, spec=spec, width=width, depth=depth)
+    spots = []
+    for fr in frames:
+        d = cam.ray(*fr.low)
+        y = fr.low_frac * person_height
+        if abs(d[1]) < 1e-6 or (s := (y - cam.o[1]) / d[1]) <= 0.05:
+            continue
+        spots.append((cam.o[0] + d[0] * s, cam.o[2] + d[2] * s))
+    if len(spots) < 5:
+        return PanCalibration(False, frames=len(frames), reason="couldn't place you on the floor: calibrate step 1 first")
+    spots.sort()
+    mx = spots[len(spots) // 2][0]
+    mz = sorted(z for _, z in spots)[len(spots) // 2]
+    centre = (0.0, -depth / 2)
+    seen = math.atan2(mx - cam.o[0], mz - cam.o[2])
+    want = math.atan2(centre[0] - cam.o[0], centre[1] - cam.o[2])
+    # The model put them `seen - want` too far round: the real camera is turned the other way.
+    pan = spec.pan + math.degrees(math.remainder(seen - want, 2 * math.pi))
+    if abs(pan) > 60:
+        return PanCalibration(False, frames=len(frames), reason=(
+            f"the camera seems turned {pan:.0f} degrees from the area centre: aim it at the centre mark"))
+    dist = math.hypot(mx - cam.o[0], mz - cam.o[2])
+    off_by = abs(dist - math.hypot(centre[0] - cam.o[0], centre[1] - cam.o[2]))
+    return PanCalibration(True, round(pan, 1), len(frames), round(off_by, 2))
