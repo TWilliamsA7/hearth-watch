@@ -90,6 +90,35 @@ def test_name_ends_with_the_track(jetson, service, clock):
     assert "resident_label" not in fall.metadata
 
 
+def test_live_camera_without_run_id_loses_names_when_it_goes_offline(jetson, service, clock):
+    def live(t, floor=False, **changes):
+        return person(t, "p1", floor, run_id=None, **changes)
+    for i in range(3):
+        clock.seconds = i * .5
+        service.ingest([live(i * .5)])
+        result = jetson.post("/face-demo/edge-embeddings", headers=AUTH,
+                             json=template(i * .5, "p1", run_id=None)).json()
+    assert result["status"] == "recognized"
+    clock.seconds = 4.5  # restarting: no frames for longer than the source timeout
+    service.check_health()
+    for i in range(10, 18):  # the new run's first person is p1 again, down well within the TTL
+        clock.seconds = i * .5
+        service.ingest([live(i * .5, floor=True)])
+    fall = next(a for a in service.alerts.values() if a.kind == "possible_fall")
+    assert fall.opened_at < BASE + timedelta(seconds=1 + 8)
+    assert "resident_label" not in fall.metadata
+
+
+def test_live_camera_without_run_id_is_named(jetson, service, clock):
+    for i in range(10):
+        clock.seconds = i * .5
+        service.ingest([person(i * .5, "p1", i >= 3, run_id=None)])
+        if i < 3:
+            jetson.post("/face-demo/edge-embeddings", headers=AUTH, json=template(i * .5, "p1", run_id=None))
+    fall = next(a for a in service.alerts.values() if a.kind == "possible_fall")
+    assert fall.metadata["resident_label"] == "Alex"
+
+
 def test_name_expires_without_a_fresh_match(jetson, service, clock):
     for i in range(3):
         step(jetson, service, clock, i * .5, [("p1", False)], [("p1", ALEX)])

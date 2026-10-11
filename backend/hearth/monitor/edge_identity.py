@@ -3,7 +3,10 @@
 The Jetson runs SFace only when res10 finds a face inside one tracked person's head box, and
 sends that person's 128-value template (never pixels) with their anonymous person_id. Matching,
 consent and enrollment stay here. A name belongs to one track, (room, source, run_id,
-person_id): a new run, a new person_id or the track's "not detected" end clears it.
+person_id): a new person_id, the track's "not detected" end, or the source going offline clears
+it. The live edge sends no run_id (it would change the source on every restart), and its
+person ids restart at p1, so the offline clear is what stops a restarted camera's p1 inheriting
+the previous run's name: a restart always outlasts the source timeout.
 
 The laptop camera rules apply per track: three consecutive matching checks confirm a name, an
 unknown or ambiguous face clears it, it lasts IDENTITY_TTL after the last match (so a fall
@@ -27,7 +30,7 @@ class EdgeFaceTemplate(BaseModel):
     detector: Literal["res10+sface"]
     source: str = Field(min_length=1, max_length=100)
     room_id: str
-    run_id: str = Field(min_length=1, max_length=100)
+    run_id: str | None = Field(default=None, min_length=1, max_length=100)  # as on its observations
     person_id: str = Field(min_length=1, max_length=100)
     obs_id: str = Field(min_length=1, max_length=200)  # the frame the face was checked on
     timestamp: datetime
@@ -44,6 +47,7 @@ class EdgeIdentities:
         self.tracks = {}     # (room, source, run_id, person_id) -> state dict
         faces.listeners.append(self.tracks.clear)
         monitor.observation_listeners.append(self.observe)
+        monitor.event_listeners.append(self.source_event)
         monitor.incident_labeler = self.label
 
     @staticmethod
@@ -54,6 +58,11 @@ class EdgeIdentities:
         """A person's track ending on the edge ends any name it had."""
         if obs.source_type == "edge" and obs.person_id is not None and not obs.person_detected:
             self.tracks.pop(self.key(obs), None)
+
+    def source_event(self, event):
+        if event.event_type == "source_offline":
+            for key in [k for k in self.tracks if k[:3] == (event.room_id, event.source, event.run_id)]:
+                del self.tracks[key]
 
     def submit(self, item: EdgeFaceTemplate) -> dict:
         norm = math.sqrt(sum(v * v for v in item.embedding))
@@ -105,7 +114,7 @@ class EdgeIdentities:
 
     def label(self, obs):
         """Incident metadata naming this observation's person, or None."""
-        if obs.source_type != "edge" or obs.person_id is None or not obs.run_id:
+        if obs.source_type != "edge" or obs.person_id is None:
             return None
         state = self.tracks.get(self.key(obs))
         named = state and state["named"]
