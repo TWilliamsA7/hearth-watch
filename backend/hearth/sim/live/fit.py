@@ -23,7 +23,7 @@ RADIUS: dict[str, float] = {
 }  # fmt: skip
 """Body units: half the thickness of the body at each point."""
 
-HIP_SEAT_GAP = RADIUS["hip"]
+HIP_SEAT_GAP = RADIUS["hip"]  # = pose.HIP_DEPTH
 """Body units from a hip joint down to what it sits on."""
 
 SEGMENTS: tuple[tuple[str, str], ...] = (

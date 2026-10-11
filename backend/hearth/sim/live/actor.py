@@ -103,6 +103,7 @@ class Actor:
     base: float = 0.0  # metres above the floor the pose rests on
     posture: Posture = "standing"
     body: BodyPose = field(default_factory=lambda: dict(KEY_POSES["standing"]))
+    rest_pose: BodyPose | None = None  # sitting or lying: the pose fitted to the seat or bed, to idle about
     velocity: Floor = (0.0, 0.0)
     gait_phase: float = 0.0
     activity: Activity | None = None

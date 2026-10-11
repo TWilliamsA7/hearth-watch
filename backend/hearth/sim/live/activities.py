@@ -97,7 +97,7 @@ class Hold(Activity):
         elif a.posture == "standing":
             self.target = KEY_POSES["standing"]
         elif a.posture == "sitting":
-            self.target = KEY_POSES["sitting"]
+            self.target = a.rest_pose or KEY_POSES["sitting"]
         else:
             self.target = a.body
         if self.look is not None:
@@ -415,6 +415,7 @@ class Transition(Activity):
     def end(self, a: Actor, w: World) -> None:
         if self.started and self.blend.done(self.tau):
             a.posture = self.posture
+            a.rest_pose = self.pose if self.posture in ("sitting", "lying") else None
             if self.on_end:
                 self.on_end(a, w)
 
@@ -561,8 +562,10 @@ def get_up(a: Actor, w: World) -> list[Activity]:
     if a.posture == "lying":
         lie = _slot_of(a, w, "lie")
         entry = w.room.slot(lie.entry) if lie and lie.entry and lie.entry in w.room._slot_index else None
-        sit_up = Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting",
-                            root=entry.at if entry else None, heading=entry.heading if entry else None, base=0.0)  # fmt: skip
+        if entry is not None:
+            sit_up = _to(seat_stance(entry, a.size), 2.3 * pace, name="sitting up", label="sitting", posture="sitting")
+        else:
+            sit_up = Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting", base=0.0)
         if entry is not None and entry.slot_id not in a.slots:
             a.slots.append(entry.slot_id)
         stand = Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
@@ -577,7 +580,7 @@ def get_up(a: Actor, w: World) -> list[Activity]:
 
 def seat_stance(seat: Slot, size: float) -> Stance:
     """How someone `size` metres tall ends up sitting in `seat`."""
-    return Stance(KEY_POSES["sitting"], seat.heading, seat.at[0], seat.at[1], 0.0)
+    return Stance(seat.pose(size), seat.heading, seat.at[0], seat.at[1], 0.0)
 
 
 def lie_stance(lie: Slot, size: float) -> Stance:

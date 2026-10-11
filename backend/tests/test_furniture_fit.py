@@ -43,7 +43,6 @@ def _stance_case(kind: str, slot_kind: str, rotation: float = 0.0) -> list[tuple
 # --- the final stances ---
 
 
-@UNFITTED
 @pytest.mark.parametrize("build", BUILDS)
 @pytest.mark.parametrize("size", HEIGHTS)
 @pytest.mark.parametrize("kind", SEATED)
@@ -72,7 +71,6 @@ def test_a_lying_body_lies_on_the_surface_and_inside_the_arms(kind: str, size: f
         assert -TOL <= gap <= TOL, f"{slot.slot_id}: hips {gap:+.3f} m from the surface"
 
 
-@UNFITTED
 @pytest.mark.parametrize("rotation", [math.pi / 2, math.pi, -math.pi / 2])
 def test_fit_follows_the_piece_round(rotation: float) -> None:
     for kind in ("armchair", "bed"):

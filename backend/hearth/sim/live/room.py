@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from hearth.sim.nav import BODY_RADIUS_M, Floor, Footprint, NavGrid, distance
+from hearth.sim.pose import seated_pose
 from hearth.sim.live.spec import RoomSpec
 
 Wall = Literal["back", "left", "right", "front"]
@@ -182,10 +183,19 @@ class Slot:
     group: str  # slots in one group can't be used at once
     entry: str | None = None  # lie slots: the sit slot to sit on first
     occupant: str | None = None  # person_id sitting or lying here, or on the way to
+    seat: float = 0.0  # sit slots: metres up to the top of the seat
+    front: float = 0.0  # sit slots: metres from `at` forward to the seat's front edge
+
+    def pose(self, size: float):
+        """How someone `size` metres tall sits here (pose.seated_pose)."""
+        return seated_pose(self.seat, self.front, size)
 
     def stand_point(self, size: float) -> Floor:
-        """Where someone `size` metres tall stands, facing away, just before sitting here."""
-        return _add(self.at, forward(self.heading), SIT_FEET_F * size)
+        """Where someone `size` metres tall stands, facing away, just before sitting here: where
+        their feet will be once seated, so they stay planted as they sit down."""
+        pose = self.pose(size)
+        feet = (pose["left_ankle"][0] + pose["right_ankle"][0]) / 2
+        return _add(self.at, forward(self.heading), max(feet, SIT_FEET_F) * size)
 
 
 @dataclass(frozen=True)
@@ -528,13 +538,16 @@ def _slots(pieces: list[Piece]) -> list[Slot]:
         name, k, rot = p.kind.name, p.kind, p.rotation
         g = f"piece-{p.index}"
         if name in ("chair", "armchair"):
-            out.append(Slot(f"{g}-sit", p.index, "sit", _r(p.local(0.0, 0.03 if name == "chair" else 0.08)), rot, 0.0, g))
+            lz = 0.03 if name == "chair" else 0.08
+            out.append(Slot(f"{g}-sit", p.index, "sit", _r(p.local(0.0, lz)), rot, 0.0, g, seat=k.seat,
+                            front=k.d / 2 - lz))  # fmt: skip
         elif name in ("couch", "loveseat"):
             n = 3 if name == "couch" else 2
             spacing = (k.w - 0.4) / n
             for i in range(n):
                 lx = (i - (n - 1) / 2) * spacing
-                out.append(Slot(f"{g}-sit{i + 1}", p.index, "sit", _r(p.local(lx, 0.12)), rot, 0.0, g))
+                out.append(Slot(f"{g}-sit{i + 1}", p.index, "sit", _r(p.local(lx, 0.12)), rot, 0.0, g, seat=k.seat,
+                                front=k.d / 2 - 0.12))  # fmt: skip
             # Lying along it, head on the first seat's arm.
             out.append(Slot(f"{g}-lie", p.index, "lie", _r(p.local(0.0, 0.05)), rot + math.pi / 2,
                             k.surface, g, entry=f"{g}-sit1"))  # fmt: skip
@@ -542,7 +555,8 @@ def _slots(pieces: list[Piece]) -> list[Slot]:
             # Sit on the long side away from the nearer wall, then lie with the head at the headboard.
             for side, sign in (("a", 1.0), ("b", -1.0)):
                 at = p.local(sign * (k.w / 2 - 0.2), 0.15)
-                out.append(Slot(f"{g}-sit{side}", p.index, "sit", _r(at), rot + sign * math.pi / 2, 0.0, g))
+                out.append(Slot(f"{g}-sit{side}", p.index, "sit", _r(at), rot + sign * math.pi / 2, 0.0, g, seat=k.seat,
+                                front=0.2))  # fmt: skip
             out.append(Slot(f"{g}-lie", p.index, "lie", _r(p.local(0.0, 0.05)), rot, k.surface, g,
                             entry=f"{g}-sita"))  # fmt: skip
     return out

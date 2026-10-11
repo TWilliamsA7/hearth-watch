@@ -36,7 +36,7 @@ from hearth.sim.world import (
     world_person,
 )
 
-from hearth.sim.live.activities import COOLDOWN_S, Activity, Away, Enter, Hold, Walk, abandon, choose, release, reserve
+from hearth.sim.live.activities import COOLDOWN_S, Activity, Away, Enter, Hold, Walk, abandon, choose, release, reserve, seat_stance
 from hearth.sim.live.actor import LIVE_LOOKS, Actor, ExternalActor, external_profile, make_profile
 from hearth.sim.live.animate import world_pose
 from hearth.sim.live.camera import Camera, Observer
@@ -109,7 +109,7 @@ class World:
                 seat = seats.pop()
                 reserve(a, self, seat)
                 a.pos, a.heading, a.posture = seat.at, seat.heading, "sitting"
-                a.body = dict(KEY_POSES["sitting"])
+                a.body = a.rest_pose = seat_stance(seat, a.size).body
                 a.plan.append(Hold(rng.uniform(4.0, 45.0), "seated"))
                 a.intent = "sit"
             else:
