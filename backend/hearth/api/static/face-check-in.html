@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hearth · Patient enrollment</title><link rel="stylesheet" href="/assets/style.css">
-<style>video{display:block;width:100%;max-height:420px;background:#19242d;object-fit:contain;margin:12px 0}select{width:100%;padding:9px;margin:8px 0 14px}button{margin:4px 4px 4px 0}.enrollment{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #ddd}#result{min-height:48px}label.consent{display:flex;gap:10px;align-items:flex-start;margin:16px 0}label.consent input{width:auto;margin-top:4px}</style></head>
+<style>video{display:block;width:100%;max-height:420px;background:#19242d;object-fit:contain;margin:12px 0}select{width:100%;padding:9px;margin:8px 0 14px}button{margin:4px 4px 4px 0}.enrollment{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #ddd}#result{min-height:48px}label.consent{display:flex;gap:10px;align-items:flex-start;margin:16px 0}label.consent input{width:auto;margin-top:4px}</style></head>
 <body><header><a class="brand" href="/nurses">Hearth<span class="brand-note">Patient enrollment</span></a><nav><a href="/nurses">Care desk</a></nav></header>
 <main><div class="intro"><div><h1>Optional patient recognition</h1><p>Opt in once, then use camera recognition for demo appointment arrivals and named fall alerts.</p></div><span class="pill simulation">DEMO</span></div>
 <div id="notice" role="status" aria-live="polite">Checking setup…</div>
@@ -11,7 +11,8 @@
 <label for="appointment">Optional demo appointment</label><select id="appointment"><option value="">Recognition only</option></select>
 <button id="create-appointment" class="secondary" disabled>Create a demo appointment</button>
 <p class="small">The demo appointment is due in 30 seconds, with a 15-second grace period. A confirmed match in this room checks it in.</p>
-<label class="consent"><input type="checkbox" id="consent"><span>I am the demo patient in front of the camera and opt in to face recognition for demo appointment check-in and showing my demo name on possible-fall and help alerts.</span></label>
+<label class="consent"><input type="checkbox" id="consent"><span>I am the demo patient in front of the camera and opt in to face recognition. Only appointments I explicitly link may be checked in.</span></label>
+<label class="consent"><input type="checkbox" id="identify-alerts"><span>Also show my demo name on possible-fall and camera help-signal alerts. This is optional; alerts still work without my name.</span></label>
 <p class="small">Camera frames go to this laptop's local backend for matching and are not saved. Enrollment templates and aliases are encrypted at rest and expire after 24 hours. Named alerts are visible to the demo nurse dashboard. Delete enrollment below to withdraw.</p>
 <button id="enroll" disabled>Capture 3 views and enroll</button>
 <p class="small">Look forward, then turn slightly left and right when prompted. Use an alias; recognition data is pseudonymous, not anonymous.</p>

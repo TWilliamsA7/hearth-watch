@@ -52,3 +52,7 @@ room pages are served by FastAPI at `/nurses` and `/room`; simulator control is 
 available through `/docs`. A full React scenario/evaluation dashboard remains a
 dashboard task. Frontend development origins on ports 5173 and 5174 are allowed by
 the default monitor config.
+
+## Optional patient identity integration
+
+Recognition adds metadata to confirmed demo incidents; anonymous `person_id` remains unchanged. The optional local `/face-demo/observe` envelope now accepts same-frame poseNet body evidence as well as the laptop YOLO path. See [the integration decision and edge/dashboard contract](recognition-integration.md) before connecting a Jetson source. Normal ingest, simulation, and evaluation do not require recognition.

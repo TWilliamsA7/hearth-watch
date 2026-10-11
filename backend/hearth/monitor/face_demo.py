@@ -48,7 +48,9 @@ class FaceDemo:
 
     @staticmethod
     def public(record):
-        return {k: v for k, v in record.items() if k not in {"template", "appointment_token", "appointment_links"}}
+        public = {k: v for k, v in record.items() if k not in {"template", "appointment_token", "appointment_links"}}
+        public["appointment_ids"] = sorted(set(record.get("appointment_links", {})) | ({record["appointment_id"]} if record.get("appointment_id") else set()))
+        return public
 
     def enroll(self, alias, frames, consent, appointment_id=None, appointment_token=None, *, identify_alerts=False):
         if consent is not True:
@@ -91,6 +93,17 @@ class FaceDemo:
         if record is None:
             raise ValueError("Patient enrollment not found")
         record.setdefault("appointment_links", {})[appointment_id] = token
+        with self.db:
+            self.db.execute("UPDATE face_enrollments SET payload=? WHERE id=?",
+                            (self.cipher.encrypt(json.dumps(record).encode()), profile_id))
+
+    def unlink_appointment(self, profile_id, appointment_id):
+        record = next((r for r in self.profiles() if r["profile_id"] == profile_id), None)
+        if record is None:
+            raise ValueError("Patient enrollment not found")
+        record.get("appointment_links", {}).pop(appointment_id, None)
+        if record.get("appointment_id") == appointment_id:
+            record["appointment_id"] = record["appointment_token"] = None
         with self.db:
             self.db.execute("UPDATE face_enrollments SET payload=? WHERE id=?",
                             (self.cipher.encrypt(json.dumps(record).encode()), profile_id))

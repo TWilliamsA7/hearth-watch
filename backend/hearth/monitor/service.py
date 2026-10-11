@@ -243,7 +243,11 @@ class MonitorService:
                     # Only the local recognition route supplies these labels, bound
                     # to this exact observation. Ordinary ingest cannot assert a name.
                     if patient_labels and obs.obs_id in patient_labels:
-                        event.metadata.update(patient_labels[obs.obs_id])
+                        label = patient_labels[obs.obs_id].copy()
+                        hand_matches_body = label.pop("_hand_matches_body", False)
+                        if (event.event_type != "help_requested" or event.metadata.get("method") != "hand_gesture"
+                                or hand_matches_body):
+                            event.metadata.update(label)
                     self.open_alert(event)
                     continue
                 if event.event_type == "recovered":

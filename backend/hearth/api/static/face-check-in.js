@@ -33,7 +33,7 @@ function frame() {
   return canvas.toDataURL('image/jpeg', .85).split(',')[1];
 }
 async function refresh() {
-  const profiles = await api('/face-demo/profiles');
+  const [profiles, appointments] = await Promise.all([api('/face-demo/profiles'), api('/appointments')]);
   $('profiles').replaceChildren();
   if (!profiles.length) $('profiles').textContent = 'No patients enrolled.';
   for (const profile of profiles) {
@@ -43,9 +43,16 @@ async function refresh() {
     remove.onclick = async () => { try { await stop(); await api(`/face-demo/profiles/${profile.profile_id}`, 'DELETE'); await refresh(); say('Enrollment deleted. Recognition has stopped.'); } catch (error) { say(error.message); } };
     const link = document.createElement('button'); link.textContent = 'Link selected appointment'; link.className = 'secondary';
     link.onclick = async () => { try { const id = $('appointment').value; if (!id) throw new Error('Select an open demo appointment first.'); await api(`/face-demo/profiles/${profile.profile_id}/appointments/${id}`, 'POST'); say(`Appointment linked to ${profile.alias}. No new face enrollment needed.`); } catch (error) { say(error.message); } };
-    row.append(label, link, remove); $('profiles').append(row);
+    row.append(label, link, remove);
+    for (const appointmentId of profile.appointment_ids || []) {
+      const appointment = appointments.find(item => item.appointment_id === appointmentId);
+      const unlink = document.createElement('button'); unlink.className = 'secondary';
+      unlink.textContent = appointment ? `Unlink ${appointment.room_id} · ${new Date(appointment.scheduled_at).toLocaleString()}` : 'Remove appointment link';
+      unlink.onclick = async () => { try { await api(`/face-demo/profiles/${profile.profile_id}/appointments/${appointmentId}`, 'DELETE'); await refresh(); say('Recognition check-in link removed. The appointment and face enrollment remain.'); } catch (error) { say(error.message); } };
+      row.append(unlink);
+    }
+    $('profiles').append(row);
   }
-  const appointments = await api('/appointments');
   const current = $('appointment').value;
   $('appointment').replaceChildren(new Option('Recognition only', ''));
   for (const item of appointments.filter(a => a.demo && a.room_id === $('room').value && ['scheduled','overdue'].includes(a.status))) {
@@ -76,9 +83,9 @@ $('enroll').onclick = async () => {
       if (active !== generation) return;
       frames.push(frame());
     }
-    await api('/face-demo/enroll', 'POST', {alias, consent:$('consent').checked, identify_alerts:true, frames,
+    await api('/face-demo/enroll', 'POST', {alias, consent:$('consent').checked, identify_alerts:$('identify-alerts').checked, frames,
       appointment_id:$('appointment').value || null});
-    $('consent').checked = false;
+    $('consent').checked = false; $('identify-alerts').checked = false;
     await refresh(); say(`${alias} enrolled. Start recognition to test the check-in.`);
   } catch (error) { say(error.message); }
   finally { frames.length = 0; if (active === generation) { busy = false; controls(); } }

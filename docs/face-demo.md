@@ -29,7 +29,7 @@ The feature is disabled unless explicitly enabled. Its API accepts loopback requ
 
 1. Open `http://127.0.0.1:8002/face-check-in`.
 2. Enter a fictional alias and select the room. Click **Create demo appointment** if testing arrival; this schedules it 30 seconds ahead with a 15-second grace period.
-3. Select the appointment, confirm consent, and start the camera.
+3. Select an appointment only if you want recognition check-in. Confirm face-enrollment consent and separately select **Also show my demo name** if testing named safety alerts, then start the camera.
 4. Enroll three views, following the prompts. Keep one face in view with good lighting.
 5. Start recognition. Three consecutive matching frames confirm the demo patient. A linked, open demo appointment in the same room is marked arrived.
 6. Verify the appointment through `GET /appointments` in `/docs`. Its method should be `face_recognition_demo`.
@@ -40,7 +40,7 @@ Rescheduling rotates the appointment token, so an old enrollment cannot check in
 
 ## Named fall alerts from the laptop camera
 
-If you enrolled using the previous check-in-only version, withdraw that enrollment and enroll again. The new consent explicitly covers appointment check-in and displaying a name on incident alerts; old check-in consent is not treated as permission for named alerts.
+If you enrolled using the previous check-in-only version, withdraw that enrollment and enroll again. The separate named-alert choice explicitly covers displaying a name on incidents; old check-in consent is not treated as permission for named alerts.
 
 1. Finish enrollment, then click **Stop camera** in the browser. The camera must be free for the fall-model process.
 2. Keep the backend running. In a second PowerShell window from the repository root:
@@ -66,7 +66,7 @@ The camera is just the video source. The laptop implementation sends the exact f
 
 The intended Jetson layout is Logitech USB camera -> one capture process -> posture + face inference -> monitoring -> nurse dashboard. The current Python client is portable in structure, but requires the backend's Python 3.11+ environment, OpenCV YuNet/SFace APIs, and the fall-model dependencies. Older JetPack Python/OpenCV installations may need a suitable container or runtime. No Jetson hardware/performance validation has been performed for this addition.
 
-The existing poseNet `edge/run_edge.py` has **not** been changed to recognize faces. Its integration still needs same-frame body boxes, explicit track continuity, and the face-model runtime adapted to its JetPack version. Do not run a second capture process against the same USB camera. Recognition endpoints intentionally remain loopback-only; moving the camera to a remote Jetson while leaving this backend on the laptop requires a separate authenticated, encrypted transport design, not simply exposing these routes over LAN.
+Monitoring now accepts an optional same-frame poseNet body envelope; see [the integration contract](recognition-integration.md). The existing poseNet `edge/run_edge.py` has **not** been changed to recognize faces. Its integration still needs same-frame body boxes, explicit track continuity, and the face-model runtime adapted to its JetPack version. Do not run a second capture process against the same USB camera. Recognition endpoints intentionally remain loopback-only; moving the camera to a remote Jetson while leaving this backend on the laptop requires a separate authenticated, encrypted transport design, not simply exposing these routes over LAN.
 
 ## Data and limits
 

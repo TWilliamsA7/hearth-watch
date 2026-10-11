@@ -501,3 +501,7 @@ The React room-view development page on port 5174 currently plays **recorded** r
 ## Optional patient recognition
 
 The nurse dashboard includes opt-in demo patient enrollment using **YuNet and SFace from Hugging Face**. The laptop camera can check in linked appointments and label possible-fall/help alerts with a confirmed demo patient name. See [setup, model details, and demo testing](docs/face-demo.md).
+
+For cross-branch integration, see [recognition placement, poseNet envelope, and dashboard handoff](docs/recognition-integration.md).
+
+Frontend handoff: [copy-paste recognition integration prompt for the frontend AI agent](docs/frontend-recognition-agent-prompt.md). See the [current behavior audit](docs/recognition-safety-audit.md) for verified behavior and remaining security/deployment work.

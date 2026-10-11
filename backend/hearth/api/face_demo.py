@@ -2,12 +2,14 @@
 from pathlib import Path
 from datetime import timedelta
 import os
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from hearth.monitor.appointments import CheckIn
-from hearth.monitor.patient_camera import PatientCamera
+from hearth.monitor.patient_camera import PatientCamera, TrackedBody
+from starlette.concurrency import run_in_threadpool
 from hearth_schema import Observation
 
 
@@ -32,6 +34,7 @@ class CameraFrame(BaseModel):
 
 class CameraObservation(CameraFrame):
     observation: Observation
+    body: TrackedBody | None = None
 
 
 def create_face_router(appointments, monitor, demo=None):
@@ -65,7 +68,18 @@ def create_face_router(appointments, monitor, demo=None):
             raise HTTPException(503, setup_error)
         return demo
 
-    router = APIRouter(prefix="/face-demo", tags=["patient face demo"], dependencies=[Depends(local_only)])
+    inference_lock = asyncio.Lock()
+
+    async def serialize_face_access(request: Request):
+        # Bound work rather than queueing old camera frames behind a busy recognizer.
+        # All enrollment/session access uses the same guard as the worker thread.
+        if inference_lock.locked() and request.url.path.endswith(("/observe", "/recognize")):
+            raise HTTPException(503, "Recognition busy; keep monitoring without identity and retry a fresh frame")
+        async with inference_lock:
+            yield
+
+    router = APIRouter(prefix="/face-demo", tags=["patient face demo"],
+                       dependencies=[Depends(local_only), Depends(serialize_face_access)])
 
     def action(fn):
         try:
@@ -75,7 +89,9 @@ def create_face_router(appointments, monitor, demo=None):
 
     @router.get("/status")
     async def status():
-        return {"enabled": demo is not None, "message": "Ready for consenting demo patients" if demo else setup_error}
+        return {"enabled": demo is not None, "message": "Ready for consenting demo patients" if demo else setup_error,
+                "body_detectors": ["yolo", "posenet"], "transport": "loopback_only",
+                "identity_ttl_seconds": PatientCamera.IDENTITY_TTL}
 
     @router.get("/profiles")
     async def profiles():
@@ -93,7 +109,7 @@ def create_face_router(appointments, monitor, demo=None):
             if item is None or not item.demo or item.status not in {"scheduled", "overdue"}:
                 raise HTTPException(422, "Link an open fictional demo appointment only")
             token = item.check_in_token
-        return action(lambda: service.enroll(body.alias, body.frames, body.consent, body.appointment_id, token, identify_alerts=body.identify_alerts))
+        return await run_in_threadpool(action, lambda: service.enroll(body.alias, body.frames, body.consent, body.appointment_id, token, identify_alerts=body.identify_alerts))
 
     @router.delete("/profiles/{profile_id}")
     async def remove(profile_id: str):
@@ -111,7 +127,7 @@ def create_face_router(appointments, monitor, demo=None):
         return {"stopped": True}
 
     def check_arrival(result):
-        if result["status"] != "recognized":
+        if result["status"] != "recognized" or "profile" not in result:
             return
         record = next((r for r in active().profiles() if r["profile_id"] == result["profile"]["profile_id"]), None)
         if record is None:
@@ -139,9 +155,14 @@ def create_face_router(appointments, monitor, demo=None):
         action(lambda: active().link_appointment(profile_id, appointment_id, item.check_in_token))
         return {"linked": True}
 
+    @router.delete("/profiles/{profile_id}/appointments/{appointment_id}")
+    async def unlink_appointment(profile_id: str, appointment_id: str):
+        action(lambda: active().unlink_appointment(profile_id, appointment_id))
+        return {"unlinked": True}
+
     @router.post("/recognize")
     async def recognize(body: CameraFrame):
-        result = action(lambda: active().recognize(body.session_id, body.frame))
+        result = await run_in_threadpool(action, lambda: active().recognize(body.session_id, body.frame))
         check_arrival(result)
         return result
 
@@ -153,16 +174,28 @@ def create_face_router(appointments, monitor, demo=None):
         age = (monitor.utcnow() - obs.timestamp).total_seconds()
         if not -monitor.config.edge_future_tolerance_seconds <= age <= monitor.config.edge_observation_max_age_seconds:
             raise HTTPException(422, "Camera frame is outside live timestamp limits")
-        result = action(lambda: camera.process(body.session_id, obs, body.frame))
+        result = await run_in_threadpool(action, lambda: camera.process(body.session_id, obs, body.frame, body=body.body))
+        check_in_profile = result.pop("_check_in_profile", None)
         labels = {}
         if "profile" in result:
             labels[obs.obs_id] = dict(resident_label=result["profile"]["alias"],
                                      patient_profile_id=result["profile"]["profile_id"],
                                      identity_method="face_match" if result["status"] == "recognized" else "recent_face_body_track",
                                      identity_demo=True)
+            box = body.body.bbox if body.body is not None else (obs.posture_prediction.bbox if obs.posture_prediction else None)
+            hand = obs.hand_gesture_prediction
+            hand_box = hand.bbox if hand is not None else None
+            labels[obs.obs_id]["_hand_matches_body"] = bool(box is not None and hand_box is not None
+                and box.x1 <= (hand_box.x1 + hand_box.x2)/2 <= box.x2
+                and box.y1 <= (hand_box.y1 + hand_box.y2)/2 <= box.y2)
         counts = monitor.ingest([obs], patient_labels=labels)
         if counts["accepted"]:
-            check_arrival(result)
+            arrival = ({"status":"recognized", "profile":check_in_profile, "room_id":obs.room_id}
+                       if check_in_profile is not None else result)
+            check_arrival(arrival)
+            for key in ("checked_in", "checked_in_appointments"):
+                if key in arrival:
+                    result[key] = arrival[key]
         return {**counts, "identity": result}
 
     return router

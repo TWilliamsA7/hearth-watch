@@ -19,7 +19,7 @@ class PatientClient:
         with self.opener.open(request, timeout=3) as response:
             return json.load(response)
 
-    def observe(self, frame, observation):
+    def observe(self, frame, observation, *, body=None):
         import cv2
         if self.session is None:
             self.session = self.request("/sessions", {"room_id":self.room})["session_id"]
@@ -29,9 +29,11 @@ class PatientClient:
         ok, encoded = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not ok:
             raise ValueError("Cannot encode camera frame")
-        return self.request("/observe", {"session_id":self.session,
-                            "frame":base64.b64encode(encoded).decode(),
-                            "observation":observation.model_dump(mode="json")})
+        payload = {"session_id":self.session, "frame":base64.b64encode(encoded).decode(),
+                   "observation":observation.model_dump(mode="json") if hasattr(observation, "model_dump") else observation}
+        if body is not None:
+            payload["body"] = body.model_dump(mode="json") if hasattr(body, "model_dump") else body
+        return self.request("/observe", payload)
 
     def close(self):
         if self.session:
