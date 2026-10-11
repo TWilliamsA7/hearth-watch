@@ -1,5 +1,72 @@
 {
   "$defs": {
+    "ActorDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/LiveActorInfo"
+        },
+        "now": {
+          "$ref": "#/$defs/LivePerson"
+        },
+        "since": {
+          "description": "Scenario seconds the current intent began.",
+          "title": "Since",
+          "type": "number"
+        },
+        "plan": {
+          "description": "Activities still to come.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Plan",
+          "type": "array"
+        },
+        "history": {
+          "description": "Recent intents and when they began.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "History",
+          "type": "array"
+        },
+        "cooldowns": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Cooldowns",
+          "type": "object"
+        },
+        "incidents": {
+          "items": {
+            "$ref": "#/$defs/IncidentRecord"
+          },
+          "title": "Incidents",
+          "type": "array"
+        }
+      },
+      "required": [
+        "info",
+        "now",
+        "since",
+        "plan",
+        "history",
+        "cooldowns",
+        "incidents"
+      ],
+      "title": "ActorDetail",
+      "type": "object"
+    },
     "AlertResult": {
       "additionalProperties": false,
       "properties": {
@@ -227,6 +294,100 @@
       "title": "AppointmentInput",
       "type": "object"
     },
+    "CameraSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "default": "corner_left",
+          "enum": [
+            "corner_left",
+            "corner_right",
+            "front",
+            "ceiling",
+            "jetson",
+            "jetson_corner"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "height": {
+          "default": 2.4,
+          "maximum": 3.4,
+          "minimum": 1.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "fov": {
+          "default": 62.0,
+          "description": "Vertical field of view, degrees.",
+          "maximum": 110.0,
+          "minimum": 30.0,
+          "title": "Fov",
+          "type": "number"
+        },
+        "aspect": {
+          "default": 1.3333333333333333,
+          "exclusiveMinimum": 0.5,
+          "maximum": 3.0,
+          "title": "Aspect",
+          "type": "number"
+        },
+        "fps": {
+          "default": 10.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 30.0,
+          "title": "Fps",
+          "type": "number"
+        },
+        "tilt": {
+          "default": 12.0,
+          "description": "Preset 'jetson': degrees the camera looks down (edge/DEMO.md: 10-15).",
+          "maximum": 60.0,
+          "minimum": -15.0,
+          "title": "Tilt",
+          "type": "number"
+        },
+        "reach": {
+          "default": 3.5,
+          "description": "Preset 'jetson': metres into the room where the view centre is aimed.",
+          "exclusiveMinimum": 0.5,
+          "maximum": 12.0,
+          "title": "Reach",
+          "type": "number"
+        },
+        "corner": {
+          "default": "left",
+          "description": "Preset 'jetson_corner': which front corner of the tracked area the camera is above.",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "title": "Corner",
+          "type": "string"
+        },
+        "pan": {
+          "default": 0.0,
+          "description": "Preset 'jetson_corner': degrees the view is turned from the area centre (+ = right).",
+          "maximum": 60.0,
+          "minimum": -60.0,
+          "title": "Pan",
+          "type": "number"
+        }
+      },
+      "required": [
+        "preset",
+        "height",
+        "fov",
+        "aspect",
+        "fps",
+        "tilt",
+        "reach",
+        "corner",
+        "pan"
+      ],
+      "title": "CameraSpec",
+      "type": "object"
+    },
     "CheckIn": {
       "additionalProperties": false,
       "properties": {
@@ -300,6 +461,119 @@
         "duplicates"
       ],
       "title": "Counts",
+      "type": "object"
+    },
+    "EngineSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/RoomSpec",
+          "default": {
+            "width": null,
+            "depth": null,
+            "height": 2.7,
+            "furniture_density": 0.6,
+            "doors": 2,
+            "window": true
+          }
+        },
+        "actors": {
+          "default": 4,
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Actors",
+          "type": "integer"
+        },
+        "camera": {
+          "$ref": "#/$defs/CameraSpec",
+          "default": {
+            "preset": "corner_left",
+            "height": 2.4,
+            "fov": 62.0,
+            "aspect": 1.3333333333333333,
+            "fps": 10.0,
+            "tilt": 12.0,
+            "reach": 3.5,
+            "corner": "left",
+            "pan": 0.0
+          }
+        },
+        "lighting": {
+          "default": "day",
+          "enum": [
+            "day",
+            "evening",
+            "dim"
+          ],
+          "title": "Lighting",
+          "type": "string"
+        },
+        "activity_frequency": {
+          "default": 1.0,
+          "description": "Scales how often people change activity (2 = dwell half as long).",
+          "maximum": 4.0,
+          "minimum": 0.25,
+          "title": "Activity Frequency",
+          "type": "number"
+        },
+        "social_frequency": {
+          "default": 1.0,
+          "description": "Scales how often people start conversations (0 = never).",
+          "maximum": 4.0,
+          "minimum": 0.0,
+          "title": "Social Frequency",
+          "type": "number"
+        },
+        "incidents": {
+          "description": "Scheduled incidents.",
+          "items": {
+            "$ref": "#/$defs/IncidentSpec"
+          },
+          "title": "Incidents",
+          "type": "array"
+        },
+        "incident_rates": {
+          "additionalProperties": {
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "description": "Procedural incidents per actor-hour, by kind. Empty = none (the default).",
+          "propertyNames": {
+            "enum": [
+              "fall",
+              "inactivity",
+              "pacing",
+              "exit_loiter"
+            ]
+          },
+          "title": "Incident Rates",
+          "type": "object"
+        },
+        "noise": {
+          "default": true,
+          "description": "Perception noise on the camera's keypoints.",
+          "title": "Noise",
+          "type": "boolean"
+        },
+        "room_id": {
+          "default": "room-01",
+          "title": "Room Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "room",
+        "actors",
+        "camera",
+        "lighting",
+        "activity_frequency",
+        "social_frequency",
+        "incidents",
+        "incident_rates",
+        "noise",
+        "room_id"
+      ],
+      "title": "EngineSpec",
       "type": "object"
     },
     "EvaluationReport": {
@@ -569,6 +843,765 @@
       "title": "FalseAlertBreakdown",
       "type": "object"
     },
+    "IncidentRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "incident_id": {
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "fall",
+            "inactivity",
+            "pacing",
+            "exit_loiter"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "manual",
+            "scheduled",
+            "procedural"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "person_id": {
+          "title": "Person Id",
+          "type": "string"
+        },
+        "t_start": {
+          "title": "T Start",
+          "type": "number"
+        },
+        "location": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Location",
+          "type": "array"
+        },
+        "posture_before": {
+          "title": "Posture Before",
+          "type": "string"
+        },
+        "posture_after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posture After"
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Motion"
+        },
+        "t_floor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T Floor"
+        },
+        "t_recovered": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T Recovered"
+        },
+        "t_end": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T End"
+        }
+      },
+      "required": [
+        "incident_id",
+        "kind",
+        "source",
+        "person_id",
+        "t_start",
+        "location",
+        "posture_before",
+        "posture_after",
+        "motion",
+        "t_floor",
+        "t_recovered",
+        "t_end"
+      ],
+      "title": "IncidentRecord",
+      "type": "object"
+    },
+    "IncidentSpec": {
+      "additionalProperties": false,
+      "description": "One incident, at a time (scheduled) or now (manual).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "fall",
+            "inactivity",
+            "pacing",
+            "exit_loiter"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "t": {
+          "default": 0.0,
+          "description": "Scenario seconds (scheduled incidents).",
+          "minimum": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "person_id; None = someone suitable, chosen by the seed.",
+          "title": "Actor"
+        },
+        "motion": {
+          "anyOf": [
+            {
+              "enum": [
+                "trip",
+                "faint",
+                "collapse",
+                "sit_miss",
+                "stand_up"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Falls: how. None = what suits the posture.",
+          "title": "Motion"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inactivity: how long. Falls: time on the floor before getting up.",
+          "title": "Duration"
+        },
+        "recover": {
+          "default": true,
+          "description": "Falls: get up after `duration` (else stay down until reset).",
+          "title": "Recover",
+          "type": "boolean"
+        },
+        "repeats": {
+          "default": 4,
+          "description": "Pacing legs or exit visits.",
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Repeats",
+          "type": "integer"
+        },
+        "in_view": {
+          "default": true,
+          "description": "Falls: stage it where the camera has a clear, side-on view (as hand-written scenarios do). False = wherever there's room, seen or not: the unbiased setting for validation.",
+          "title": "In View",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "t",
+        "actor",
+        "motion",
+        "duration",
+        "recover",
+        "repeats",
+        "in_view"
+      ],
+      "title": "IncidentSpec",
+      "type": "object"
+    },
+    "LiveActorInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "person_id": {
+          "title": "Person Id",
+          "type": "string"
+        },
+        "archetype": {
+          "title": "Archetype",
+          "type": "string"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        },
+        "speed": {
+          "description": "Cruising pace, m/s.",
+          "title": "Speed",
+          "type": "number"
+        },
+        "sociability": {
+          "title": "Sociability",
+          "type": "number"
+        },
+        "mobility": {
+          "title": "Mobility",
+          "type": "string"
+        },
+        "appearance": {
+          "$ref": "#/$defs/LiveAppearance"
+        }
+      },
+      "required": [
+        "person_id",
+        "archetype",
+        "height",
+        "speed",
+        "sociability",
+        "mobility",
+        "appearance"
+      ],
+      "title": "LiveActorInfo",
+      "type": "object"
+    },
+    "LiveAppearance": {
+      "additionalProperties": false,
+      "properties": {
+        "skin": {
+          "title": "Skin",
+          "type": "string"
+        },
+        "top": {
+          "title": "Top",
+          "type": "string"
+        },
+        "bottom": {
+          "title": "Bottom",
+          "type": "string"
+        },
+        "hair": {
+          "title": "Hair",
+          "type": "string"
+        },
+        "build": {
+          "description": "Width relative to average.",
+          "title": "Build",
+          "type": "number"
+        }
+      },
+      "required": [
+        "skin",
+        "top",
+        "bottom",
+        "hair",
+        "build"
+      ],
+      "title": "LiveAppearance",
+      "type": "object"
+    },
+    "LiveConversation": {
+      "additionalProperties": false,
+      "properties": {
+        "conv_id": {
+          "title": "Conv Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "centre": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Centre",
+          "type": "array"
+        }
+      },
+      "required": [
+        "conv_id",
+        "members",
+        "centre"
+      ],
+      "title": "LiveConversation",
+      "type": "object"
+    },
+    "LiveFrame": {
+      "additionalProperties": false,
+      "description": "Everyone right now. Pushed over WS /sim/live/ws as {\"type\": \"frame\", \"data\": ...}.",
+      "properties": {
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "state": {
+          "enum": [
+            "idle",
+            "playing",
+            "paused"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "speed": {
+          "title": "Speed",
+          "type": "number"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/LivePerson"
+          },
+          "title": "People",
+          "type": "array"
+        },
+        "conversations": {
+          "items": {
+            "$ref": "#/$defs/LiveConversation"
+          },
+          "title": "Conversations",
+          "type": "array"
+        },
+        "incidents": {
+          "description": "Incidents in progress.",
+          "items": {
+            "$ref": "#/$defs/IncidentRecord"
+          },
+          "title": "Incidents",
+          "type": "array"
+        }
+      },
+      "required": [
+        "t",
+        "state",
+        "speed",
+        "people",
+        "conversations",
+        "incidents"
+      ],
+      "title": "LiveFrame",
+      "type": "object"
+    },
+    "LiveModelCall": {
+      "additionalProperties": false,
+      "description": "A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).",
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "label": {
+          "description": "standing | sitting | fallen | unknown (the contract's PosturePrediction).",
+          "title": "Label",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "required": [
+        "model_id",
+        "label",
+        "confidence"
+      ],
+      "title": "LiveModelCall",
+      "type": "object"
+    },
+    "LivePerson": {
+      "additionalProperties": false,
+      "description": "A WorldPerson plus what they're up to. Ground truth: for people watching only.",
+      "properties": {
+        "person_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Matches Observation.person_id; None in a single-person run.",
+          "title": "Person Id"
+        },
+        "heading": {
+          "description": "Radians about +y; 0 faces the camera, +pi/2 faces image right.",
+          "title": "Heading",
+          "type": "number"
+        },
+        "height": {
+          "description": "Standing height in metres. Constant per person, unlike limb lengths in motion.",
+          "title": "Height",
+          "type": "number"
+        },
+        "joints": {
+          "additionalProperties": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "description": "Metres; every joint, visible to the camera or not.",
+          "propertyNames": {
+            "enum": [
+              "nose",
+              "left_eye",
+              "right_eye",
+              "left_ear",
+              "right_ear",
+              "left_shoulder",
+              "right_shoulder",
+              "left_elbow",
+              "right_elbow",
+              "left_wrist",
+              "right_wrist",
+              "left_hip",
+              "right_hip",
+              "left_knee",
+              "right_knee",
+              "left_ankle",
+              "right_ankle",
+              "neck"
+            ]
+          },
+          "title": "Joints",
+          "type": "object"
+        },
+        "label": {
+          "description": "Ground-truth label right now (TruthLabel).",
+          "title": "Label",
+          "type": "string"
+        },
+        "activity": {
+          "description": "What they're doing this moment, e.g. 'sitting down', 'talking'.",
+          "title": "Activity",
+          "type": "string"
+        },
+        "intent": {
+          "description": "What the current plan is for: sit, rest, chat, fall...",
+          "title": "Intent",
+          "type": "string"
+        },
+        "posture": {
+          "title": "Posture",
+          "type": "string"
+        },
+        "destination": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Destination"
+        },
+        "path": {
+          "description": "Rest of the route, floor (x, z).",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Path",
+          "type": "array"
+        },
+        "conversation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversation"
+        },
+        "incident": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incident"
+        },
+        "visible": {
+          "description": "Fraction of joints the camera could see last frame (0..1), before noise.",
+          "title": "Visible",
+          "type": "number"
+        },
+        "kind": {
+          "default": "simulated",
+          "description": "'live': a real person from a live camera feed, not simulated.",
+          "enum": [
+            "simulated",
+            "live"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveModelCall"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live people: the camera's own posture model on them, latest frame."
+        }
+      },
+      "required": [
+        "person_id",
+        "heading",
+        "height",
+        "joints",
+        "label",
+        "activity",
+        "intent",
+        "posture",
+        "destination",
+        "path",
+        "conversation",
+        "incident",
+        "visible",
+        "kind",
+        "model"
+      ],
+      "title": "LivePerson",
+      "type": "object"
+    },
+    "LiveStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "idle",
+            "playing",
+            "paused"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "t": {
+          "default": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "speed": {
+          "default": 1.0,
+          "title": "Speed",
+          "type": "number"
+        },
+        "actors": {
+          "default": 0,
+          "title": "Actors",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "state",
+        "run_id",
+        "scenario_id",
+        "seed",
+        "t",
+        "speed",
+        "actors"
+      ],
+      "title": "LiveStatus",
+      "type": "object"
+    },
+    "LiveWorld": {
+      "additionalProperties": false,
+      "description": "The run's fixed parts: sent once per connection and on every new room ({\"type\": \"world\"}).",
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "spec": {
+          "$ref": "#/$defs/EngineSpec"
+        },
+        "room": {
+          "$ref": "#/$defs/WorldRoom"
+        },
+        "scene": {
+          "$ref": "#/$defs/Scene",
+          "description": "The furniture as the camera sees it, for the 2D camera view."
+        },
+        "actors": {
+          "items": {
+            "$ref": "#/$defs/LiveActorInfo"
+          },
+          "title": "Actors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run_id",
+        "scenario_id",
+        "seed",
+        "spec",
+        "room",
+        "scene",
+        "actors"
+      ],
+      "title": "LiveWorld",
+      "type": "object"
+    },
     "Rate": {
       "additionalProperties": false,
       "description": "hits out of n, with a 95% Wilson interval so small samples read as uncertain.",
@@ -623,6 +1656,78 @@
         "high"
       ],
       "title": "Rate",
+      "type": "object"
+    },
+    "RoomSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 10.0,
+              "minimum": 4.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres, wall to wall across the camera's view. None = drawn from the seed.",
+          "title": "Width"
+        },
+        "depth": {
+          "anyOf": [
+            {
+              "maximum": 9.0,
+              "minimum": 4.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres, front to back.",
+          "title": "Depth"
+        },
+        "height": {
+          "default": 2.7,
+          "maximum": 3.5,
+          "minimum": 2.3,
+          "title": "Height",
+          "type": "number"
+        },
+        "furniture_density": {
+          "default": 0.6,
+          "description": "0 = a bare room with a chair or two, 1 = as much as fits.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Furniture Density",
+          "type": "number"
+        },
+        "doors": {
+          "default": 2,
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Doors",
+          "type": "integer"
+        },
+        "window": {
+          "default": true,
+          "title": "Window",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "width",
+        "depth",
+        "height",
+        "furniture_density",
+        "doors",
+        "window"
+      ],
+      "title": "RoomSpec",
       "type": "object"
     },
     "RunInfo": {
@@ -1401,6 +2506,58 @@
       "title": "TruthNow",
       "type": "object"
     },
+    "WorldDoor": {
+      "additionalProperties": false,
+      "properties": {
+        "door_id": {
+          "title": "Door Id",
+          "type": "string"
+        },
+        "wall": {
+          "enum": [
+            "back",
+            "left",
+            "right",
+            "front"
+          ],
+          "title": "Wall",
+          "type": "string"
+        },
+        "center": {
+          "description": "Floor point (x, z) at the middle of the opening.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "width": {
+          "title": "Width",
+          "type": "number"
+        },
+        "heading_in": {
+          "description": "Radians: the way into the room.",
+          "title": "Heading In",
+          "type": "number"
+        }
+      },
+      "required": [
+        "door_id",
+        "wall",
+        "center",
+        "width",
+        "heading_in"
+      ],
+      "title": "WorldDoor",
+      "type": "object"
+    },
     "WorldFrame": {
       "additionalProperties": false,
       "properties": {
@@ -1472,12 +2629,33 @@
           ],
           "title": "Size",
           "type": "array"
+        },
+        "rotation": {
+          "default": 0.0,
+          "description": "Radians about +y: the heading its front faces (as WorldPerson.heading).",
+          "title": "Rotation",
+          "type": "number"
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind.",
+          "title": "Variant"
         }
       },
       "required": [
         "kind",
         "center",
-        "size"
+        "size",
+        "rotation",
+        "variant"
       ],
       "title": "WorldObject",
       "type": "object"
@@ -1627,6 +2805,75 @@
           },
           "title": "Objects",
           "type": "array"
+        },
+        "bounds": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live rooms: the walls as (x0, z0, x1, z1). None = the scripted room (width_back x depth).",
+          "title": "Bounds"
+        },
+        "doors": {
+          "items": {
+            "$ref": "#/$defs/WorldDoor"
+          },
+          "title": "Doors",
+          "type": "array"
+        },
+        "windows": {
+          "items": {
+            "$ref": "#/$defs/WorldWindow"
+          },
+          "title": "Windows",
+          "type": "array"
+        },
+        "camera_aspect": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Width / height of the camera image.",
+          "title": "Camera Aspect"
+        },
+        "lighting": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Live rooms: day, evening or dim.",
+          "title": "Lighting"
         }
       },
       "required": [
@@ -1637,7 +2884,12 @@
         "camera_position",
         "camera_target",
         "camera_fov",
-        "objects"
+        "objects",
+        "bounds",
+        "doors",
+        "windows",
+        "camera_aspect",
+        "lighting"
       ],
       "title": "WorldRoom",
       "type": "object"
@@ -1743,6 +2995,56 @@
         "routes"
       ],
       "title": "WorldTrack",
+      "type": "object"
+    },
+    "WorldWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "wall": {
+          "enum": [
+            "back",
+            "left",
+            "right",
+            "front"
+          ],
+          "title": "Wall",
+          "type": "string"
+        },
+        "center": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "width": {
+          "title": "Width",
+          "type": "number"
+        },
+        "sill": {
+          "title": "Sill",
+          "type": "number"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "wall",
+        "center",
+        "width",
+        "sill",
+        "height"
+      ],
+      "title": "WorldWindow",
       "type": "object"
     }
   },

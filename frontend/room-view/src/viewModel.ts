@@ -41,8 +41,8 @@ export interface ViewFilter {
 const key = (obs: Observation) => obs.person_id ?? "";
 
 export function reduce(vm: ViewModel, msg: ServerMessage, receivedAt: number, filter: ViewFilter = {}): ViewModel {
-  if (msg.type === "nurse_snapshot") return vm;
   const { roomId, source } = filter;
+  if (msg.type === "nurse_snapshot") return vm; // a care-desk message, not about the camera
   if (roomId && msg.data.room_id !== roomId) return vm;
   if (source && msg.data.source !== source) return vm;
 

@@ -8,7 +8,8 @@ from hearth_schema import Event, Observation
 from .config import MonitorConfig
 
 SourceKey = tuple[str, str, str, str | None, str | None]
-TrackKey = SourceKey | tuple[str, str, str, str | None, str | None, str]
+# One person on one source. Single-person sources (the edge) send person_id=None.
+TrackKey = tuple[str, str, str, str | None, str | None, str | None]
 
 
 def source_key(record) -> SourceKey:
@@ -16,17 +17,14 @@ def source_key(record) -> SourceKey:
 
 
 def track_key(record) -> TrackKey:
-    key = source_key(record)
-    person_id = getattr(record, "person_id", None)
-    return (*key, person_id) if person_id is not None else key
+    return (*source_key(record), getattr(record, "person_id", None))
 
 
 def make_event(record, kind: str, timestamp: datetime | None = None, **metadata) -> Event:
     return Event(event_id=str(uuid4()), timestamp=timestamp or record.timestamp,
                  source=record.source, source_type=record.source_type, room_id=record.room_id,
                  scenario_id=record.scenario_id, run_id=record.run_id,
-                 person_id=getattr(record, "person_id", None),
-                 event_type=kind, metadata=metadata)
+                 person_id=getattr(record, "person_id", None), event_type=kind, metadata=metadata)
 
 
 def inside_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
@@ -62,9 +60,13 @@ class FallDetector:
         self.config = config
         self.states: dict[TrackKey, PostureState] = {}
 
-    def invalidate(self, key: TrackKey) -> None:
-        """Drop pending evidence on gaps; never recover an existing incident from silence."""
-        if state := self.states.get(key):
+    def invalidate(self, key: SourceKey | TrackKey) -> None:
+        """Drop pending evidence on gaps; never recover an existing incident from silence.
+
+        A SourceKey invalidates every person tracked on that source."""
+        for track, state in self.states.items():
+            if track[:len(key)] != key:
+                continue
             state.posture = "unknown"
             state.floor_since = None
             state.person_visible = None

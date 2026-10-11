@@ -1,6 +1,6 @@
 {
   "edge_revision": "9d9ccba",
-  "description": "Synthetic pixel poses passed through Gaston contract/features; not camera evidence.",
+  "description": "Synthetic pixel poses passed through Gaston contract/features; not camera evidence. Keypoints carry no confidence, as the edge sends them (config.KEYPOINT_CONFIDENCE = None).",
   "heartbeat": {
     "schema_version": "1",
     "timestamp": "2026-10-10T00:00:00.000Z",
@@ -25,20 +25,17 @@
         {
           "name": "nose",
           "x": 0.5,
-          "y": 0.2,
-          "confidence": 1.0
+          "y": 0.2
         },
         {
           "name": "left_hip",
           "x": 0.5,
-          "y": 0.5,
-          "confidence": 1.0
+          "y": 0.5
         },
         {
           "name": "neck",
           "x": 0.5,
-          "y": 0.3,
-          "confidence": 1.0
+          "y": 0.3
         }
       ],
       "features": {
@@ -63,20 +60,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -102,20 +96,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -141,20 +132,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -180,20 +168,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -219,20 +204,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -258,20 +240,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -297,20 +276,17 @@
         {
           "name": "nose",
           "x": 0.1562,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "left_hip",
           "x": 0.625,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         },
         {
           "name": "neck",
           "x": 0.25,
-          "y": 0.85,
-          "confidence": 1.0
+          "y": 0.85
         }
       ],
       "features": {
@@ -336,20 +312,17 @@
         {
           "name": "nose",
           "x": 0.5,
-          "y": 0.2,
-          "confidence": 1.0
+          "y": 0.2
         },
         {
           "name": "left_hip",
           "x": 0.5,
-          "y": 0.5,
-          "confidence": 1.0
+          "y": 0.5
         },
         {
           "name": "neck",
           "x": 0.5,
-          "y": 0.3,
-          "confidence": 1.0
+          "y": 0.3
         }
       ],
       "features": {

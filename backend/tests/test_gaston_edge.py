@@ -13,6 +13,11 @@ def fixture():
     return json.loads((Path(__file__).parent / 'fixtures/gaston_edge.json').read_text())
 
 
+def test_fixture_matches_what_the_edge_sends_today():
+    keypoints = [k for o in fixture()['observations'] for k in o.get('keypoints') or []]
+    assert keypoints and all('confidence' not in k for k in keypoints)  # poseNet reports none
+
+
 def test_gaston_batch_heartbeat_face_and_pose_feed(service):
     wire = fixture()
     with TestClient(create_app(service=service)) as client:

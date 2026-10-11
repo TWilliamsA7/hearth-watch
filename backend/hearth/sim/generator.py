@@ -25,7 +25,7 @@ from datetime import UTC, datetime, timedelta
 
 from hearth_schema.models import Heartbeat, Observation
 
-from hearth.sim.features import compute_features
+from hearth.sim.features import MIN_CONFIDENCE, FeatureTracker
 from hearth.sim.motion import Key, timeline
 from hearth.sim.pose import (
     JOINTS,
@@ -105,6 +105,16 @@ class NoiseConfig:
     face_rate_side: float = 0.35
     face_rate_lying: float = 0.15
     face_rate_away: float = 0.02
+    # How the Jetson edge emits (edge/run_edge.py); all off by default. See edge_like().
+    keypoint_confidence: bool = True  # False: drop undetected joints, send no confidence (poseNet)
+    face_check_interval: float = 0.0  # > 0: face fields only on check frames, null otherwise
+    dropout_bridge: float = 0.0  # > 0: skip (don't send "nobody") when one person vanishes this briefly
+
+    @classmethod
+    def edge_like(cls) -> NoiseConfig:
+        """Observations shaped like the Jetson's: no keypoint confidence, a face check every
+        0.5 s, and brief dropouts skipped rather than sent as "no person"."""
+        return cls(keypoint_confidence=False, face_check_interval=0.5, dropout_bridge=0.3)
 
     @classmethod
     def off(cls) -> NoiseConfig:
@@ -523,31 +533,37 @@ class ObservationGenerator:
         """Every Observation and Heartbeat in timestamp order."""
         rng = random.Random(self.seed)
         next_heartbeat = 0.0
-        prev_hip: dict[str | None, tuple[float, float]] = {}  # person -> (t, hip_y) of their last hips
+        self._next_face_check = 0.0
+        self._last_seen: float | None = None  # single-person: when someone was last made out
+        trackers: dict[str | None, FeatureTracker] = {}  # person -> their feature state, as the edge keeps it
 
         for n, t in self.frame_times():
             people = self.people_at(t)
             if any(p.label == "camera_outage" for p in people):
                 # Silence: no observations, no heartbeats. Resume the heartbeat cadence afterwards.
                 next_heartbeat = t
-                prev_hip.clear()
+                trackers.clear()
                 continue
             if t >= next_heartbeat - 1e-9:
                 yield self._heartbeat(t)
                 next_heartbeat += 1.0
             if rng.random() < self.noise.frame_drop:
                 continue
-            yield from self._frame(rng, n, t, people, prev_hip)
+            yield from self._frame(rng, n, t, people, trackers)
 
     def _frame(
         self, rng: random.Random, n: int, t: float, people: list[PersonState],
-        prev_hip: dict[str | None, tuple[float, float]],
+        trackers: dict[str | None, FeatureTracker],
     ) -> Iterator[Observation]:  # fmt: skip
+        face_check = self._face_check_due(t)
         if not self.scenario.multi_person:
-            obs = self._observation(rng, n, t, people[0], [], prev_hip.get(None)) or self._nobody(n, t)
-            if obs.features is not None and obs.features.hip_y is not None:
-                prev_hip[None] = (t, obs.features.hip_y)
-            yield obs
+            obs = self._observation(rng, n, t, people[0], [], self._tracker(trackers, None), face_check)
+            if obs is not None:
+                self._last_seen = t
+            elif (self.noise.dropout_bridge > 0 and self._last_seen is not None
+                  and t - self._last_seen <= self.noise.dropout_bridge):
+                return  # the edge doesn't report a brief dropout as "no person"
+            yield obs or self._nobody(n, t, face_check)
             return
 
         present = [p for p in people if p.label != "absent"]
@@ -556,15 +572,27 @@ class ObservationGenerator:
             if person.label == "absent":
                 continue
             in_front = [_body_box(q.pose) for q in present if q.depth < person.depth - 0.05]
-            obs = self._observation(rng, n, t, person, in_front, prev_hip.get(person.track.person_id))
+            obs = self._observation(rng, n, t, person, in_front, self._tracker(trackers, person.track.person_id),
+                                    face_check)
             if obs is None:
                 continue
-            if obs.features is not None and obs.features.hip_y is not None:
-                prev_hip[person.track.person_id] = (t, obs.features.hip_y)
             emitted = True
             yield obs
         if not emitted:
-            yield self._nobody(n, t)
+            yield self._nobody(n, t, face_check)
+
+    def _face_check_due(self, t: float) -> bool:
+        if self.noise.face_check_interval <= 0:
+            return True
+        if t >= self._next_face_check - 1e-9:
+            self._next_face_check = t + self.noise.face_check_interval
+            return True
+        return False
+
+    def _tracker(self, trackers: dict[str | None, FeatureTracker], person_id: str | None) -> FeatureTracker:
+        if person_id not in trackers:
+            trackers[person_id] = FeatureTracker(self.scenario.scene.frame_aspect)
+        return trackers[person_id]
 
     def _timestamp(self, t: float) -> datetime:
         return self.start + timedelta(seconds=round(t, 6))
@@ -593,23 +621,33 @@ class ObservationGenerator:
             "face_present": False,
         }
 
-    def _nobody(self, n: int, t: float) -> Observation:
-        return Observation.model_validate(self._base(n, t, None))
+    def _nobody(self, n: int, t: float, face_check: bool = True) -> Observation:
+        obs = self._base(n, t, None)
+        if not face_check:
+            obs["face_present"] = None
+        return Observation.model_validate(obs)
 
     def _observation(
         self, rng: random.Random, n: int, t: float, person: PersonState, in_front: list[Box],
-        prev_hip: tuple[float, float] | None,
+        tracker: FeatureTracker,
+        face_check: bool = True,
     ) -> Observation | None:  # fmt: skip
         """One person's observation, or None if the camera can't make them out."""
         if person.label == "absent":
+            tracker.lost()
             return None
         keypoints = self._keypoints(rng, person, in_front)
         if len(keypoints) < MIN_VISIBLE_KEYPOINTS:
+            tracker.lost()
             return None
 
-        prev_y, dt = (prev_hip[1], t - prev_hip[0]) if prev_hip else (None, None)
-        features = compute_features(keypoints, self.scenario.scene.frame_aspect, prev_y, dt)
+        features = tracker.update(keypoints, t)
         face_present, face_conf = self._face(rng, keypoints, person)
+        if not face_check:
+            face_present = face_conf = None  # no face check ran on this frame
+        if not self.noise.keypoint_confidence:
+            # poseNet reports the joints it detected, with no score.
+            keypoints = [dict(k, confidence=None) for k in keypoints if k["confidence"] >= MIN_CONFIDENCE]
         obs = self._base(n, t, person.track.person_id)
         obs.update(
             person_detected=True,

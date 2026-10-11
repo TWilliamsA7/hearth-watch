@@ -73,7 +73,7 @@ def test_framing_profile_explicitly_allows_pose():
 
 def test_explicit_pause_preserves_hold_but_silence_still_invalidates(service, clock):
     service.ingest([observation(0), observation(.5), observation(1)])
-    key = source_key(observation(0))
+    key, track = source_key(observation(0)), track_key(observation(0))
     service.observation_clock_paused = lambda source: source == key
     for second in range(1, 6):
         clock.seconds = second
@@ -82,9 +82,9 @@ def test_explicit_pause_preserves_hold_but_silence_still_invalidates(service, cl
                                    scenario_id="scenario", run_id="run-1"))
     assert service.health[key].status.observation_stale
     assert service.health[key].status.posture == "unknown"
-    assert service.detector.states[key].floor_since is not None
+    assert service.detector.states[track].floor_since is not None
     assert not service.alerts
     clock.seconds = 8
     service.check_health()
     assert not service.health[key].status.online
-    assert service.detector.states[key].floor_since is None
+    assert service.detector.states[track].floor_since is None

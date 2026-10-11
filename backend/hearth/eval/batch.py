@@ -3,7 +3,8 @@
 The monitor seam
 ----------------
 The real monitor (hearth.monitor, owned by the monitoring core) is plugged in through a
-factory, by default "hearth.monitor:create_monitor". Whatever it returns must satisfy
+factory, by default "hearth.eval.real_monitor:create_monitor", which wraps the live
+MonitorService with a record-time clock. Whatever a factory returns must satisfy
 MonitorLike:
 
   * ingest(item)     - one Observation or Heartbeat, in timestamp order; returns any
@@ -33,10 +34,11 @@ from hearth_schema.models import Event, Heartbeat, Observation
 
 from hearth.eval.report import EvaluationReport, EvaluationSummary
 from hearth.eval.scoring import SOURCE_LEVEL_EVENTS, EvalConfig, evaluate
+from hearth.sim.generator import NoiseConfig
 from hearth.sim.runner import SimRun, run_headless
 from hearth.sim.scenario import Scenario
 
-DEFAULT_MONITOR = "hearth.monitor:create_monitor"
+DEFAULT_MONITOR = "hearth.eval.real_monitor:create_monitor"
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[3] / "recordings" / "eval"
 TICK_SECONDS = 0.25
 
@@ -113,10 +115,23 @@ def load_monitor_factory(spec: str = DEFAULT_MONITOR) -> MonitorFactory:
         ) from exc
 
 
-def drive(run: SimRun, monitor: MonitorLike, *, tail: float = 5.0, tick: float = TICK_SECONDS) -> list[Event]:
+class Drivable(Protocol):
+    """A recorded or simulated run: SimRun, or hearth.eval.recording.Recording."""
+
+    @property
+    def items(self) -> list[Observation | Heartbeat]: ...
+
+    @property
+    def start(self) -> datetime: ...
+
+    @property
+    def duration(self) -> float: ...
+
+
+def drive(run: Drivable, monitor: MonitorLike, *, tail: float = 5.0, tick: float = TICK_SECONDS) -> list[Event]:
     """Feed a run to the monitor in timestamp order, advancing its clock through any silence.
 
-    tail: seconds to keep advancing after the scenario ends, so late events are captured.
+    tail: seconds to keep advancing after the run ends, so late events are captured.
     """
     events: list[Event] = []
     step = timedelta(seconds=tick)
@@ -127,7 +142,7 @@ def drive(run: SimRun, monitor: MonitorLike, *, tail: float = 5.0, tick: float =
             events.extend(monitor.advance_to(clock))
         events.extend(monitor.ingest(item))
         clock = max(clock, item.timestamp)
-    end = run.start + timedelta(seconds=run.scenario.duration + tail)
+    end = run.start + timedelta(seconds=run.duration + tail)
     while clock + step <= end:
         clock += step
         events.extend(monitor.advance_to(clock))
@@ -141,9 +156,11 @@ def evaluate_run(
     config: EvalConfig = EvalConfig(),
     *,
     per_person: bool = True,
+    noise: NoiseConfig | None = None,
 ) -> tuple[EvaluationReport, list[Event]]:
-    """per_person=False hands the whole stream to one monitor (for a monitor that tracks people itself)."""
-    run = run_headless(scenario, seed)
+    """per_person=False hands the whole stream to one monitor (for a monitor that tracks people itself).
+    noise: perception noise for the generated observations (e.g. NoiseConfig.edge_like())."""
+    run = run_headless(scenario, seed, noise=noise)
     monitor = PerPersonMonitor(factory) if per_person else factory()
     events = drive(run, monitor, tail=max(config.alert_tolerance, config.check_tolerance) + 1.0)
     return evaluate(events, run.ground_truth, run.start, config=config), events
@@ -155,14 +172,21 @@ def seeds_for(scenario: Scenario, count: int) -> list[int]:
 
 
 def run_batch(
-    scenarios: Iterable[Scenario], seeds: int, factory: MonitorFactory, config: EvalConfig = EvalConfig()
+    scenarios: Iterable[Scenario], seeds: int, factory: MonitorFactory, config: EvalConfig = EvalConfig(),
+    *, noise: NoiseConfig | None = None,
 ) -> list[EvaluationReport]:
     return [
-        evaluate_run(sc, seed, factory, config)[0] for sc in scenarios for seed in seeds_for(sc, seeds)
+        evaluate_run(sc, seed, factory, config, noise=noise)[0] for sc in scenarios for seed in seeds_for(sc, seeds)
     ]
 
 
-def summary_markdown(summary: EvaluationSummary, reports: list[EvaluationReport], monitor: str) -> str:
+SIMULATED_NOTE = ("Simulated scenarios only. These numbers describe behaviour on synthetic observations, "
+                  "not real-world or clinical accuracy.")
+
+
+def summary_markdown(summary: EvaluationSummary, reports: list[EvaluationReport], monitor: str, *,
+                     title: str = "Simulated evaluation results", note: str = SIMULATED_NOTE,
+                     unit: str = "Scenario") -> str:
     """Human-readable results table. Wording matches the README's claims rules."""
     rows: dict[str, list[EvaluationReport]] = {}
     for r in reports:
@@ -172,14 +196,13 @@ def summary_markdown(summary: EvaluationSummary, reports: list[EvaluationReport]
         return "-" if x is None else f"{x:.2f}"
 
     lines = [
-        "# Simulated evaluation results",
+        f"# {title}",
         "",
-        f"Monitor: `{monitor}`. {summary.runs} runs over {summary.scenarios} scenarios.",
+        f"Monitor: `{monitor}`. {summary.runs} runs over {summary.scenarios} {unit.lower()}s.",
         "",
-        "Simulated scenarios only. These numbers describe behaviour on synthetic observations, "
-        "not real-world or clinical accuracy.",
+        note,
         "",
-        "| Scenario | Runs | Expected alerts | Detected | Missed | False alerts | Median delay (s) | Max delay (s) |",
+        f"| {unit} | Runs | Expected alerts | Detected | Missed | False alerts | Median delay (s) | Max delay (s) |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for sid, rs in rows.items():

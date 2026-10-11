@@ -1,7 +1,7 @@
 """Shared monitor entry point for edge, simulator and replay observations."""
 import asyncio
 from collections import OrderedDict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import monotonic
 from typing import Callable
@@ -17,11 +17,17 @@ from .detector import FallDetector, SourceKey, TrackKey, make_event, source_key,
 from .gestures import HelpGestureDetector
 
 
+# A source reporting several people shows the most urgent posture among them.
+POSTURE_URGENCY = {"fallen": 3, "sitting": 2, "standing": 1}
+
+
 @dataclass
 class HealthEntry:
     status: SourceStatus
     last_receipt: float
     last_observation_receipt: float | None = None
+    # person_id -> (posture, confidence, receipt time): each person's latest, for status.posture
+    people: dict[str | None, tuple[str, float | None, float]] = field(default_factory=dict)
 
 
 class MonitorService:
@@ -40,7 +46,7 @@ class MonitorService:
         self.alerts: dict[str, Alert] = {}
         self.event_alerts: dict[str, str] = {}
         self.health: dict[SourceKey, HealthEntry] = {}
-        self.observations: dict[TrackKey, Observation] = {}
+        self.observations: dict[TrackKey, Observation] = {}  # latest per person per source
         self.seen: OrderedDict[tuple, None] = OrderedDict()
         self.subscribers: set[asyncio.Queue] = set()
         self.subscription_rooms: dict[asyncio.Queue, str] = {}
@@ -107,9 +113,9 @@ class MonitorService:
 
     def record(self, event: Event) -> None:
         self.events.append(event)
-        self.publish(EventMessage(data=event))
         for listener in tuple(self.event_listeners):
             listener(event)
+        self.publish(EventMessage(data=event))
 
     def validate_room(self, room_id: str) -> None:
         if room_id not in self.config.room_ids:
@@ -121,6 +127,8 @@ class MonitorService:
                       scenario_id=event.scenario_id, run_id=event.run_id,
                       opened_at=event.timestamp, severity=event.metadata.get("severity", "warning"),
                       metadata=event.metadata.copy())
+        if event.person_id is not None:  # a source reporting several people: whose alert it is
+            alert.metadata["person_id"] = event.person_id
         self.alerts[alert.alert_id] = alert
         self.event_alerts[event.event_id] = alert.alert_id
         self.record(event)
@@ -149,13 +157,17 @@ class MonitorService:
                         and prediction.model_id == self.config.fall_model_id
                         and prediction.detection_count == 1 and prediction.confidence is not None
                         and prediction.confidence >= self.config.model_confidence_min)
-            entry.status.posture = prediction.label if reliable else "unknown"
-            entry.status.posture_confidence = prediction.confidence if reliable else None
+            posture = prediction.label if reliable else "unknown"
+            confidence = prediction.confidence if reliable else None
             entry.status.posture_model = prediction.model_id if prediction else None
             if prediction is None and self.config.posture_mode == "pose_fallback":
                 state = self.detector.states.get(track_key(record))
-                entry.status.posture = {"upright": "standing", "floor_level": "fallen",
-                                        "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
+                posture = {"upright": "standing", "floor_level": "fallen",
+                           "possible_fall": "fallen"}.get(state.posture if state else "unknown", "unknown")
+            entry.people[record.person_id] = (posture, confidence, now)
+            recent = [p for p in entry.people.values() if now - p[2] < self.config.source_timeout_seconds]
+            top = max(recent, key=lambda p: (POSTURE_URGENCY.get(p[0], 0), p[2]))
+            entry.status.posture, entry.status.posture_confidence = top[0], top[1]
         if isinstance(record, Heartbeat):
             for name in ("fps", "inference_ms", "mem_used_mb"):
                 setattr(entry.status, name, getattr(record, name))
@@ -197,7 +209,8 @@ class MonitorService:
     def invalidate_source(self, key, *, tracked_only=False):
         for detector in (self.detector, self.gestures):
             for tracked in tuple(detector.states):
-                if tracked[:5] == key and (not tracked_only or len(tracked) > 5):
+                # Track keys end in person_id; None is the untracked (single-person) track.
+                if tracked[:5] == key and (not tracked_only or tracked[5] is not None):
                     detector.invalidate(tracked)
 
     def ingest(self, batch: list[Observation], *, patient_labels=None) -> dict[str, int]:
@@ -208,6 +221,7 @@ class MonitorService:
         counts = dict.fromkeys(self.ingest_totals, 0)
         received_at = self.utcnow()
         for obs in batch:
+            # Ordering and dedupe are per person: people in one frame share a timestamp.
             key = track_key(obs)
             identity = (*key, obs.obs_id)
             if identity in self.seen:

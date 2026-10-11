@@ -7,6 +7,7 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.venv-pc/
 
 # Node / frontend
 node_modules/
@@ -28,6 +29,7 @@ frontend/room-view/dev/dist/
 scenarios/generated/
 recordings/eval/
 !recordings/.gitkeep
+recordings/sim/
 
 # Editors / OS
 .vscode/

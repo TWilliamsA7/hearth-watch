@@ -130,3 +130,65 @@ def test_upright_pass_skipped_on_most_frames_only_while_lying():
     pattern = [pol.skip_upright(0.1 * i) for i in range(1, 7)]
     assert pattern == [True, True, False, True, True, False]  # upright on 1 frame in 3
     assert not pol.skip_upright(2.0)               # rotated pose no longer accepted: run it
+
+
+def test_backs_off_after_both_directions_lose_to_the_plain_pose():
+    """Seated near the camera (hips hidden): incomplete every frame, rotation never better."""
+    pol = pr.RotationPolicy()
+    tried = []
+    for i in range(14):                                  # 1 s at 14 FPS
+        t = i / 14.0
+        d = pol.directions(HEAD_ONLY_LYING, t)
+        if d:
+            tried.append(t)
+            pol.rejected(t)
+    assert len(tried) == 2                               # t = 0 and ~0.5 s, not 14 times
+
+
+def test_no_back_off_while_a_rotated_pose_keeps_being_accepted():
+    pol = pr.RotationPolicy()
+    pol.accepted(1, 0.0)
+    pol.rejected(0.1)                                    # one miss while lying down...
+    assert pol.directions(HEAD_ONLY_LYING, 0.2) == [1, -1]   # ...still tries the next frame
+    pol.rejected(1.1)                                    # a miss after the accept went stale
+    assert pol.directions(HEAD_ONLY_LYING, 1.2) == []        # ...does back off
+
+
+def _pose(cx, cy, n, w=40, h=40, torso=True):
+    names = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_elbow", "right_elbow",
+             "left_wrist", "right_wrist", "left_knee", "right_knee", "left_ankle", "right_ankle"]
+    kps = dict((nm, (cx, cy)) for nm in names[:max(0, n - (4 if torso else 0))])
+    if torso:
+        kps.update({"left_shoulder": (cx, cy), "right_shoulder": (cx, cy),
+                    "left_hip": (cx, cy), "right_hip": (cx, cy)})
+    return {"keypoints": kps, "bbox": (cx - w, cy - h, cx + w, cy + h)}
+
+
+def test_others_rotation_swaps_in_a_better_rotated_pose_and_adds_missed_people():
+    o = pr.OthersRotation()
+    tracked = _pose(100, 200, 13)
+    plain_other = _pose(400, 380, 5, torso=False)           # lying: plain pass got only the head
+    rotated = [_pose(100, 200, 12), _pose(410, 385, 12), _pose(600, 420, 10)]
+    o.remember(rotated, 0.0)
+    merged = o.merge(tracked, [plain_other], 0.1)
+    assert len(merged[0]["keypoints"]) == 12                # the rotated pose replaced the plain one
+    assert len(merged) == 2 and merged[1]["bbox"][0] == 560  # someone the plain pass missed
+    # remembered poses expire after KEEP_S
+    assert o.merge(tracked, [plain_other], 1.5) == [plain_other]
+
+
+def test_others_rotation_ignores_weak_rotated_poses():
+    o = pr.OthersRotation()
+    o.remember([_pose(400, 380, 5, torso=False), _pose(600, 380, 9, torso=False)], 0.0)
+    assert o.cache == []
+
+
+def test_others_rotation_pass_schedule():
+    o = pr.OthersRotation()
+    lying = [_pose(400, 380, 5, torso=False)]
+    assert o.wants_pass(lying, 0.0, passes_this_frame=False) in (1, -1)
+    assert o.wants_pass(lying, 0.2, passes_this_frame=False) is None      # within 0.5 s
+    assert o.wants_pass(lying, 0.6, passes_this_frame=False) in (1, -1)
+    assert o.wants_pass(lying, 1.2, passes_this_frame=True) is None       # the tracked one's pass counts
+    assert o.wants_pass([], 1.8, passes_this_frame=False) is None         # nobody lying: once a second
+    assert o.wants_pass([], 2.3, passes_this_frame=False) in (1, -1)
