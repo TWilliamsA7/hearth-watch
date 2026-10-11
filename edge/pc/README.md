@@ -529,3 +529,31 @@ once:
 ```powershell
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py --final-test --out D:\hearth-data\model_3class.pt --min-conf 0.5
 ```
+
+## Locked test result: `model_3class.pt`, cut-off 0.50 (run 1, 2026-10-10 21:11)
+
+People the model never saw and that never influenced a decision (20% of each real dataset's
+people, plus 20% of the synthetic clips), scored once:
+
+| | real people | synthetic clips |
+|---|---|---|
+| network alone (always answering) | 98% right, balanced 97% | 91% right, balanced 91% |
+| answers (cut-off 0.50) | 99.7% | 96.3% |
+| right when answering | **97.7%** (upright 99%, sitting 96%, floor 96%) | 92.1% |
+| floor caught | **96.1%** | 88.6% |
+
+Real people, frame counts:
+
+| actually / predicted | upright | sitting | floor | unknown |
+|---|---|---|---|---|
+| upright | 5,568 | 51 | 13 | 15 |
+| sitting | 40 | 2,072 | 39 | 15 |
+| floor | 52 | 47 | 2,421 | 0 |
+
+- False "floor" on upright people: 13 of 5,647 frames (0.2%).
+- Test (97.7%) beat validation (94.4%): normal variation between groups of people (some are
+  easier to read), not a mistake; which is why it's reported once and not tuned on. Honest
+  summary: about 94-98% on unseen people.
+- Our own camera (Jetson poseNet recordings): floor caught 96%, so the model transfers.
+
+Full write-up of the results (test, validation, field test, false positive rates, what was tried): [RESULTS.md](RESULTS.md).
