@@ -54,10 +54,46 @@ Before you start:
 4. Quick check: stand in the middle. The skeleton should show your **head and at least your hips or knees** (switch the bottom panel's **Real camera** chip on to see the Jetson's 2D skeleton). If your head is cut off, tilt the camera less. If only your head shows, move further away or tilt more.
 
 ### Step 1 · Walk (12 s): finds height and tilt
-1. Stand inside the area, upright, facing roughly towards the camera.
-2. Press **1 · Calibrate: walk**, then for 12 seconds **walk slowly all over the area**: near and far, left and right. Keep upright: no bending, crouching or sitting.
-3. On success it shows: *Camera set: 2.31 m up, tilted 31.4° (fit ±5 px, 64 frames). Now step 2.*
-   - A fit under about 8 px is good, and 8–12 px is usable. The result is applied straight away.
+
+**What the software needs from this walk.** It watches for 12 seconds and keeps every frame that shows your head (eyes, nose, ears or neck) and a hip or knee. For each candidate camera height and tilt, it checks whether your head appears exactly where a person of your height, standing upright, would appear. Your **distance from the camera** varying is what separates "a high camera tilted a little" from "a lower camera tilted more". Side-to-side movement helps less, but is also checked. So the walk has to:
+- cover **near and far**: the most important part;
+- cover **left and right** a little;
+- keep you **upright**, and your **head plus hips or knees in view**, the whole time.
+
+**The route.** Labels below are seen from the camera, for a 5 × 4 m area with the camera at the **left** front corner. Mirror left and right if it's at the right corner. Stay about **1 m inside the edges**: right at the edges, your head or feet leave the frame.
+
+```
+            back edge (far from the camera)
+   +---------------------------------------+
+   |        B ·  ·  ·  ·  ·  ·  · C         |
+   |        ·                     ·         |
+   |        ·                     ·         |
+   |        A ·  ·  ·  ·  ·  ·  · D         |
+   +---------------------------------------+
+  [cam]     front edge (near the camera)
+```
+
+| Time | Do | Why |
+|---|---|---|
+| Before pressing | Stand at **A**: about 1 m in from the front edge, a third of the way across from the camera's side. Face the camera, arms relaxed. Check the Real camera view shows your head and hips | A is the nearest spot where you're still fully in frame |
+| 0–4 s | Press **1 · Calibrate: walk**, then walk straight away from the camera from **A to B** (about 1 m from the back edge). Slow, normal steps | The near-to-far stretch: this is what pins down height and tilt |
+| 4–5 s | Pause at **B** for about one second, standing straight | A clean upright frame at the far end |
+| 5–8 s | Walk sideways across the back from **B to C**, about two-thirds of the way across | Side-to-side coverage, at a distance |
+| 8–12 s | Walk towards the camera from **C to D**, and stop at **D** until it finishes | A second near-to-far stretch, on the other side |
+
+That's about 6–7 m in 12 s, a slow walk.
+
+**While walking:**
+- **Face the camera or turn sideways; don't walk with your back to it.** With your back to it, poseNet finds no eyes or nose, only ears, which are less reliable.
+- **Stay upright.** Don't bend, crouch, lean, sit, or look at the floor. The maths assumes your head is at full standing height.
+- **Arms:** relaxed or swinging naturally; they're not used.
+- **Pace:** slow and steady. Fast walking blurs the joints, and a long stop wastes frames.
+- **Alone:** nobody else may walk through the view.
+
+**What success looks like:** *Camera set: 2.31 m up, tilted 31.4° (fit ±5 px, 64 frames). Now step 2.*
+- **Frames:** usually 50–110 (about 10 per second while you're fully seen). Under 30 means you were often partly out of view, so redo it closer to the middle.
+- **Fit:** under about 8 px is good, 8–12 px is usable, and above 12 px is rejected.
+- **Sanity check:** the height should be close to how high you mounted the camera (±10 cm), and the tilt close to how far you tilted it. If the height is clearly wrong, check **Their height** first: an error there scales the camera height by the same proportion.
 
 What it checks, and what to do when it fails:
 
