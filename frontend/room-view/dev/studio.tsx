@@ -9,6 +9,8 @@ import {
   LIVE_APPEARANCE,
   LiveView3D,
   RoomView,
+  actionsFor,
+  describePick,
   websocketFeed,
   wsUrl,
   type ActorDetail,
@@ -17,6 +19,7 @@ import {
   type Lighting,
   type LivePerson,
   type Overlays,
+  type Pick,
   type ServerMessage,
 } from "../src";
 
@@ -165,6 +168,7 @@ function Studio() {
   const [hideTruth, setHideTruth] = useState(false);
   const [lighting, setLighting] = useState<Lighting>("day");
   const [detail, setDetail] = useState<ActorDetail | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; pick: Pick } | null>(null);
   const [fallMotion, setFallMotion] = useState<FallMotion | "">("");
   const [recover, setRecover] = useState(true);
 
@@ -286,7 +290,10 @@ function Studio() {
         e.preventDefault();
         togglePlay();
       } else if (e.key === "f" || e.key === "F") setCameraMode((m) => (m === "follow" ? "orbit" : "follow"));
-      else if (e.key === "Escape") setSelected(null);
+      else if (e.key === "Escape") {
+        if (menu) setMenu(null);
+        else setSelected(null);
+      }
       else if (e.key === "h" || e.key === "H") setHideTruth((h) => !h);
       else if (["1", "2", "3", "4"].includes(e.key)) setCameraMode((["orbit", "top", "camera", "follow"] as CameraMode[])[Number(e.key) - 1]);
     };
@@ -494,8 +501,30 @@ function Studio() {
       </aside>
 
       <main className="view">
-        <LiveView3D client={client} overlays={overlays} cameraMode={cameraMode} selected={selected} onSelect={setSelected}
+        <LiveView3D client={client} overlays={overlays} cameraMode={cameraMode} selected={selected}
+          onSelect={(id) => {
+            setMenu(null);
+            setSelected(id);
+          }}
+          onPick={(pick, at) => {
+            if (!selected || !world) return false;
+            setMenu({ ...at, pick });
+            return true;
+          }}
           alertPersonIds={alertPersonIds} hideTruth={hideTruth} lighting={lighting} />
+        {menu && selected && world && (
+          <div className="cmd-menu" style={{ left: menu.x, top: menu.y }}>
+            <div className="cmd-title">{selected.toUpperCase()} â†’ {describePick(menu.pick, world)}</div>
+            {actionsFor(menu.pick, world).map(([label, cmd]) => (
+              <button key={label} onClick={() => {
+                setMenu(null);
+                run(() => api(`/sim/live/actors/${selected}/command`, cmd));
+              }}>{label}</button>
+            ))}
+            {actionsFor(menu.pick, world).length === 0 && <div className="hint">Nothing to do here.</div>}
+            <button className="cancel" onClick={() => setMenu(null)}>Cancel</button>
+          </div>
+        )}
         <div className="overlay-bar">
           <div className="chips">
             {OVERLAY_NAMES.map(([k, name]) => (
@@ -527,6 +556,7 @@ function Studio() {
         <section>
           <h3>Inspector</h3>
           {!me && <p className="hint">Click a person in the room or the list to inspect them.</p>}
+          {me && me.kind !== "live" && <p className="hint">Click furniture or the floor to tell them what to do there.</p>}
           {me && me.kind === "live" && (
             <dl className="kv">
               <dt>Live person</dt>

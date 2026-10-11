@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hearth.eval.report import EvaluationReport
 from hearth.sim.controller import ScenarioInfo, SimController, SimStatus
 from hearth.sim.generate import GenSpec, generate
+from hearth.sim.live.commands import ActorCommand, CommandError
 from hearth.sim.live.controller import LiveController
 from hearth.sim.live.incidents import IncidentError, IncidentRecord
 from hearth.sim.live.models import ActorDetail, LiveActorInfo, LiveStatus, LiveWorld
@@ -194,6 +195,21 @@ def _live_routes(router: APIRouter, scripted: SimController, live: LiveControlle
             return live.reset_actor(person_id)
         except KeyError:
             raise HTTPException(404, f"no resident {person_id!r}") from None
+
+    @router.post("/live/actors/{person_id}/command", response_model=ActorDetail, tags=["live simulation"])
+    async def live_command(person_id: str, body: ActorCommand) -> ActorDetail:
+        """Have a resident sit or lie on a slot, or go, kneel, pick something up or fall at a
+        floor point, now. Their plan is replaced; afterwards they carry on as usual."""
+        need_world()
+        assert live.world is not None
+        if person_id not in {a.person_id for a in live.world.actors}:
+            raise HTTPException(404, f"no resident {person_id!r}")
+        try:
+            return live.command(person_id, body)
+        except KeyError:
+            raise HTTPException(404, f"no slot {body.slot_id!r}") from None
+        except CommandError as exc:
+            raise HTTPException(409, str(exc)) from None
 
     @router.post("/live/incidents", response_model=IncidentRecord, tags=["live simulation"])
     async def live_incident(body: IncidentSpec) -> IncidentRecord:

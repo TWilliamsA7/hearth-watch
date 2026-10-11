@@ -1,5 +1,65 @@
 {
   "$defs": {
+    "ActorCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "go",
+            "sit",
+            "lie",
+            "kneel",
+            "pick_up",
+            "fall"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "slot_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "sit, lie: which slot (LiveWorld.slots).",
+          "title": "Slot Id"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Other actions: the floor point (x, z) to do it at.",
+          "title": "At"
+        }
+      },
+      "required": [
+        "action",
+        "slot_id",
+        "at"
+      ],
+      "title": "ActorCommand",
+      "type": "object"
+    },
     "ActorDetail": {
       "additionalProperties": false,
       "properties": {

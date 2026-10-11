@@ -13,6 +13,7 @@ from pathlib import Path
 
 from hearth.eval.report import EvaluationReport, EvaluationSummary, StudyReport
 from hearth.sim.controller import ScenarioInfo, SimStatus, TruthNow
+from hearth.sim.live.commands import ActorCommand
 from hearth.sim.live.incidents import IncidentRecord
 from hearth.sim.live.models import ActorDetail, LiveFrame, LiveStatus, LiveWorld
 from hearth.sim.live.spec import EngineSpec, IncidentSpec
@@ -23,7 +24,7 @@ from pydantic.json_schema import models_json_schema
 
 OUT = Path(__file__).resolve().parents[1] / "schema" / "sim.schema.json"
 MODELS = [Scene, RunInfo, ScenarioInfo, SimStatus, TruthNow, WorldTrack, EvaluationReport, EvaluationSummary, StudyReport,
-          EngineSpec, IncidentSpec, IncidentRecord, LiveWorld, LiveFrame, LiveStatus, ActorDetail]
+          EngineSpec, IncidentSpec, IncidentRecord, LiveWorld, LiveFrame, LiveStatus, ActorDetail, ActorCommand]
 
 
 def main() -> None:

@@ -12,7 +12,10 @@ export { LiveView3D, DEFAULT_OVERLAYS, LIVE_APPEARANCE, type CameraMode, type Li
 export { LiveClient, wsUrl, type LiveSample } from "./live";
 export { buildRoom3D, roomBounds, setupRenderer, type Lighting, type Room3D } from "./room3d";
 export { buildFurniture } from "./furniture3d";
+export { buildFurnitureDebug, type FurnitureDebug } from "./furnitureDebug";
+export { actionsFor, describePick, nearestSlot, type Pick } from "./pick";
 export type { Appearance } from "./scene3d";
 export type {
-  ActorDetail, EngineSpec, IncidentRecord, IncidentSpec, LiveActorInfo, LiveFrame, LivePerson, LiveStatus, LiveWorld,
+  ActorCommand, ActorDetail, EngineSpec, IncidentRecord, IncidentSpec, LiveActorInfo, LiveFrame, LivePerson, LiveSlot, LiveStatus,
+  LiveWorld,
 } from "./generated/sim";

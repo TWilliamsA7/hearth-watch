@@ -1,6 +1,7 @@
 /* Generated from backend/schema/sim.schema.json by scripts/gen-types.mjs. Do not edit. */
 
 export interface HearthSimApi {
+  ActorCommand?: ActorCommand;
   ActorDetail?: ActorDetail;
   AlertResult?: AlertResult;
   CameraSpec?: CameraSpec;
@@ -42,6 +43,21 @@ export interface HearthSimApi {
   WorldRoute?: WorldRoute;
   WorldTrack?: WorldTrack;
   WorldWindow?: WorldWindow;
+}
+/**
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "ActorCommand".
+ */
+export interface ActorCommand {
+  action: "go" | "sit" | "lie" | "kneel" | "pick_up" | "fall";
+  /**
+   * sit, lie: which slot (LiveWorld.slots).
+   */
+  slot_id: string | null;
+  /**
+   * Other actions: the floor point (x, z) to do it at.
+   */
+  at: [number, number] | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
