@@ -430,3 +430,36 @@ Compare the two runs' validation cut-off tables (floor caught first), keep the b
 4. Training: this retrains from scratch on the new split. The old `posture_mlp.pt` gets replaced.
 
 Leave `06_train.py --final-test` until you've finished changing things.
+
+## Close-up fine-tune, run 3 and next (2026-10-10)
+
+Run 3 (three crop kinds, `--floor-penalty 5`, out `model_closeup2.pt`) kept nothing:
+
+| epoch | floor caught (start 93.1%) | should-be-unsure close-ups -> unknown | lying close-ups -> floor |
+|---|---|---|---|
+| 1 | 91.8% | 33% | 94% |
+| 4 | 92.9% | 49% | 96% |
+| 10 | 91.8% | 80% | 93% |
+
+- The head-only and legs-only crops are harder, so the close-up score climbs more slowly (80%
+  after 10 epochs, against 85% before). Floor caught hovers at 91.7-92.9%, just under the bar.
+- The bar is now the problem, not the model: epoch 4 missed by 0.2 points, about 4 of 2,062
+  floor frames, which is noise (retraining with different random batches moves floor caught
+  more than that). A drop of up to half a point (~10 frames) counts as "the same".
+- Honesty note: `stand-...053107` and `walk-...034202` were used to design the crops, so our
+  recordings are no longer a fully independent field test; they are part of development. The
+  locked test set is the only unbiased number left.
+
+Next run: stronger floor protection, a fair tolerance, more epochs for the slower close-ups:
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-penalty 10 --floor-tolerance 0.5 --epochs 15 --out D:\hearth-data\model_closeup3.pt
+```
+
+- `--floor-penalty 10`: calling a real floor frame "unsure" costs 11x more.
+- `--floor-tolerance 0.5`: an epoch is safe if floor caught is at least 92.6%.
+- Among safe epochs it keeps the one that says "unknown" to the most close-ups.
+
+Check in the field test: `stand-...053107` -> `?` instead of `F`; `walk-...034202` -> not `F`;
+lie-downs still `F`. If it still keeps nothing, `model_closeup.pt` (run 2) is the fallback: it
+passed the strict rule and improved floor caught; its gaps are head-only and legs-only framing.
