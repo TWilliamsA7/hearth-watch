@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LiveClient } from '@hearth/room-view';
-import { ensureLiveRoom, liveCommand, liveSocketUrl } from './liveSimulation';
+import { ensureLiveRoom, generateLiveRoom, liveCommand, liveSocketUrl, type RoomSettings } from './liveSimulation';
 
 export function useLiveSimulation(base: string | null) {
   const [session, setSession] = useState<{ base: string; client: LiveClient } | null>(null);
@@ -50,5 +50,14 @@ export function useLiveSimulation(base: string | null) {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
-  return { client, ready, state, error, busy, selected, setSelected, command, retry: () => setRetry(value => value + 1) };
+  async function generate(settings: RoomSettings, play: boolean) {
+    if (!base || !client?.connected || busy) return;
+    setBusy(true); setError('');
+    try {
+      await generateLiveRoom(base, settings, play, client.world?.spec);
+      setSelected(null);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return { client, ready, state, error, busy, selected, setSelected, command, generate, retry: () => setRetry(value => value + 1) };
 }

@@ -7,8 +7,8 @@ export function websocketUrl(base: string): string {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
-export async function request<T>(base: string, path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(new URL(path, base), { ...options, signal: AbortSignal.timeout(5000) });
+export async function request<T>(base: string, path: string, options?: RequestInit, timeoutMs = 5000): Promise<T> {
+  const response = await fetch(new URL(path, base), { ...options, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`Backend request failed (${response.status}).${response.status === 404 ? ' This endpoint may not be mounted yet.' : ''}`);
   return response.json() as Promise<T>;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ensureLiveRoom, liveCommand, liveSocketUrl } from './liveSimulation.ts';
+import { DEFAULT_ROOM_SETTINGS, ensureLiveRoom, generateLiveRoom, liveCommand, liveSocketUrl } from './liveSimulation.ts';
 
 test('live socket uses the selected backend and supports HTTPS', () => {
   assert.equal(liveSocketUrl('http://127.0.0.1:8000'), 'ws://127.0.0.1:8000/sim/live/ws');
@@ -37,5 +37,32 @@ test('failed startup can be retried and commands report backend errors', async (
     await assert.rejects(liveCommand('http://127.0.0.1:8000', 'incidents', { kind: 'fall' }), /404/);
     globalThis.fetch = async () => new Response(JSON.stringify({ state: 'playing' }));
     await ensureLiveRoom('http://127.0.0.1:8000');
+  } finally { globalThis.fetch = original; }
+});
+
+test('room generation sends edited environment settings and preserves paused versus playing intent', async () => {
+  const original = globalThis.fetch;
+  const calls: { url: string; body: any }[] = [];
+  globalThis.fetch = async (input, options) => {
+    calls.push({ url: String(input), body: JSON.parse(String(options?.body)) });
+    return new Response('{}');
+  };
+  try {
+    const settings = {
+      ...DEFAULT_ROOM_SETTINGS, seed: 42, actors: 3, width: 8, depth: 5, furniture: 0.25,
+      camera: 'corner_right' as const, cameraHeight: 2.8, tilt: 20, fov: 70,
+      lighting: 'evening' as const, activity: 2, social: 0.5,
+    };
+    await generateLiveRoom('http://127.0.0.1:8001', settings, false);
+    await generateLiveRoom('http://127.0.0.1:8001', settings, true);
+    assert.equal(calls[0].url, 'http://127.0.0.1:8001/sim/live/new');
+    assert.equal(calls[0].body.play, false);
+    assert.equal(calls[1].body.play, true);
+    assert.equal(calls[0].body.seed, 42);
+    assert.deepEqual(calls[0].body.spec, {
+      actors: 3, room: { width: 8, depth: 5, furniture_density: 0.25 },
+      camera: { preset: 'corner_right', height: 2.8, tilt: 20, fov: 70 },
+      lighting: 'evening', activity_frequency: 2, social_frequency: 0.5,
+    });
   } finally { globalThis.fetch = original; }
 });

@@ -108,6 +108,8 @@ In another terminal, run `npm.cmd install` then `npm.cmd run dev -- --strictPort
 
 Click a resident to select them, drag to orbit, and scroll to zoom. **Simulate fall** triggers a fall for the selected resident, or lets the engine choose; recovery occurs after 30 seconds on the floor. **Reset** resets the same room and resumes playback. **Play/Pause** controls the live engine.
 
+Open **Room settings** beside Play/Pause to edit the seed, residents, room width and depth, furniture density, camera location and height, field of view, lighting, activity, and socialising. Jetson camera presets also expose tilt and default to the C270's 43° field of view. **Generate room** replaces the current room and starts playback; **Generate paused** creates it without starting playback. Settings initially reflect the current run, and edits apply when you generate.
+
 The main feed shows simulated world positions. The skeleton, measurements, events, and incident alerts still come from the monitoring feed and may differ from ground truth. Live camera and Recorded replay retain their observation views. Scripted scenario controls remain separate: playing a scripted scenario pauses the live room, and its Play button resumes it.
 
 The backend must remain running. If it is unavailable, the main feed shows a disconnected state and reconnects automatically. Use **Retry connection** after a request failure. WebGL 2 and browser hardware acceleration are required for the 3D view. The mannequin asset and its license are bundled locally in `room-view/assets/models`.

@@ -5,6 +5,7 @@ import { sourceKey, visibleObservations, type SourceMode } from './feedState';
 import { acknowledgeAlert } from './api';
 import { useLiveSimulation } from './useLiveSimulation';
 import LiveSimulationView from './LiveSimulationView';
+import RoomSettingsPanel from './RoomSettingsPanel';
 import { useRoomFeed } from './useRoomFeed';
 import RoomView from './RoomView';
 import SimulatorPanel from './SimulatorPanel';
@@ -102,7 +103,7 @@ export default function App() {
           <div className="room-stage">{base && mode === 'simulation'
             ? <LiveSimulationView simulation={simulation} alertPersonIds={alerts.flatMap(alert => 'person_id' in alert && typeof alert.person_id === 'string' ? [alert.person_id] : [])} />
             : <RoomView observations={observations} illustrated={!base} />}</div>
-          {base && mode === 'simulation' && <div className="simulation-controls"><button disabled={!simulation.ready || simulation.busy} onClick={() => simulation.command('toggle')}>{simulation.state === 'playing' ? 'Pause' : 'Play'}</button><span className="small">Simulated world view · monitoring panels show camera observations</span></div>}
+          {base && mode === 'simulation' && <div className="simulation-controls"><button disabled={!simulation.ready || simulation.busy} onClick={() => simulation.command('toggle')}>{simulation.state === 'playing' ? 'Pause' : 'Play'}</button><RoomSettingsPanel simulation={simulation} /><span className="small">Simulated world view · monitoring panels show camera observations</span></div>}
 
 
         </section>
