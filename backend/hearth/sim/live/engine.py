@@ -48,7 +48,10 @@ from hearth.sim.live.models import (
     LiveAppearance,
     LiveConversation,
     LiveFrame,
+    LiveNav,
     LivePerson,
+    LivePlace,
+    LiveSlot,
     LiveState,
     LiveWorld,
 )
@@ -306,11 +309,31 @@ class World:
             conversations=[LiveConversation(conv_id=c.conv_id, members=list(c.members), centre=_r2(c.centre))
                            for c in self.social.conversations.values()],
             incidents=self.incidents.active(),
+            slots_taken={s.slot_id: s.occupant for s in self.room.slots if s.occupant},
         )  # fmt: skip
 
     def live_world(self, run_id: str) -> LiveWorld:
         return LiveWorld(run_id=run_id, scenario_id=self.scenario_id, seed=self.seed, spec=self.spec,
-                         room=self.world_room(), scene=self.scene(), actors=[self.info(a) for a in self.actors])  # fmt: skip
+                         room=self.world_room(), scene=self.scene(), actors=[self.info(a) for a in self.actors],
+                         slots=self.live_slots(), places=[LivePlace(name=p.name, at=_r2(p.at), heading=round(p.heading, 4))
+                                                         for p in self.room.places],
+                         nav=self.live_nav())  # fmt: skip
+
+    def live_slots(self) -> list[LiveSlot]:
+        out = []
+        for s in self.room.slots:
+            sit = s.kind == "sit"
+            approach = self.room.approach(s, PERSON_HEIGHT_M) if sit else None
+            out.append(LiveSlot(slot_id=s.slot_id, piece=s.piece, kind=s.kind, at=_r2(s.at), heading=round(s.heading, 4),
+                                height=s.seat if sit else self.room.pieces[s.piece].kind.surface, group=s.group,
+                                stand=_r2(s.stand_point(PERSON_HEIGHT_M)) if sit else None,
+                                approach=_r2(approach) if approach else None))  # fmt: skip
+        return out
+
+    def live_nav(self) -> LiveNav:
+        nav = self.room.nav
+        rows = ["".join("0" if nav.free(nav._centre((i, j))) else "1" for i in range(nav.nx)) for j in range(nav.nz)]
+        return LiveNav(cell=nav.cell, origin=_r2((nav.x_min, nav.z_min)), cols=nav.nx, rows=rows)
 
     def detail(self, person_id: str) -> ActorDetail:
         a = self.actor(person_id)

@@ -244,3 +244,32 @@ def test_scheduled_incidents_fire_on_time() -> None:
     assert not w.incidents.records
     w.advance(1.0)
     assert [r.source for r in w.incidents.records] == ["scheduled"]
+
+
+def test_the_live_world_lists_its_slots_places_and_walkable_floor() -> None:
+    w = World(EngineSpec(actors=3), 4)
+    lw = w.live_world("run")
+    assert {s.slot_id for s in lw.slots} == {s.slot_id for s in w.room.slots}
+    for s in lw.slots:
+        assert 0 <= s.piece < len(lw.room.objects)
+        obj = lw.room.objects[s.piece]
+        assert s.height == (obj.seat_height if s.kind == "sit" else obj.surface_height)
+        if s.kind == "sit":
+            assert s.stand is not None and s.approach is not None
+    assert {p.name for p in lw.places} >= {"middle", "door"}
+    nav = lw.nav
+    assert nav is not None and len(nav.rows) > 10 and all(len(r) == nav.cols for r in nav.rows)
+    blocked = sum(r.count("1") for r in nav.rows)
+    assert 0 < blocked < nav.cols * len(nav.rows)
+    # Every place is on walkable floor.
+    for p in lw.places:
+        i, j = round((p.at[0] - nav.origin[0]) / nav.cell), round((p.at[1] - nav.origin[1]) / nav.cell)
+        assert nav.rows[j][i] == "0", p
+
+
+def test_frames_say_who_holds_which_slot() -> None:
+    w = World(EngineSpec(actors=4), 4)
+    w.advance(1)
+    taken = w.frame().slots_taken
+    assert taken == {s.slot_id: s.occupant for s in w.room.slots if s.occupant}
+    assert set(taken.values()) <= {a.person_id for a in w.actors}

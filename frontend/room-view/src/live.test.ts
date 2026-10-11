@@ -12,7 +12,7 @@ function person(id: string, x: number, label = "walking"): LivePerson {
 }
 
 function frame(t: number, people: LivePerson[], state: LiveFrame["state"] = "playing"): LiveFrame {
-  return { t, state, speed: 1, people, conversations: [], incidents: [] };
+  return { t, state, speed: 1, people, conversations: [], incidents: [], slots_taken: {} };
 }
 
 describe("LiveClient", () => {

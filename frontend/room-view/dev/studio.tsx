@@ -26,7 +26,7 @@ const ROOM_ID = "room-01";
 const OVERLAY_NAMES: [keyof Overlays, string][] = [
   ["ids", "Tags"], ["activity", "Activity"], ["paths", "Paths"], ["destinations", "Destinations"],
   ["conversations", "Conversations"], ["space", "Personal space"], ["fov", "Camera FOV"],
-  ["visibility", "Camera visibility"], ["incidents", "Incidents"],
+  ["visibility", "Camera visibility"], ["incidents", "Incidents"], ["slots", "Furniture slots"], ["nav", "Walkable floor"],
 ];
 
 async function api<T>(path: string, body?: unknown): Promise<T> {

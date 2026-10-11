@@ -73,6 +73,44 @@ class LiveFrame(_Model):
     people: list[LivePerson]
     conversations: list[LiveConversation]
     incidents: list[IncidentRecord] = Field(description="Incidents in progress.")
+    slots_taken: dict[str, str] = Field(
+        default_factory=dict, description="slot_id -> person_id: who is sitting or lying there, or on their way."
+    )
+
+
+class LiveSlot(_Model):
+    """Somewhere on a piece of furniture to sit or lie (debug overlays, commands)."""
+
+    slot_id: str
+    piece: int = Field(description="Index into room.objects.")
+    kind: Literal["sit", "lie"]
+    at: tuple[float, float] = Field(description="Floor (x, z) under where the person's hips go.")
+    heading: float = Field(description="Sitting: the way they face. Lying: from head to feet.")
+    height: float = Field(description="Metres: top of the seat or lying surface.")
+    group: str = Field(description="Slots in one group can't be used at once (a couch's seats and its lying slot).")
+    stand: tuple[float, float] | None = Field(
+        default=None, description="Sit slots: where someone of average height stands just before sitting."
+    )
+    approach: tuple[float, float] | None = Field(
+        default=None, description="Sit slots: the open floor they walk to, turn round at, and step back from."
+    )
+
+
+class LivePlace(_Model):
+    """Somewhere to stand on purpose: by a window, browsing a shelf, the open middle, a door."""
+
+    name: str
+    at: tuple[float, float]
+    heading: float
+
+
+class LiveNav(_Model):
+    """The floor people can walk on: a grid of body-centre positions, furniture grown by a body's radius."""
+
+    cell: float = Field(description="Metres between cell centres.")
+    origin: tuple[float, float] = Field(description="Floor (x, z) of cell (0, 0)'s centre.")
+    cols: int = Field(description="Cells along x.")
+    rows: list[str] = Field(description="One string per row along z (from origin): '1' = blocked, '0' = walkable.")
 
 
 class LiveWorld(_Model):
@@ -85,6 +123,9 @@ class LiveWorld(_Model):
     room: WorldRoom
     scene: Scene = Field(description="The furniture as the camera sees it, for the 2D camera view.")
     actors: list[LiveActorInfo]
+    slots: list[LiveSlot] = Field(default_factory=list)
+    places: list[LivePlace] = Field(default_factory=list)
+    nav: LiveNav | None = None
 
 
 class ActorDetail(_Model):

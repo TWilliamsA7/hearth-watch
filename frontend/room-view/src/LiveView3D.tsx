@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 import { DEFAULT_THEME, type Theme } from "./draw";
+import { buildFurnitureDebug, type FurnitureDebug } from "./furnitureDebug";
 import type { LivePerson } from "./generated/sim";
 import type { LiveClient } from "./live";
 import { createMannequinRig } from "./mannequin";
@@ -19,11 +20,13 @@ export interface Overlays {
   fov: boolean; // the simulated camera's field of view
   visibility: boolean; // fade people the camera can't see
   incidents: boolean;
+  slots: boolean; // where people sit and lie, and the way up to each seat
+  nav: boolean; // floor a body can't walk on
 }
 
 export const DEFAULT_OVERLAYS: Overlays = {
   ids: true, activity: true, paths: true, destinations: true, space: false, conversations: true, fov: true,
-  visibility: false, incidents: true,
+  visibility: false, incidents: true, slots: false, nav: false,
 };
 
 export type CameraMode = "orbit" | "top" | "camera" | "follow";
@@ -75,6 +78,7 @@ export function LiveView3D(props: LiveView3DProps) {
     controls.maxDistance = 25;
 
     let room: Room3D | null = null;
+    let debug: FurnitureDebug | null = null;
     let roomRev = -1;
     let roomLighting: Lighting | null = null;
     const rigs = new Map<string, PersonRig>();
@@ -200,6 +204,12 @@ export function LiveView3D(props: LiveView3DProps) {
           }
           rigs.clear();
           frameRoom();
+          if (debug) {
+            overlay.remove(debug.slots, debug.nav);
+            debug.dispose();
+          }
+          debug = buildFurnitureDebug(world);
+          overlay.add(debug.slots, debug.nav);
         }
         roomRev = p.client.revision;
         roomLighting = lighting;
@@ -311,6 +321,11 @@ export function LiveView3D(props: LiveView3DProps) {
       talk.geometry.setFromPoints(convPts);
       talk.visible = convPts.length > 0;
       if (room) room.frustum.visible = ov.fov;
+      if (debug) {
+        debug.slots.visible = ov.slots;
+        debug.nav.visible = ov.nav;
+        if (ov.slots) debug.update(sample.frame?.slots_taken ?? {});
+      }
 
       // Camera.
       const mode = p.cameraMode ?? "orbit";
@@ -361,6 +376,7 @@ export function LiveView3D(props: LiveView3DProps) {
       renderer.domElement.removeEventListener("click", onClick);
       for (const rig of rigs.values()) rig.dispose();
       room?.dispose();
+      debug?.dispose();
       controls.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);

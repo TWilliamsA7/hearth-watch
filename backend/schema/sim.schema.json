@@ -1056,6 +1056,14 @@
           },
           "title": "Incidents",
           "type": "array"
+        },
+        "slots_taken": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "slot_id -> person_id: who is sitting or lying there, or on their way.",
+          "title": "Slots Taken",
+          "type": "object"
         }
       },
       "required": [
@@ -1064,9 +1072,57 @@
         "speed",
         "people",
         "conversations",
-        "incidents"
+        "incidents",
+        "slots_taken"
       ],
       "title": "LiveFrame",
+      "type": "object"
+    },
+    "LiveNav": {
+      "additionalProperties": false,
+      "description": "The floor people can walk on: a grid of body-centre positions, furniture grown by a body's radius.",
+      "properties": {
+        "cell": {
+          "description": "Metres between cell centres.",
+          "title": "Cell",
+          "type": "number"
+        },
+        "origin": {
+          "description": "Floor (x, z) of cell (0, 0)'s centre.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "cols": {
+          "description": "Cells along x.",
+          "title": "Cols",
+          "type": "integer"
+        },
+        "rows": {
+          "description": "One string per row along z (from origin): '1' = blocked, '0' = walkable.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cell",
+        "origin",
+        "cols",
+        "rows"
+      ],
+      "title": "LiveNav",
       "type": "object"
     },
     "LivePerson": {
@@ -1256,6 +1312,153 @@
       "title": "LivePerson",
       "type": "object"
     },
+    "LivePlace": {
+      "additionalProperties": false,
+      "description": "Somewhere to stand on purpose: by a window, browsing a shelf, the open middle, a door.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "at": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "At",
+          "type": "array"
+        },
+        "heading": {
+          "title": "Heading",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "at",
+        "heading"
+      ],
+      "title": "LivePlace",
+      "type": "object"
+    },
+    "LiveSlot": {
+      "additionalProperties": false,
+      "description": "Somewhere on a piece of furniture to sit or lie (debug overlays, commands).",
+      "properties": {
+        "slot_id": {
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "piece": {
+          "description": "Index into room.objects.",
+          "title": "Piece",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "sit",
+            "lie"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "at": {
+          "description": "Floor (x, z) under where the person's hips go.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "At",
+          "type": "array"
+        },
+        "heading": {
+          "description": "Sitting: the way they face. Lying: from head to feet.",
+          "title": "Heading",
+          "type": "number"
+        },
+        "height": {
+          "description": "Metres: top of the seat or lying surface.",
+          "title": "Height",
+          "type": "number"
+        },
+        "group": {
+          "description": "Slots in one group can't be used at once (a couch's seats and its lying slot).",
+          "title": "Group",
+          "type": "string"
+        },
+        "stand": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sit slots: where someone of average height stands just before sitting.",
+          "title": "Stand"
+        },
+        "approach": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sit slots: the open floor they walk to, turn round at, and step back from.",
+          "title": "Approach"
+        }
+      },
+      "required": [
+        "slot_id",
+        "piece",
+        "kind",
+        "at",
+        "heading",
+        "height",
+        "group",
+        "stand",
+        "approach"
+      ],
+      "title": "LiveSlot",
+      "type": "object"
+    },
     "LiveStatus": {
       "additionalProperties": false,
       "properties": {
@@ -1364,6 +1567,31 @@
           },
           "title": "Actors",
           "type": "array"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/LiveSlot"
+          },
+          "title": "Slots",
+          "type": "array"
+        },
+        "places": {
+          "items": {
+            "$ref": "#/$defs/LivePlace"
+          },
+          "title": "Places",
+          "type": "array"
+        },
+        "nav": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveNav"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1373,7 +1601,10 @@
         "spec",
         "room",
         "scene",
-        "actors"
+        "actors",
+        "slots",
+        "places",
+        "nav"
       ],
       "title": "LiveWorld",
       "type": "object"

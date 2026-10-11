@@ -16,7 +16,10 @@ export interface HearthSimApi {
   LiveAppearance?: LiveAppearance;
   LiveConversation?: LiveConversation;
   LiveFrame?: LiveFrame;
+  LiveNav?: LiveNav;
   LivePerson?: LivePerson;
+  LivePlace?: LivePlace;
+  LiveSlot?: LiveSlot;
   LiveStatus?: LiveStatus;
   LiveWorld?: LiveWorld;
   Rate?: Rate;
@@ -549,6 +552,95 @@ export interface LiveFrame {
    * Incidents in progress.
    */
   incidents: IncidentRecord[];
+  /**
+   * slot_id -> person_id: who is sitting or lying there, or on their way.
+   */
+  slots_taken: {
+    [k: string]: string;
+  };
+}
+/**
+ * The floor people can walk on: a grid of body-centre positions, furniture grown by a body's radius.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveNav".
+ */
+export interface LiveNav {
+  /**
+   * Metres between cell centres.
+   */
+  cell: number;
+  /**
+   * Floor (x, z) of cell (0, 0)'s centre.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  origin: [number, number];
+  /**
+   * Cells along x.
+   */
+  cols: number;
+  /**
+   * One string per row along z (from origin): '1' = blocked, '0' = walkable.
+   */
+  rows: string[];
+}
+/**
+ * Somewhere to stand on purpose: by a window, browsing a shelf, the open middle, a door.
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LivePlace".
+ */
+export interface LivePlace {
+  name: string;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  at: [number, number];
+  heading: number;
+}
+/**
+ * Somewhere on a piece of furniture to sit or lie (debug overlays, commands).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveSlot".
+ */
+export interface LiveSlot {
+  slot_id: string;
+  /**
+   * Index into room.objects.
+   */
+  piece: number;
+  kind: "sit" | "lie";
+  /**
+   * Floor (x, z) under where the person's hips go.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  at: [number, number];
+  /**
+   * Sitting: the way they face. Lying: from head to feet.
+   */
+  heading: number;
+  /**
+   * Metres: top of the seat or lying surface.
+   */
+  height: number;
+  /**
+   * Slots in one group can't be used at once (a couch's seats and its lying slot).
+   */
+  group: string;
+  /**
+   * Sit slots: where someone of average height stands just before sitting.
+   */
+  stand: [number, number] | null;
+  /**
+   * Sit slots: the open floor they walk to, turn round at, and step back from.
+   */
+  approach: [number, number] | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
@@ -577,6 +669,9 @@ export interface LiveWorld {
   room: WorldRoom;
   scene: Scene;
   actors: LiveActorInfo[];
+  slots: LiveSlot[];
+  places: LivePlace[];
+  nav: LiveNav | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema
