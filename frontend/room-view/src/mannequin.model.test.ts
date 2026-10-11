@@ -37,6 +37,26 @@ describe("mannequin rig", () => {
     });
   }
 
+  it("stands on its feet: the feet land on the ankles, not above them", () => {
+    // Straight legs on the floor. (Older recordings' sitting pose has a stretched shin, which
+    // no rig of fixed bone lengths can follow.)
+    const legs = [["foot_l", "left_ankle", "left_hip"], ["foot_r", "right_ankle", "right_hip"]] as const;
+    let checked = 0;
+    for (const person of poses as unknown as WorldPerson[]) {
+      const body = mannequinBody(template, null);
+      body.update(person, { alert: false, theme: DEFAULT_THEME });
+      for (const [bone, kp, hip] of legs) {
+        const ankle = new THREE.Vector3(...person.joints[kp]);
+        if (ankle.y > 0.1 || ankle.distanceTo(new THREE.Vector3(...person.joints[hip])) < 0.47 * person.height) continue;
+        const at = body.object.getObjectByName(bone)!.getWorldPosition(new THREE.Vector3());
+        expect(Math.abs(at.y - ankle.y), `${bone} height vs ${kp}`).toBeLessThan(0.02);
+        checked++;
+      }
+      body.dispose();
+    }
+    expect(checked).toBeGreaterThan(2);
+  });
+
   it("keeps the same size through a walking cycle, though the gait stretches the legs", () => {
     const body = mannequinBody(template, null);
     const scales = (walking as unknown as WorldPerson[]).map((person) => {
