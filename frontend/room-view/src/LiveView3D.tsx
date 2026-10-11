@@ -45,6 +45,8 @@ export interface LiveView3DProps {
   onPick?: (pick: Pick, at: { x: number; y: number }) => boolean;
   /** person_ids with an open alert: drawn red. */
   alertPersonIds?: readonly string[];
+  /** Names for live people the camera recognized (person_id -> name), shown in their tag. */
+  liveNames?: Readonly<Record<string, string>>;
   /** Hide ground-truth activity labels (for blind demos). */
   hideTruth?: boolean;
   lighting?: Lighting;
@@ -269,7 +271,7 @@ export function LiveView3D(props: LiveView3DProps) {
         }
         const live = person.kind === "live";
         const tag = !ov.ids ? null
-          : live ? `LIVE · ${person.label}`
+          : live ? `${p.liveNames?.[id] ?? "LIVE"} · ${person.label}`
           : ov.activity && !p.hideTruth ? `${id.toUpperCase()} · ${person.incident ? person.incident.replace("_", " ") : person.activity}`
           : id.toUpperCase();
         rig.update(person, {

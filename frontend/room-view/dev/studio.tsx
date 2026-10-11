@@ -25,7 +25,7 @@ import {
   type Pick,
   type ServerMessage,
   type StudioSettings,
-  LIVE_SOURCES, liveName, modelText, type CalibrateResult, type LinkStatus,
+  LIVE_SOURCES, liveName, liveNames, modelText, type CalibrateResult, type LinkStatus,
 } from "../src";
 
 type FallMotion = "trip" | "faint" | "collapse" | "sit_miss" | "stand_up";
@@ -518,7 +518,7 @@ function Studio() {
       </aside>
 
       <main className="view">
-        <LiveView3D client={client} overlays={overlays} cameraMode={cameraMode} selected={selected}
+        <LiveView3D client={client} overlays={overlays} cameraMode={cameraMode} selected={selected} liveNames={liveNames(link)}
           onSelect={(id) => {
             setMenu(null);
             setSelected(id);

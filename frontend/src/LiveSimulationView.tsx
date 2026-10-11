@@ -18,14 +18,14 @@ function supportsWebGL() {
   catch { return false; }
 }
 
-export default function LiveSimulationView({ simulation, alertPersonIds }: {
-  simulation: ReturnType<typeof useLiveSimulation>; alertPersonIds: string[];
+export default function LiveSimulationView({ simulation, alertPersonIds, liveNames }: {
+  simulation: ReturnType<typeof useLiveSimulation>; alertPersonIds: string[]; liveNames?: Record<string, string>;
 }) {
   const [supported] = useState(supportsWebGL);
   const { client, ready, error, selected, setSelected } = simulation;
   return <div className="live-simulation">
     {supported && client && <RenderBoundary key={client.world?.run_id ?? 'loading'}>
-      <LiveView3D client={client} selected={selected} onSelect={setSelected} alertPersonIds={alertPersonIds} cameraMode="orbit" theme={ROOM_THEME} overlays={ROOM_OVERLAYS} />
+      <LiveView3D client={client} selected={selected} onSelect={setSelected} alertPersonIds={alertPersonIds} liveNames={liveNames} cameraMode="orbit" theme={ROOM_THEME} overlays={ROOM_OVERLAYS} />
     </RenderBoundary>}
     <span className="simulation-badge">SIMULATED · 3D ROOM</span>
     {!supported ? <div className="simulation-message" role="alert">The 3D room requires WebGL. Enable hardware acceleration in your browser and reload.</div>

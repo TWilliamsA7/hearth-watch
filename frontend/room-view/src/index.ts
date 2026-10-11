@@ -21,6 +21,6 @@ export type {
   LiveWorld,
 } from "./generated/sim";
 export {
-  LIVE_SOURCES, calibrationText, isLivePerson, linkStateText, liveName, modelText,
+  LIVE_SOURCES, calibrationText, isLivePerson, linkStateText, liveName, liveNames, livePersonName, modelText,
   type CalibrateResult, type LinkStatus, type LivePersonStatus, type ModelCall,
 } from "./link";

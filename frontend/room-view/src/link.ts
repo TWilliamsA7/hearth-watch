@@ -16,6 +16,10 @@ export interface LivePersonStatus {
   label: string | null;
   model: ModelCall | null;
   alert_open: boolean;
+  /** Their face matched an enrollment (Jetson face ID). */
+  recognized?: boolean;
+  /** Their enrolled name, when they agreed to be named. */
+  name?: string | null;
 }
 
 export interface LinkStatus {
@@ -55,6 +59,14 @@ export const liveName = (personId: string | null | undefined, source: string | u
   return track ? `LIVE ${track.toUpperCase()}` : "LIVE";
 };
 
+/** Their enrolled name when recognized and they agreed to it, else "LIVE P2". */
+export const livePersonName = (person: LivePersonStatus, source: string | undefined) =>
+  person.name ?? liveName(person.person_id, source);
+
+/** person_id -> name for everyone the link has recognized by name (for LiveView3D's liveNames). */
+export const liveNames = (link: LinkStatus | null | undefined): Record<string, string> =>
+  Object.fromEntries((link?.people ?? []).flatMap((p) => (p.name ? [[p.person_id, p.name]] : [])));
+
 /** "sitting 93%": what the camera's own posture model says. */
 export const modelText = (m: ModelCall | null | undefined) =>
   m ? `${m.label}${m.confidence != null ? ` ${Math.round(m.confidence * 100)}%` : ""}` : "—";
@@ -70,7 +82,7 @@ export function calibrationText(r: CalibrateResult): string {
 /** The link's state in a sentence. */
 export function linkStateText(link: LinkStatus): string {
   return link.state === "live" ? `In the room: ${link.people.filter((q) => q.state === "live").map((q) =>
-      `${link.people.length > 1 ? `${liveName(q.person_id, link.source)} ` : ""}${q.label ?? q.posture}${q.alert_open ? " (ALERT OPEN)" : ""}`).join(" · ")}`
+      `${link.people.length > 1 || q.name ? `${livePersonName(q, link.source)} ` : ""}${q.label ?? q.posture}${q.alert_open ? " (ALERT OPEN)" : ""}`).join(" · ")}`
     : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
     : link.state === "outside" ? "Outside the tracked area: step back inside the tape"
     : link.state === "off" ? "Not linked"

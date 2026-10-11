@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { isLivePerson, liveName, modelText, type ActorDetail, type LinkStatus } from '@hearth/room-view';
+import { isLivePerson, liveName, livePersonName, modelText, type ActorDetail, type LinkStatus } from '@hearth/room-view';
 import type { Alert } from './generated/contract';
 import type { RoomObservation } from './protocol';
 import type { SourceMode } from './feedState';
@@ -27,9 +27,10 @@ export default function PersonInspector({ base, mode, simulation, link, people, 
     if (isLivePerson(picked)) {
       const me = link?.people.find(person => person.person_id === picked);
       return <section className="inspector" aria-label="Selected person">
-        <Heading name={liveName(picked, link?.source)} onClear={() => simulation.setSelected(null)} />
+        <Heading name={me ? livePersonName(me, link?.source) : liveName(picked, link?.source)} onClear={() => simulation.setSelected(null)} />
         <dl className="facts">
           <Fact term="Seen by" value={`${link?.source ?? 'live camera'} · a real person, not simulated`} />
+          <Fact term="Identity" value={me?.name ? `Recognized: ${me.name}` : me?.recognized ? 'Recognized (not named: no consent)' : 'Not recognized'} />
           <Fact term="Monitor says" value={me ? `${me.label ?? '—'} (${me.posture ?? 'unknown'})` : '—'} />
           <Fact term="Camera's model" value={modelText(me?.model)} />
           <Fact term="Feed" value={me?.state ?? link?.state ?? '—'} />

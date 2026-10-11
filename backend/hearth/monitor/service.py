@@ -45,6 +45,9 @@ class MonitorService:
         # Optional incident metadata naming an observation's person, from identity the
         # server established itself (edge face templates); the observation cannot assert it.
         self.incident_labeler: Callable[[Observation], dict | None] | None = None
+        # Who an observation's person was recognized as (edge face templates), for display:
+        # {"recognized": bool, "name": str | None}; the name only with their consent to be named.
+        self.identity_of: Callable[[Observation], dict] | None = None
         # API control may explicitly pause a simulated observation clock.
         # Live producers always retain the usual stale-evidence behavior.
         self.observation_clock_paused: Callable[[SourceKey], bool] = lambda key: False

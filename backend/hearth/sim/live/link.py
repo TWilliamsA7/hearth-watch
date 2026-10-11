@@ -103,6 +103,8 @@ class LivePersonStatus(BaseModel):
     label: str | None = None
     model: LiveModelCall | None = Field(default=None, description="The camera's own posture model on them.")
     alert_open: bool = False
+    recognized: bool = Field(default=False, description="Their face matched an enrollment (Jetson face ID).")
+    name: str | None = Field(default=None, description="Their enrolled name, when they agreed to be named.")
 
 
 class LinkStatus(BaseModel):
@@ -126,6 +128,7 @@ class LiveTrack:
         self.track_id = track_id  # the camera's person_id; None for a one-person camera
         self.avatar = LiveAvatar(height)
         self.posture, self.label = "standing", "standing"
+        self.recognized, self.name = False, None  # from the monitor's face matching, if any
         self.model: LiveModelCall | None = None
         self.present = False  # in the room right now
         self.seen_at: float | None = None  # monitor clock when they were last made out
@@ -177,7 +180,8 @@ class LiveLink:
     def status(self) -> LinkStatus:
         people = [LivePersonStatus(person_id=self.person_id(t.track_id), track_id=t.track_id, state=t.state(),
                                    posture=t.posture if t.present else None, label=t.label if t.present else None,
-                                   model=t.model, alert_open=t.track_id in self.alerts)
+                                   model=t.model, alert_open=t.track_id in self.alerts,
+                                   recognized=t.recognized, name=t.name)
                   for _, t in sorted(self.tracks.items(), key=lambda kv: _order(kv[0]))]  # fmt: skip
         state: Literal["off", "waiting", "live", "stale", "outside"]
         if not self.enabled:
@@ -295,6 +299,8 @@ class LiveLink:
             track.seen_at = now
             posture, track.label = self._monitor_posture(obs, track)
             track.model = model_call(obs)
+            identity = self.monitor.identity_of(obs) if self.monitor.identity_of else {}
+            track.recognized, track.name = bool(identity.get("recognized")), identity.get("name")
             new = obs.obs_id != track.last_obs_id
             track.last_obs_id = obs.obs_id
             self._place(w, track, now, [(k.name, k.x, k.y) for k in obs.keypoints] if new else None, posture)

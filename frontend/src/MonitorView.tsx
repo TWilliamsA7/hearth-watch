@@ -14,6 +14,7 @@ import CameraOverlay from './CameraOverlay';
 import SourceHealth from './SourceHealth';
 import Popover from './Popover';
 import { peopleInView } from './people';
+import { liveNames } from '@hearth/room-view';
 import { kindLabel, sourceTypeLabels } from './alertText';
 
 export const sourceLabels: Record<SourceMode, string> = { simulation: 'Simulation', edge: 'Live camera', replay: 'Recorded replay' };
@@ -47,7 +48,10 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
         <span className={`feed-mode ${connected ? '' : 'off'}`}>{room} · {connected ? 'Connected' : 'Disconnected'}</span>
       </div>
       <div className="room-stage">{simulating
-        ? <LiveSimulationView simulation={simulation} alertPersonIds={alerts.flatMap(alert => alert.status !== 'resolved' && typeof alert.metadata.person_id === 'string' ? [alert.metadata.person_id] : [])} />
+        ? <LiveSimulationView simulation={simulation} liveNames={liveNames(live.link)}
+            alertPersonIds={alerts.flatMap(alert => alert.status !== 'resolved' && typeof alert.metadata.person_id === 'string'
+              // a linked camera's person appears in the room as live-<source>-<track>
+              ? [alert.source === live.link?.source && live.link?.enabled ? `live-${alert.source}-${alert.metadata.person_id}` : alert.metadata.person_id] : [])} />
         : mode === 'edge' ? <LiveCameraView base={base} room={room} source={activeSource?.replace(/^edge:/, '') ?? ''} skeleton={<RoomView observations={shown} />} hasPeople={people.length > 0}
             overlay={activeSource?.includes('fall-model') ? undefined : (w, h) => <CameraOverlay width={w} height={h} observations={shown} alerts={alerts} />} />
         : <>{!keys.length && <div className="simulation-message" role="status"><p>No recorded replay is playing. Start one with <code>scripts/start.ps1 -Replay</code>.</p></div>}<RoomView observations={shown} /></>}</div>

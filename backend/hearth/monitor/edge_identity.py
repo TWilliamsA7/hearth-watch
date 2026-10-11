@@ -49,6 +49,7 @@ class EdgeIdentities:
         monitor.observation_listeners.append(self.observe)
         monitor.event_listeners.append(self.source_event)
         monitor.incident_labeler = self.label
+        monitor.identity_of = self.identity
 
     @staticmethod
     def key(record):
@@ -111,6 +112,17 @@ class EdgeIdentities:
             return {"status": "confirming", "matches": count}
         return {"status": "recognized", "matches": count, "similarity": round(score, 3),
                 "profile": self.faces.public(record), "room_id": item.room_id, "show_name": named["show"]}
+
+    def identity(self, obs) -> dict:
+        """Whether this observation's person is recognized now, and their name if they agreed to be named."""
+        if obs.source_type != "edge" or obs.person_id is None:
+            return {"recognized": False, "name": None}
+        state = self.tracks.get(self.key(obs))
+        named = state and state["named"]
+        now = self.faces.clock()
+        if not named or named["until"] <= now or named["expires_at"] <= now:
+            return {"recognized": False, "name": None}
+        return {"recognized": True, "name": named["alias"] if named["show"] else None}
 
     def label(self, obs):
         """Incident metadata naming this observation's person, or None."""

@@ -118,7 +118,7 @@ export default function RecognitionView({ room }: { room: string }) {
   return <div className="page recognition-page">
     <section className="card">
       <div className="section-heading"><h2>Resident recognition</h2><span className={`status ${ready ? '' : 'unknown'}`}><span className="tiny-dot" />{ready ? 'Ready' : 'Unavailable'}</span></div>
-      <p>Optional. Enrolled residents can be named on possible-fall and camera help-signal alerts, if they also agree to that. Alerts work the same without it.</p>
+      <p>Optional. Enroll here on this laptop; the Jetson camera then recognizes enrolled people (three matching face checks) and, if they agreed to be named, shows their name on their alerts and on their figure in the simulated room (Live people). Alerts work the same without it.</p>
       {status && !ready && <p role="alert" className="error">{status.message}</p>}
       {!status && <p className="small">Checking setup…</p>}
     </section>
@@ -138,7 +138,7 @@ export default function RecognitionView({ room }: { room: string }) {
         <h2>Enroll a resident</h2>
         <label>Resident's name<input maxLength={40} value={name} onChange={e => setName(e.target.value)} /></label>
         <label className="consent"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} /> The resident in front of the camera has agreed to face recognition.</label>
-        <label className="consent"><input type="checkbox" checked={identifyAlerts} onChange={e => setIdentifyAlerts(e.target.checked)} /> They have also agreed to be named on their alerts.</label>
+        <label className="consent"><input type="checkbox" checked={identifyAlerts} onChange={e => setIdentifyAlerts(e.target.checked)} /> They have also agreed to be named: on their alerts, and in the room view when the Jetson recognizes them.</label>
         <button className="go" disabled={!streaming || busy || !consent || !name.trim()} onClick={() => void enroll()}>Capture 3 views and enroll</button>
         <p className="small">Frames are processed in memory and not saved. Enrollments are encrypted and expire after 24 hours.</p>
         <h2>Enrolled · {profiles.length}</h2>
