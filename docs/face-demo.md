@@ -60,7 +60,27 @@ Use `--camera 1` if the Logitech USB camera is device 1. The same script can tes
 
 This is a conservative single-person demo association, not a validated multi-person tracker. Changes in posture, lighting, or box size can deliberately cause the name to be dropped. A person swapping into a similar body box is an unresolved limitation; do not present this as reliable crowded-room identification. Fall alerts continue without a name when recognition is unavailable.
 
-## Logitech camera on Jetson later
+## Named alerts from the Jetson camera (several people)
+
+The Jetson computes each person's face template itself and sends only that, never frames. See [the integration contract](recognition-integration.md#jetson-face-templates-implemented-after-merging-multi-person-tracking).
+
+1. On the laptop, choose a token and start the backend with it, as well as the key from above:
+
+```powershell
+$env:HEARTH_EDGE_FACE_TOKEN = (& .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))").Trim()
+.\.venv\Scripts\python.exe -m uvicorn hearth.api.app:app --host 0.0.0.0 --port 8000
+```
+
+2. Enroll at `http://127.0.0.1:8000/face-check-in` **on the laptop** (enrollment stays loopback-only) and select **Also show my demo name**.
+3. On the Jetson, once: `bash ~/hearth-watch/edge/tools/get_face_id_model.sh`. Then put the same token in a file readable only by you, and run:
+
+```bash
+python3 run_edge.py --face-id --face-id-token-file ~/.hearth-face-token
+```
+
+4. Face the camera from close enough that your eyes are at least 20 px apart in the frame. The status line counts face templates. A nurse's possible-fall alert for that person then reads **Possible fall · <alias>**, while other people's alerts stay unnamed.
+
+## Logitech camera on Jetson (earlier notes)
 
 The camera is just the video source. The laptop implementation sends the exact frame used by the posture model to a **local** recognition endpoint; the backend runs YuNet/SFace and attaches the verified identity to that observation's incident. It does not identify people by room alone or reuse the last name seen by an unrelated camera.
 

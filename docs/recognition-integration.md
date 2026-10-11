@@ -61,7 +61,20 @@ Face inference and enrollment extraction run on a worker thread. A lock prevents
 4. On congestion, failure, or unknown body count, retain normal unnamed observation/heartbeat delivery. Face matching must not stop fall detection.
 5. Add authenticated encrypted transport or a compatible on-device runtime, then test camera reconnects, tracking changes, lying down, and performance on the actual Jetson.
 
-No changes to `edge/` were made in this monitoring-only integration review.
+No changes to `edge/` were made in this monitoring-only integration review. The section below supersedes steps 1-5 for multi-person Jetson sources.
+
+## Jetson face templates (implemented after merging multi-person tracking)
+
+The frame-bridge design above was replaced by computing the face template **on the Jetson** and sending only that. No frames or face crops leave the device, so edge's "no raw frames" statement still holds. The template is still pseudonymous biometric data.
+
+- **Compute only when useful.** The existing res10 check takes each tracked person's head box in turn (`edge/hearth_edge/face_id.py`, `FaceTurns`). SFace runs only when res10 finds a face whose centre is inside that head box, and poseNet has that person's eyes and nose at least `FACE_ID_MIN_EYE_PX` (20 px) apart. SFace is the laptop's own pinned model and checksum, built for TensorRT FP16 (`edge/tools/get_face_id_model.sh`). It is aligned with those three keypoints and no landmark model. `edge/tools/face_id_agreement.py` measured 0.78-0.86 against laptop five-point enrollment on a real photo with 4 px keypoint jitter (threshold 0.55). A 12 px-eye face fell apart under jitter, which is why the minimum exists.
+- **Transport.** `POST /face-demo/edge-embeddings` receives `{detector:"res10+sface", source, room_id, run_id?, person_id, obs_id, timestamp, face_box, embedding[128]}` (`backend/hearth/monitor/edge_identity.py`, `EdgeFaceTemplate`). The Jetson is not on loopback, so this one route takes `Authorization: Bearer $HEARTH_EDGE_FACE_TOKEN` instead (constant-time comparison; refused with any `Origin` header, closed when the token is unset or empty). All other face-demo routes stay loopback-only, and the token does not open them. Plain HTTP over the USB link: the token and templates are not encrypted in transit.
+- **Identity per track.** A name belongs to `(room, source, run_id, person_id)`. It needs three consecutive matches within 3 s, and an unknown or ambiguous face clears it. It lasts 8 s after the last match. Any of these ends it: the person's "not detected" end observation, the source going offline, withdrawal or enrollment change, or expiry. One enrollment names at most one live track; two tracks matching the same face both lose it. Templates must belong to a person whose latest observation is within one observation gap.
+- **Labelling.** `MonitorService.incident_labeler` adds `resident_label`, `patient_profile_id`, `identity_method: "edge_face_track"` and `identity_demo` to that person's `possible_fall` incident only. A hand-gesture help request stays anonymous, because the hand is not tied to a body here. Ordinary ingest still cannot assert a name: the label comes from server-side state.
+- **run_id.** The live edge sends no `run_id`, since a per-run id would change the source key and strand the previous run's offline alert. Person ids restart at `p1` after a restart, so the source going offline (a restart always outlasts the 3 s source timeout) clears every name on that source.
+- **Edge never learns names.** The route answers only `status`, `matches` and `checked_in`.
+
+Not yet measured: SFace engine build and latency on the Nano, FPS and memory with poseNet, the posture MLP and SFace together, and poseNet eye/nose accuracy at the C270's real distances. Id swaps when two people cross remain a tracking limitation; the uniqueness rule and TTL limit, but do not prevent, a swapped name.
 
 ## Dashboard integration contract
 
@@ -69,7 +82,7 @@ The existing alert/event transport already carries the fields under `metadata`; 
 
 - `resident_label`: enrolled demo display name.
 - `patient_profile_id`: enrollment identifier, not the anonymous `Observation.person_id`.
-- `identity_method`: `face_match` or `recent_face_body_track`.
+- `identity_method`: `face_match` or `recent_face_body_track` (laptop camera), `edge_face_track` (Jetson templates).
 - `identity_demo`: true for this staged workflow.
 
 React should display **Possible fall — <resident_label>** only when `identity_demo` is true and the label is present. Otherwise use **Identity unconfirmed**. Treat identity on an alert as evidence at that incident, not the current occupant of a room. Render names as text, never HTML. Do not infer identity from `source`, simulation names, or `person_id`.

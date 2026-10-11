@@ -19,7 +19,7 @@ Scope: current `monitoring` working tree, local staged demo. This is an implemen
 | Staff-only access | NOT implemented as authentication | nurse subscriptions filter workflow; ids, global endpoints, and WebSockets are not authenticated authorization |
 | Access audit log | NOT implemented | incident lifecycle events are not an audit of who accessed patient data |
 | Defined retention for all named incidents | NOT implemented | enrollment has 24-hour expiry checked on access; events are bounded in memory, fall alerts are in memory, appointments persist; no time-based incident purge policy |
-| Jetson recognition deployment | NOT implemented end to end | monitor accepts poseNet body evidence; hardware runtime and encrypted bridge remain separate work |
+| Jetson recognition deployment | Implemented in software; NOT hardware-validated | the Jetson computes SFace templates only for a face inside a tracked person's head box and sends templates, never frames, to a token-authenticated route (`edge_identity.py`, `face_id.py`); plain HTTP over USB, no TLS; Nano latency/FPS/memory unmeasured |
 | No monitoring delay from inference | Partial | API inference is off event loop and bounded; laptop capture client still waits for request/response, so camera throughput needs measurement |
 
 New regression coverage is in `backend/tests/test_recognition_safety.py`; broader tests cover consent, matching uncertainty, appointment behavior, poseNet compatibility, camera isolation, and nurse delivery. Tests use synthetic embeddings and do not measure real-world false matches.

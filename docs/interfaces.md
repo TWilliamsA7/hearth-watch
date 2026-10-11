@@ -55,4 +55,4 @@ the default monitor config.
 
 ## Optional patient identity integration
 
-Recognition adds metadata to confirmed demo incidents; anonymous `person_id` remains unchanged. The optional local `/face-demo/observe` envelope now accepts same-frame poseNet body evidence as well as the laptop YOLO path. See [the integration decision and edge/dashboard contract](recognition-integration.md) before connecting a Jetson source. Normal ingest, simulation, and evaluation do not require recognition.
+Recognition adds metadata to confirmed demo incidents; anonymous `person_id` remains unchanged. The optional local `/face-demo/observe` envelope now accepts same-frame poseNet body evidence as well as the laptop YOLO path. The Jetson's `--face-id` sends face templates (never frames) to the token-authenticated `/face-demo/edge-embeddings`, which names that `person_id`'s fall incidents. See [the integration decision and edge/dashboard contract](recognition-integration.md) before connecting a Jetson source. Normal ingest, simulation, and evaluation do not require recognition.
