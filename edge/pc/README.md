@@ -344,6 +344,33 @@ that number; don't tune on it (every look makes it less honest).
 First run (2026-10-10): validation 99-100% from epoch 4 on (best epoch 26; confusion upright
 2028/4/2, sitting 0/1829/10, floor 0/8/1517).
 
+### Step 6d: `07_finetune_closeups.py` - "unsure" for close-ups
+
+Chosen model so far: `model_3class.pt`, cut-off 0.50 (validation: answers 99.5%, right 94.4%,
+floor caught 93.1%; our recordings: answers 99%, right 89%, floor caught 96%). Its main error:
+close-ups. With only head and shoulders in view (stand-...053107) it confidently says floor.
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py
+```
+
+- Close-up examples are cropped from the training frames (hips, knees, ankles hidden, sometimes
+  arms too). Upright / sitting crops -> "other"; floor crops stay "floor", because lying with
+  the legs hidden is still lying (lie_down-...061342). The network has to use the orientation of
+  head and shoulders. Our recordings stay out of training.
+- Fine-tune: start from `model_3class.pt`, add a 4th output (old outputs keep their weights; the
+  new one starts almost never firing), 10 epochs at a very low learning rate (1e-4).
+- "Unsure" about a real posture is punished hard: extra loss = `--unsure-penalty` (3.0) x the
+  probability given to "other" on frames that really are upright, sitting or floor.
+- Safety: an epoch is kept only if floor caught on real validation frames stays at or above the
+  starting model's. Otherwise it says so and `model_3class.pt` stays the choice.
+- Per epoch it prints real-frame numbers and validation close-ups (upright/sitting -> unknown,
+  lying -> floor); then the field test. Output `D:\hearth-data\model_closeup.pt`, readable by
+  `06_train.py --test-only / --final-test --out ...`.
+
+Then: pick `model_3class.pt` or `model_closeup.pt`, freeze it, and run `06_train.py --final-test`
+on it once.
+
 ### Step 6c onward
 - Export to ONNX; a network this small runs on the Jetson with plain numpy in under 1 ms.
 

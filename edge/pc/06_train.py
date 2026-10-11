@@ -38,7 +38,8 @@ from torch.utils.data import DataLoader, Dataset
 
 ALL_CLASSES = ["upright", "sitting", "floor", "other"]
 CLASSES = list(ALL_CLASSES)   # set by configure(): 3 classes (default) or 4 with --classes 4
-RULES = {"torso": False}      # --torso-rule: also "unknown" when no shoulder or no hip
+RULES = {"torso": False,      # --torso-rule: also "unknown" when no shoulder or no hip
+         "other_frames": False}  # train/score on OmniFall's "other" frames (only --classes 4)
 OTHER = 3                # "none of these": falling, sitting/lying down, getting up, kneeling,
                          # squatting, crawling, jumping, other activities (bending, picking up...)
 # OmniFall's label (stored by 05 for every frame) -> our class. Mid-fall counts as "other": the
@@ -47,12 +48,15 @@ FROM_OMNIFALL = dict((k, OTHER) for k in range(16))
 FROM_OMNIFALL.update({0: 0, 8: 0, 4: 1, 2: 2, 6: 2})   # walk, standing | sitting | fallen, lying
 
 
-def configure(classes, torso_rule):
+def configure(classes, torso_rule, other_frames=None):
     """3 classes: "other" frames are left out of training and the negative ("unknown") comes only
     from low confidence. 4 classes: "other" is a 4th answer the network learns, also reported as
     unknown. The list is changed in place so everything holding CLASSES sees the new one."""
     CLASSES[:] = ALL_CLASSES[:classes]
     RULES["torso"] = torso_rule
+    # 07_finetune_closeups.py makes a 4-class model whose "other" comes from cropped close-ups,
+    # not from OmniFall's activity labels: it sets other_frames=False.
+    RULES["other_frames"] = classes == 4 if other_frames is None else other_frames
 # YOLO gives every keypoint a confidence; the Jetson's poseNet only reports keypoints it found.
 # A keypoint counts as "found" above this confidence, so training sees poses like poseNet's.
 FOUND_CONF = 0.5
@@ -113,15 +117,20 @@ class PostureFrames(Dataset):
     def __getitem__(self, i):
         xy, found = self.xy[i].copy(), self.found[i].copy()
         if self.augment:
-            drop = self.rng.random(17) < self.drop_p
-            if (found & ~drop).sum() >= MIN_FOUND:      # never hide so much nothing is left
-                found &= ~drop
-            if self.rng.random() < 0.5:
-                xy, found = xy[MIRROR], found[MIRROR]
-                xy[:, 0] = 1.0 - xy[:, 0]
-            xy = xy + self.rng.normal(0.0, 0.005, xy.shape)
+            xy, found = augment(xy, found, self.rng, self.drop_p)
         x = features(xy, found, self.aspect[i])
         return torch.from_numpy(x), int(self.labels[i])
+
+
+def augment(xy, found, rng, drop_p):
+    """Training-only changes (see PostureFrames): hide keypoints, mirror, jitter."""
+    drop = rng.random(17) < drop_p
+    if (found & ~drop).sum() >= MIN_FOUND:              # never hide so much nothing is left
+        found = found & ~drop
+    if rng.random() < 0.5:
+        xy, found = xy[MIRROR], found[MIRROR]
+        xy[:, 0] = 1.0 - xy[:, 0]
+    return xy + rng.normal(0.0, 0.005, xy.shape), found
 
 
 def person_of_each_frame(d):
@@ -182,8 +191,8 @@ def load_splits(path, drop_p):
         labels = lookup[d["raw_label"]]
     else:
         labels = d["label"]
-    if len(CLASSES) == 3:
-        keep &= labels != OTHER                            # 3 classes: "other" frames sit out
+    if not RULES["other_frames"]:
+        keep &= labels != OTHER                            # OmniFall's "other" frames sit out
     split_file = Path(path).parent / "split.json"
     split = locked_split(person, split_file)
     part = np.array([split[p] for p in person])
@@ -561,7 +570,7 @@ def main():
     saved = None
     if args.test_only or args.final_test:      # a saved model brings its own settings
         saved = torch.load(out, map_location="cpu")
-        configure(len(saved["classes"]), saved.get("torso_rule", "torso" in saved.get("unknown_rule", "")))
+        configure(len(saved["classes"]), saved.get("torso_rule", False), saved.get("other_frames"))
     else:
         configure(args.classes, args.torso_rule)
     print("%d classes (%s); unknown = low confidence%s%s"
@@ -620,7 +629,7 @@ def main():
         if balanced > best[0]:
             best = (balanced, epoch)
             torch.save({"state_dict": model.state_dict(), "classes": list(CLASSES),
-                        "torso_rule": RULES["torso"],
+                        "torso_rule": RULES["torso"], "other_frames": RULES["other_frames"],
                         "found_conf": FOUND_CONF, "min_found": MIN_FOUND, "epoch": epoch,
                         "val_balanced_acc": balanced, "split_file": str(info["split_file"]),
                         "min_conf": min_conf,
