@@ -15,7 +15,7 @@ import CameraOverlay from './CameraOverlay';
 import SourceHealth from './SourceHealth';
 import Popover from './Popover';
 import { peopleInView } from './people';
-import { liveNames } from '@hearth/room-view';
+import { liveNames, useIdentities } from '@hearth/room-view';
 
 export const sourceLabels: Record<SourceMode, string> = { simulation: 'Simulation', edge: 'Live camera', replay: 'Recorded replay' };
 
@@ -28,6 +28,7 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
   const [incident, setIncident] = useState<IncidentKind>('fall');
   const simulating = mode === 'simulation';
   const live = useLiveLink(simulating ? base : null);
+  const identities = useIdentities(base, room);
   const observations = visibleObservations(feed.state, feed.now, feed.connected).filter(item => item.source_type === mode);
   const sources = latestSources(feed.state);
   const keys = [...new Set([...sources.map(item => sourceKey(item)), ...observations.map(item => sourceKey(item))])].filter(key => key.startsWith(`${mode}:`));
@@ -52,9 +53,9 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
             alertPersonIds={alerts.flatMap(alert => alert.status !== 'resolved' && typeof alert.metadata.person_id === 'string'
               // a linked camera's person appears in the room as live-<source>-<track>
               ? [alert.source === live.link?.source && live.link?.enabled ? `live-${alert.source}-${alert.metadata.person_id}` : alert.metadata.person_id] : [])} />
-        : mode === 'edge' ? <LiveCameraView base={base} room={room} source={activeSource?.replace(/^edge:/, '') ?? ''} skeleton={<RoomView observations={shown} />} hasPeople={people.length > 0}
-            overlay={activeSource?.includes('fall-model') ? undefined : (w, h) => <CameraOverlay width={w} height={h} observations={shown} alerts={alerts} />} />
-        : <>{!keys.length && <div className="simulation-message" role="status"><p>No recorded replay is playing. Start one with <code>scripts/start.ps1 -Replay</code>.</p></div>}<RoomView observations={shown} /></>}</div>
+        : mode === 'edge' ? <LiveCameraView base={base} room={room} source={activeSource?.replace(/^edge:/, '') ?? ''} skeleton={<RoomView observations={shown} identities={identities} />} hasPeople={people.length > 0}
+            overlay={activeSource?.includes('fall-model') ? undefined : (w, h) => <CameraOverlay width={w} height={h} observations={shown} alerts={alerts} identities={identities} />} />
+        : <>{!keys.length && <div className="simulation-message" role="status"><p>No recorded replay is playing. Start one with <code>scripts/start.ps1 -Replay</code>.</p></div>}<RoomView observations={shown} identities={identities} /></>}</div>
       {simulating && <div className="simulation-controls">
         <button disabled={idle} onClick={() => void simulation.command('toggle')}>{simulation.state === 'playing' ? 'Pause' : 'Play'}</button>
         <label>Speed<select value={simulation.speed} disabled={idle} onChange={e => void simulation.setSpeed(Number(e.target.value))}>{SPEEDS.map(value => <option key={value} value={value}>{value}×</option>)}</select></label>
@@ -73,7 +74,7 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
     </section>
     <aside className="monitor-side">
       <div className="card">
-        <PersonInspector base={base} mode={mode} simulation={simulation} link={live.link} people={people}
+        <PersonInspector base={base} mode={mode} simulation={simulation} link={live.link} people={people} identities={identities}
           selectedKey={selectedPerson} onSelectKey={setSelectedPerson} alerts={alerts}
           observationFor={personId => observations.find(item => 'person_id' in item && item.person_id === personId)} />
       </div>

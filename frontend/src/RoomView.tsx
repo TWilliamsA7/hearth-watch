@@ -1,9 +1,12 @@
 import { useId } from 'react';
 import type { RoomObservation } from './protocol';
+import { identityFor, recognizedName, type DisplayIdentity } from '@hearth/room-view';
 
 export const bones = [['nose','neck'],['neck','left_shoulder'],['neck','right_shoulder'],['left_shoulder','left_elbow'],['left_elbow','left_wrist'],['right_shoulder','right_elbow'],['right_elbow','right_wrist'],['left_shoulder','left_hip'],['right_shoulder','right_hip'],['left_hip','right_hip'],['left_hip','left_knee'],['left_knee','left_ankle'],['right_hip','right_knee'],['right_knee','right_ankle']];
 
-export default function RoomView({ observations, illustrated = false, skeleton = false }: { observations: RoomObservation[]; illustrated?: boolean; skeleton?: boolean }) {
+export default function RoomView({ observations, illustrated = false, skeleton = false, identities = [] }: {
+  observations: RoomObservation[]; illustrated?: boolean; skeleton?: boolean; identities?: readonly DisplayIdentity[];
+}) {
   const gridId = useId().replaceAll(':', '');
   const people = observations.filter(o => o.person_detected);
   const width = skeleton ? 200 : illustrated ? 640 : 600;
@@ -27,6 +30,9 @@ export default function RoomView({ observations, illustrated = false, skeleton =
       const points = (observation.keypoints ?? []).filter(p => p.confidence === null || p.confidence >= .5);
       const prediction = 'posture_prediction' in observation ? observation.posture_prediction : null;
       const box = prediction?.bbox;
+      const name = recognizedName(identityFor(observation, identities))
+        ?? ('person_id' in observation ? observation.person_id?.toUpperCase() : null);
+      const top = points.length ? points.reduce((a, b) => b.y < a.y ? b : a) : null;
       const previewBounds = illustrated && points.length ? {
         x: Math.min(...points.map(p => px(p.x))) - 11,
         y: Math.min(...points.map(p => py(p.y))) - 15,
@@ -41,6 +47,7 @@ export default function RoomView({ observations, illustrated = false, skeleton =
           return start && end ? <line key={`${a}-${b}`} strokeDasharray={start.confidence === null || end.confidence === null ? '4 4' : undefined} x1={px(start.x)} y1={py(start.y)} x2={px(end.x)} y2={py(end.y)} /> : null;
         })}
         {points.map(p => <circle key={p.name} cx={px(p.x)} cy={py(p.y)} r={p.name === 'nose' ? 9 : 3} fill={p.name === 'nose' ? 'none' : p.confidence === null ? 'var(--mute)' : 'var(--amber)'} />)}
+        {!illustrated && name && top && <text x={px(top.x)} y={Math.max(16, py(top.y) - 18)} textAnchor="middle" stroke="none" fill="var(--text)" fontSize={14}>{name}</text>}
         {!points.length && !box && <text x={width / 2} y={height / 2 + index * 20} textAnchor="middle" stroke="none" fill="var(--mute)" fontSize={skeleton ? 14 : 20}>Person detected · pose unavailable</text>}
       </g>;
     })}

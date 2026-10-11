@@ -7,16 +7,18 @@ import type { useLiveSimulation } from './useLiveSimulation';
 import { request } from './api';
 import { alertTitle } from './alertText';
 import { personLabel, type TrackedPerson } from './people';
+import { identityFor, recognizedName, type DisplayIdentity } from '@hearth/room-view';
 
 type Simulation = ReturnType<typeof useLiveSimulation>;
 const pct = (value: number | null | undefined) => value == null ? '—' : `${Math.round(value * 100)}%`;
 const num = (value: number | null | undefined, digits = 2) => value == null ? '—' : value.toFixed(digits);
 
 // One person at a time: whoever was clicked in the room (simulation) or in the list (camera, replay).
-export default function PersonInspector({ base, mode, simulation, link, people, selectedKey, onSelectKey, alerts, observationFor }: {
+export default function PersonInspector({ base, mode, simulation, link, people, selectedKey, onSelectKey, alerts, observationFor, identities = [] }: {
   base: string; mode: SourceMode; simulation: Simulation; link: LinkStatus | null;
   people: TrackedPerson[]; selectedKey: string | null; onSelectKey: (key: string | null) => void;
   alerts: Alert[]; observationFor: (personId: string) => RoomObservation | undefined;
+  identities?: readonly DisplayIdentity[];
 }) {
   const openAlert = (personId: string | null | undefined) =>
     personId ? alerts.find(alert => alert.status !== 'resolved' && alert.metadata.person_id === personId) : undefined;
@@ -30,7 +32,7 @@ export default function PersonInspector({ base, mode, simulation, link, people, 
         <Heading name={me ? livePersonName(me, link?.source) : liveName(picked, link?.source)} onClear={() => simulation.setSelected(null)} />
         <dl className="facts">
           <Fact term="Seen by" value={`${link?.source ?? 'live camera'} · a real person, not simulated`} />
-          <Fact term="Identity" value={me?.name ? `Recognized: ${me.name}` : me?.recognized ? 'Recognized (not named: no consent)' : 'Not recognized'} />
+          <Fact term="Identity" value={recognizedName(me) ? `Recognized: ${recognizedName(me)}` : me?.recognized ? 'Recognized (not named: no consent)' : 'Not recognized'} />
           <Fact term="Monitor says" value={me ? `${me.label ?? '—'} (${me.posture ?? 'unknown'})` : '—'} />
           <Fact term="Camera's model" value={modelText(me?.model)} />
           <Fact term="Feed" value={me?.state ?? link?.state ?? '—'} />
@@ -42,13 +44,15 @@ export default function PersonInspector({ base, mode, simulation, link, people, 
   }
 
   const person = people.find(item => item.key === selectedKey);
+  const identity = person ? identityFor(person.observation, identities) : undefined;
   return <section className="inspector" aria-label="People in view">
     <div className="section-heading"><h2>People in view · {people.length}</h2></div>
     {people.length ? <div className="people-list" role="listbox" aria-label="People in view">
       {people.map(item => <button key={item.key} role="option" aria-selected={item.key === selectedKey} className={item.key === selectedKey ? 'selected' : ''}
-        onClick={() => onSelectKey(item.key === selectedKey ? null : item.key)}>{personLabel(item)}</button>)}
+        onClick={() => onSelectKey(item.key === selectedKey ? null : item.key)}>{recognizedName(identityFor(item.observation, identities)) ?? personLabel(item)}</button>)}
     </div> : <p className="small">Nobody is in view right now.</p>}
-    {person ? <ObservationFacts observation={person.observation} alert={openAlert(person.personId)} />
+    {person ? <><dl className="facts"><Fact term="Identity" value={recognizedName(identity) ? `Recognized: ${recognizedName(identity)}` : identity?.recognized ? 'Recognized (not named: no consent)' : 'Not recognized'} /></dl>
+      <ObservationFacts observation={person.observation} alert={openAlert(person.personId)} /></>
       : people.length > 0 && <p className="small">Choose a person to see what the monitor sees.</p>}
   </section>;
 }

@@ -3,6 +3,7 @@
 #   .\scripts\start.ps1                 # everything: server, dashboard, Sim Studio, and the Jetson camera
 #                                       #   (run_edge.py over ssh) -> http://127.0.0.1:8000/
 #   .\scripts\start.ps1 -NoJetson       # ...without the Jetson (simulation and replay still work)
+#   .\scripts\start.ps1 -JetsonBatch:$false # allow password prompts if key login is not set up
 #   .\scripts\start.ps1 -Camera 0       # ...plus this laptop's webcam as another live camera
 #   .\scripts\start.ps1 -Replay         # ...plus recorded clips replayed as replay-01
 #   .\scripts\start.ps1 -Replay -People # ...the same clips as two people at once (one lies down)
@@ -10,14 +11,19 @@
 #
 # It installs the dashboard's packages and rebuilds it when its sources changed (-NoBuild skips
 # that), and installs face recognition's packages and models when they are missing. The Jetson is
-# the ssh host "jetson" (-Jetson to change); it reaches this laptop at 192.168.55.100 over USB
-# (-LaptopIp to change). Its face-ID token is read from the Jetson. Recognition's key is kept in
-# data/face.key. Everything runs in this window; Ctrl+C stops all of it, the Jetson's camera too.
+# discovered through "jetson-wifi", then "jetson" (-Jetson to choose explicitly). The laptop's
+# return address comes from SSH (-LaptopIp to override). Its face-ID token is read from the
+# Jetson. SSH uses key/agent authentication by default, with no repeated password prompts.
+# Telemetry returns through an SSH tunnel; only the video stream uses the laptop's network IP.
+# Recognition's key is kept in data/face.key. Ctrl+C stops everything, the Jetson's camera too.
 param(
     [int]$Port = 8000,
     [switch]$NoJetson,
-    [string]$Jetson = 'jetson',
-    [string]$LaptopIp = '192.168.55.100',
+    [switch]$JetsonBatch = $true,
+    [ValidateRange(1024, 65535)]
+    [int]$JetsonBackendPort = 18000,
+    [string]$Jetson = '',
+    [string]$LaptopIp = '',
     [switch]$Lan,
     [int]$Camera = -1,
     [switch]$Replay,
@@ -31,6 +37,7 @@ $python = Join-Path $root '.venv\Scripts\python.exe'
 $frontend = Join-Path $root 'frontend'
 $studio = Join-Path $frontend 'room-view'
 $url = "http://127.0.0.1:$Port"
+. (Join-Path $PSScriptRoot 'jetson.ps1')
 
 function Fail([string]$message) {
     Write-Host ''
@@ -131,13 +138,19 @@ if (-not $NoCamera) {
 }
 
 # --- Jetson: reachable over ssh? (problems here only warn; everything else still runs) -------------
-$ssh = @('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', $Jetson)
 $useJetson = $false
 $jetsonToken = $null
 if (-not $NoJetson) {
-    & ssh.exe @ssh true 2>$null
-    if ($LASTEXITCODE) {
-        Write-Host "Cannot reach the Jetson as '$Jetson' (USB cable in? powered on? try: ssh $Jetson). Starting without it." -ForegroundColor Yellow
+    $connection = Find-Jetson -Target $Jetson -LaptopIp $LaptopIp -Batch:$JetsonBatch
+    if ($connection) {
+        $Jetson = $connection.Target
+        $LaptopIp = $connection.LaptopIp
+        $sshOptions = $connection.SshOptions
+        $ssh = @($sshOptions) + @($Jetson)
+        Write-Host "Found Jetson: $Jetson ($($connection.JetsonIp)); laptop return address: $LaptopIp"
+    }
+    if (-not $connection) {
+        Write-Host 'No Jetson connection available. Check Tailscale/USB and your SSH login. Starting without it.' -ForegroundColor Yellow
     } elseif (& ssh.exe @ssh 'pgrep -f ''^python3 -u run_edge.py'' >/dev/null && echo busy') {
         Write-Host "run_edge.py is already running on the Jetson; leaving it alone (stop it with: ssh $Jetson pkill -INT -f run_edge.py)." -ForegroundColor Yellow
     } else {
@@ -193,7 +206,7 @@ function Start-Child([string]$file, [string[]]$arguments, [string]$dir = $root) 
 
 try {
     # --- server ------------------------------------------------------------------------------------
-    # The Jetson posts over the USB network, so listen beyond this computer when it is used.
+    # The Jetson posts over Tailscale, LAN or USB, so listen beyond this computer when it is used.
     $bind = if ($Lan -or $useJetson) { '0.0.0.0' } else { '127.0.0.1' }
     Write-Host "Starting the Hearth server on ${bind}:$Port..."
     # No per-request access log: the cameras post many times a second and would bury real messages.
@@ -215,7 +228,8 @@ try {
         $ErrorActionPreference = 'Continue'
         # Latest edge/ code onto the Jetson (tar over ssh, swapped in whole; CRLF stripped there).
         $copy = "cd ~ && mkdir -p hearth-watch && cd hearth-watch && rm -rf edge.new && mkdir edge.new && tar -xf - -C edge.new --strip-components=1 && find edge.new \( -name '*.sh' -o -name '*.py' \) -exec sed -i 's/\r`$//' {} + && rm -rf edge && mv edge.new edge"
-        & cmd.exe /c "tar -C `"$root`" --exclude=__pycache__ --exclude=tests -cf - edge | ssh -o BatchMode=yes $Jetson `"$copy`""
+        $sshOptionText = $sshOptions -join ' '
+        & cmd.exe /c "tar -C `"$root`" --exclude=__pycache__ --exclude=tests -cf - edge | ssh $sshOptionText $Jetson `"$copy`""
         if ($LASTEXITCODE) { Write-Host 'Could not copy edge/ to the Jetson; using the code already there.' -ForegroundColor Yellow }
         # The backend drops observations more than 3 s old, so the clocks must agree.
         $before = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000
@@ -225,11 +239,9 @@ try {
         if ([Math]::Abs($offset) -gt 1) {
             Write-Host ("The Jetson clock is {0:N1} s off this laptop's; its observations will be dropped as stale. Fix: edge/tools/sync_clock.sh" -f $offset) -ForegroundColor Yellow
         }
-        $edgeUrl = "http://${LaptopIp}:$Port"
-        & ssh.exe @ssh "curl -s -m 3 $edgeUrl/health >/dev/null"
-        if ($LASTEXITCODE) {
-            Write-Host "The Jetson cannot reach this server at $edgeUrl (allow Python through Windows Firewall on private networks, or pass -LaptopIp)." -ForegroundColor Yellow
-        }
+        # The Jetson reaches the backend through the same SSH session as the camera.
+        # This works when inbound connections to the laptop are blocked by its firewall.
+        $edgeUrl = "http://127.0.0.1:$JetsonBackendPort"
         # Face ID when the Jetson has its token and engine and this server has the same token.
         $faceId = ''
         if ($env:HEARTH_EDGE_FACE_TOKEN -and (& ssh.exe @ssh 'test -f ~/.hearth-face-token -a -f ~/hearth-watch/models/face-id/sface_fp16.engine && echo yes')) {
@@ -238,9 +250,12 @@ try {
         # -tt: Ctrl+C reaches run_edge.py so it closes the camera cleanly. Only our [edge] lines are shown.
         # The clean camera image streams to this laptop; the relay hands it to the dashboard, which
         # draws the skeletons and posture calls from the observations.
-        $producers['Jetson video relay'] = Start-Child $python @('-m', 'hearth.perception.stream_relay', '--backend', $url, '--laptop-ip', $LaptopIp)
-        $edgeCommand = "cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId --stream rtp://${LaptopIp}:1234 --stream-plain 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
-        $producers['Jetson camera'] = Start-Child 'ssh.exe' @('-tt', '-o', 'BatchMode=yes', $Jetson, $edgeCommand)
+        $producers['Jetson video relay'] = Start-Child $python @('-m', 'hearth.perception.stream_relay', '--backend', $url, '--laptop-ip', $LaptopIp, '--jetson-ip', $connection.JetsonIp)
+        $checkBackend = "curl --noproxy '*' --fail --silent --show-error --max-time 5 $edgeUrl/health >/dev/null || { echo '[edge] SSH backend tunnel failed; camera not started' >&2; exit 1; }"
+        $edgeCommand = "$checkBackend; cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId --stream rtp://${LaptopIp}:1234 --stream-plain 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
+        $tunnel = @('-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=3',
+                    '-R', "127.0.0.1:${JetsonBackendPort}:127.0.0.1:$Port")
+        $producers['Jetson camera'] = Start-Child 'ssh.exe' (@('-tt') + $tunnel + $ssh + @($edgeCommand))
         $jetsonStarted = $true
         $ErrorActionPreference = 'Stop'
     }
@@ -268,7 +283,7 @@ try {
     Write-Host "  API reference   $url/docs"
     if ($Dev) { Write-Host '  Hot reload      http://127.0.0.1:5173/' }
     Write-Host ("  Recognition     " + $(if ($face) { 'on' } elseif ($recognition) { "off: $($recognition.message)" } else { 'status unavailable' }))
-    Write-Host ("  Jetson camera   " + $(if ($jetsonStarted) { "running ($Jetson -> http://${LaptopIp}:$Port$(if ($faceId) { ', face ID on' }))" } elseif ($NoJetson) { 'off (-NoJetson)' } else { 'not started (see above)' }))
+    Write-Host ("  Jetson camera   " + $(if ($jetsonStarted) { "starting ($Jetson -> $edgeUrl through SSH$(if ($faceId) { ', face ID on' }))" } elseif ($NoJetson) { 'off (-NoJetson)' } else { 'not started (see above)' }))
     if (-not $NoCamera) { Write-Host "  Laptop webcam   camera $Camera" }
     Write-Host ''
 
@@ -290,7 +305,11 @@ try {
     $failed = $true
 } finally {
     # Stop the Jetson program this script started (never someone else's run), freeing its camera.
-    if ($jetsonStarted) { & ssh.exe -o ConnectTimeout=5 -o BatchMode=yes $Jetson 'pkill -INT -f ''^python3 -u run_edge.py''' 2>&1 | Out-Null }
+    if ($jetsonStarted) {
+        # Password authentication needs a visible prompt here too.
+        $ErrorActionPreference = 'Continue'
+        & ssh.exe @ssh 'pkill -INT -f ''^python3 -u run_edge.py''' | Out-Null
+    }
     foreach ($process in $children) {
         if (-not $process.HasExited) { & taskkill.exe /T /F /PID $process.Id 2>&1 | Out-Null }
     }

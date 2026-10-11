@@ -94,6 +94,7 @@ function personFrame(track: PersonTrack, now: number, opts: FrameOptions): Perso
   }
   return {
     personId: last.person_id ?? null, // older producers omit the field entirely
+    track: last,
     keypoints,
     facePresent: last.face_present,
     alert: last.person_id != null && (opts.alertPersonIds ?? []).includes(last.person_id),

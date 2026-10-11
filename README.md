@@ -24,6 +24,10 @@ Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm pack
 | Option | Adds |
 | --- | --- |
 | `-NoJetson` | Skip the Jetson (by default the script copies `edge/` to it over ssh and runs `run_edge.py` there, with face ID when its token is present) |
+| `-Jetson jetson-wifi` | Choose an SSH target; by default try `jetson-wifi`, then `jetson`, using your SSH config's user and key |
+| `-JetsonBatch:$false` | Allow password prompts when key/agent authentication is unavailable; normal startup uses keys without prompting |
+| `-JetsonBackendPort 18001` | Change the SSH tunnel's loopback port on the Jetson if the default 18000 is occupied |
+| `-LaptopIp 100.x.y.z` | Override the laptop address for video; by default use the client address reported by SSH |
 | `-Camera 0` | Also this laptop's webcam as a second live camera |
 | `-Replay` | Recorded clips replayed as `replay-01`, no Jetson needed; `-Replay -People` plays two people at once |
 | `-Dev` | A Vite dev server with hot reload on http://127.0.0.1:5173/, forwarding to the server |
@@ -31,6 +35,22 @@ Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm pack
 | `-NoBuild` | Use the existing build without npm |
 
 Optional sources that fail (no webcam, no models) are reported and the rest keeps running. Face recognition is on by default: the script installs its packages and models when they're missing, and the server keeps its encryption key in `data/face.key` (see [docs/face-demo.md](docs/face-demo.md)).
+
+For the Jetson over Tailscale, keep this entry in your laptop's `~/.ssh/config`:
+
+```sshconfig
+Host jetson-wifi
+    HostName 100.76.117.50
+    User g
+    IdentityFile ~/.ssh/id_jetson
+    IdentitiesOnly yes
+```
+
+Use the path to your working Jetson private key (`id_jetson` above is the same key as the USB alias). Verify `ssh -o BatchMode=yes jetson-wifi true`, then run `.\scripts\start.ps1 -Jetson jetson-wifi` from a PowerShell terminal. Normal startup uses key/agent authentication without password prompts. If you explicitly pass `-JetsonBatch:$false`, password login is allowed but each SSH connection may prompt separately; the launcher does not store your password.
+
+Discovery reports both endpoints. Observations and face templates return through an SSH reverse tunnel: `127.0.0.1:18000` on the Jetson forwards to the laptop backend's `127.0.0.1:8000` (or `-Port`). No inbound laptop firewall rule is needed for telemetry. The camera's SSH session owns the tunnel and refuses to start inference if forwarding or the backend health check fails. Change `-JetsonBackendPort` if the Jetson's tunnel port is already in use.
+
+The video stream still uses the laptop's detected Tailscale/USB IPv4 address and UDP 1234, which must be reachable through the firewall and any Tailscale access rules. USB also works through the `jetson` alias.
 
 **What is where** (all on the same server):
 

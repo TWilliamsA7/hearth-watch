@@ -120,6 +120,14 @@ class MonitorService:
         return queue
 
     def record(self, event: Event) -> None:
+        # Freeze the consent-filtered name at the event's own observation, including
+        # recoveries/visibility changes. Never name an older event from a newer track.
+        if self.incident_labeler is not None and "resident_label" not in event.metadata:
+            obs = self.observations.get(track_key(event))
+            if obs is not None and obs.timestamp == event.timestamp:
+                label = self.incident_labeler(obs)
+                if label:
+                    event = event.model_copy(update={"metadata": {**event.metadata, **label}})
         self.events.append(event)
         for listener in tuple(self.event_listeners):
             listener(event)
