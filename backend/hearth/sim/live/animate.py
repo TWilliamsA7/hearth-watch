@@ -24,6 +24,7 @@ from hearth.sim.pose import (
     V_AXIS,
     BodyPose,
     body_pose,
+    fit_bones,
     gait_amount,
     hips_of,
     lean,
@@ -119,6 +120,28 @@ def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0
             out = turn_limb(out, f"{side}_shoulder", L_AXIS, -math.radians(30) * g)
             out = turn_limb(out, f"{side}_elbow", L_AXIS, -math.radians(105) * g)
             out = turn_limb(out, f"{side}_elbow", V_AXIS, inward * math.radians(30) * g)  # towards the mouth
+    return out
+
+
+def seated_variants(rest: BodyPose, *, arms: bool) -> list[BodyPose]:
+    """Other ways to sit in the same seat, for someone sitting a long while to shift between:
+    as fitted, leaning back, ankles crossed, hands together, and (with armrests) leaning on
+    one. Small changes to the fitted pose, so none of them goes into the seat."""
+    out = [rest, lean(rest, L_AXIS, -math.radians(9))]
+    crossed = dict(rest)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        f, v, l = rest[f"{side}_ankle"]
+        crossed[f"{side}_ankle"] = (f + 0.02, v, -sign * 0.02)
+        f, v, l = rest[f"{side}_knee"]
+        crossed[f"{side}_knee"] = (f, v, l * 0.6)
+    out.append(fit_bones(crossed))
+    clasped = dict(rest)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        f, v, _ = rest[f"{side}_wrist"]
+        clasped[f"{side}_wrist"] = (f + 0.02, v + 0.02, sign * 0.035)
+    out.append(fit_bones(clasped))
+    if arms:
+        out += [lean(rest, F_AXIS, math.radians(6)), lean(rest, F_AXIS, -math.radians(6))]
     return out
 
 

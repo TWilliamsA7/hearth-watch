@@ -26,7 +26,7 @@ from hearth.sim.nav import Floor, distance
 from hearth.sim.pose import L_AXIS, KEY_POSES, REST, BodyPose, blend_body, hips_of, lean, smoothstep, tucked, two_bone
 
 from hearth.sim.live.actor import Actor, Posture
-from hearth.sim.live.animate import Blend, Play, apply, gait, heading_to, idle, stance, wrap
+from hearth.sim.live.animate import Blend, Play, apply, gait, heading_to, idle, seated_variants, stance, wrap
 from hearth.sim.live.room import Piece, Slot, forward
 
 if TYPE_CHECKING:
@@ -94,6 +94,13 @@ class Hold(Activity):
 
     def begin(self, a: Actor, w: World) -> None:
         self.start = a.body
+        self.shifts: list[BodyPose] = []
+        if self.pose is None and a.posture == "sitting" and a.rest_pose and self.duration > SHIFT_EVERY_S[0]:
+            seat = _slot_of(a, w, "sit")
+            arms = seat is not None and w.room.pieces[seat.piece].kind.arm > 0
+            self.shifts = seated_variants(a.rest_pose, arms=arms)
+            self.next_shift = a.rng.uniform(*SHIFT_EVERY_S)
+            self.shift_from: BodyPose | None = None
         if self.pose is not None:
             self.target = KEY_POSES[self.pose]
         elif a.posture == "standing":
@@ -110,6 +117,14 @@ class Hold(Activity):
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
         base = blend_body(self.start, self.target, smoothstep(self.tau / 0.6)) if self.tau < 0.6 else self.target
+        if self.shifts:  # sitting a long while: shift now and then
+            if self.tau >= self.next_shift:
+                self.shift_from, self.shift_at = self.target, self.tau
+                self.target = a.rng.choice([p for p in self.shifts if p is not self.target])
+                self.next_shift = self.tau + a.rng.uniform(*SHIFT_EVERY_S)
+            if self.shift_from is not None:
+                k = (self.tau - self.shift_at) / SHIFT_S
+                base = blend_body(self.shift_from, self.target, smoothstep(k)) if k < 1.0 else self.target
         a.body = idle(a, base, w.t, dt, sway=self.sway, talking=self.talking, eating=self.eating)
         if self.until is not None and self.until():
             return True
@@ -201,6 +216,8 @@ class Walk(Activity):
 
 
 IDLE_HOLDS = frozenset({"pausing", "standing about", "looking out", "browsing", "waiting", "idle"})
+SHIFT_EVERY_S = (8.0, 20.0)  # someone sitting a long while changes how they sit this often
+SHIFT_S = 1.4  # ...taking this long over it
 
 
 def make_way(a: Actor, w: World, towards: Floor) -> None:

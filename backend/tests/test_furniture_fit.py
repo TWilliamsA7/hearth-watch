@@ -15,7 +15,7 @@ import math
 import pytest
 
 from hearth.sim.live.activities import Hold, Walk, get_up, lie_plan, lie_stance, release, reserve, seat_stance, sit_plan
-from hearth.sim.live.animate import idle, world_pose
+from hearth.sim.live.animate import idle, seated_variants, world_pose
 from hearth.sim.live.engine import World
 from hearth.sim.live.fit import Overlap, lowest, penetration, seat_gap
 from hearth.sim.live.room import KINDS, Piece, Slot, _slots, generate_room
@@ -229,3 +229,29 @@ def test_someone_frail_pushes_up_out_of_a_seat_without_going_into_it(kind: str) 
     o = _run(w, a, plan, [piece])
     assert o.depth <= TOL, f"standing up: {o}"
     assert a.posture == "standing"
+
+
+@pytest.mark.parametrize("size", HEIGHTS)
+@pytest.mark.parametrize("kind", SEATED)
+def test_shifting_how_they_sit_stays_out_of_the_seat(kind: str, size: float) -> None:
+    for piece, slot in _stance_case(kind, "sit"):
+        st = seat_stance(slot, size)
+        variants = seated_variants(st.body, arms=piece.kind.arm > 0)
+        assert len(variants) == (6 if piece.kind.arm > 0 else 4)
+        for i, pose in enumerate(variants):
+            o = penetration(body(pose, st.heading, st.x, st.z, st.base, size), piece, size, 1.15)
+            assert o.depth <= TOL, f"{slot.slot_id} variant {i}: {o}"
+
+
+def test_sitting_a_long_while_they_shift_now_and_then() -> None:
+    w, a = _stage("armchair", 1.69)
+    seat = next(s for s in w.room.slots if w.room.pieces[s.piece].kind.name == "armchair" and s.kind == "sit")
+    a.pos = w.room.approach(seat, a.size)
+    reserve(a, w, seat)
+    _run(w, a, sit_plan(a, w, seat), [])
+    w.replace_plan(a, [Hold(60.0, "seated")], "test")
+    held, t0 = set(), w.t
+    while w.t - t0 < 60:
+        w.step()
+        held.add(id(a.activity.target))
+    assert len(held) >= 3  # shifted at least twice: not one frozen pose
