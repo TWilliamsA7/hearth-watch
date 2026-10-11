@@ -12,18 +12,35 @@ export type FeedState = {
 };
 export function emptyFeed(): FeedState { return { observations: {}, sources: {}, events: [], alerts: {} }; }
 export function sourceKey(data: { source_type: string; source: string }): string { return `${data.source_type}:${data.source}`; }
+// The server keeps health per source, scenario and run (one source can have several: a live
+// room, an ended scripted run, a heartbeat-only entry). Match an observation to its own.
+type Scoped = { source_type: string; source: string; scenario_id?: string | null; run_id?: string | null };
+export function statusKey(data: Scoped): string {
+  return `${sourceKey(data)}:${data.scenario_id ?? ''}:${data.run_id ?? ''}`;
+}
+// One entry per source for display: its most recently heard-from run.
+export function latestSources(state: FeedState): RoomSource[] {
+  const latest = new Map<string, RoomSource>();
+  for (const status of Object.values(state.sources)) {
+    const key = sourceKey(status), previous = latest.get(key);
+    const seen = (s: RoomSource) => Date.parse(('last_seen' in s && s.last_seen) || '') || 0;
+    if (!previous || Number(status.online) > Number(previous.online) || (status.online === previous.online && seen(status) >= seen(previous))) latest.set(key, status);
+  }
+  return [...latest.values()];
+}
 export function reduceFeed(state: FeedState, message: FeedMessage, now: number, mode: SourceMode, room = DEFAULT_ROOM): FeedState {
   if (message.type === 'nurse_snapshot') return state;
   const data = message.data;
-  const manualIncident = (data.source_type === 'manual' || data.source === 'appointments' || (message.type === 'alert' && message.data.kind === 'help_requested') || (message.type === 'event' && message.data.event_type === 'help_requested')) && (message.type === 'alert' || message.type === 'event');
-  if (data.room_id !== room || (data.source_type !== mode && !manualIncident)) return state;
+  if (data.room_id !== room) return state;
+  // Alerts, events and source health count every source; only the people on screen follow the tab.
+  if (message.type === 'observation' && data.source_type !== mode) return state;
   const key = sourceKey(data);
   switch (message.type) {
     case 'observation': {
       const person = 'person_id' in message.data ? message.data.person_id : null;
       return { ...state, observations: { ...state.observations, [`${key}:${person ?? ''}`]: { data: message.data, receivedAt: now } } };
     }
-    case 'source_status': return { ...state, sources: { ...state.sources, [key]: message.data } };
+    case 'source_status': return { ...state, sources: { ...state.sources, [statusKey(message.data)]: message.data } };
     case 'event': return { ...state, events: [message.data, ...state.events.filter(e => e.event_id !== message.data.event_id)].slice(0, 100) };
     case 'alert': return { ...state, alerts: { ...state.alerts, [message.data.alert_id]: message.data } };
   }
@@ -33,7 +50,7 @@ export function reduceFeed(state: FeedState, message: FeedMessage, now: number, 
 export function visibleObservations(state: FeedState, now: number, connected: boolean): RoomObservation[] {
   if (!connected) return [];
   return Object.values(state.observations).filter(({ data, receivedAt }) => {
-    const status = state.sources[sourceKey(data)];
+    const status = state.sources[statusKey(data)];
     return now - receivedAt < 3000 && status?.online !== false &&
       !(status && 'observation_stale' in status && status.observation_stale);
   }).map(item => item.data);

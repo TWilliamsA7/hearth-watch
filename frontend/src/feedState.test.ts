@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseMessage, validateApi } from './protocol.ts';
-import { emptyFeed, reduceFeed, visibleObservations } from './feedState.ts';
+import { emptyFeed, latestSources, reduceFeed, visibleObservations } from './feedState.ts';
 import { acknowledgeAlert, requestHelp, simCommand, websocketUrl } from './api.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../contracts/edge.fixture.json', import.meta.url), 'utf8'));
@@ -141,4 +141,22 @@ test('the room feed follows the chosen room', () => {
   assert.deepEqual(reduceFeed(emptyFeed(), other, 1000, 'edge'), emptyFeed());
   assert.equal(visibleObservations(reduceFeed(emptyFeed(), other, 1000, 'edge', 'room-02'), 1200, true).length, 1);
   assert.equal(websocketUrl('http://127.0.0.1:8000', 'room 2'), 'ws://127.0.0.1:8000/ws/room/room%202');
+});
+test('alerts from any source stay in the list whichever feed tab is showing', () => {
+  const live = parseMessage({ type: 'alert', data: { ...alert, status: 'open' } })!;
+  assert.equal(reduceFeed(emptyFeed(), live, 1000, 'simulation').alerts['incident-1'].source_type, 'edge');
+  const otherRoom = parseMessage({ type: 'alert', data: { ...alert, room_id: 'room-02', status: 'open' } })!;
+  assert.deepEqual(reduceFeed(emptyFeed(), otherRoom, 1000, 'edge'), emptyFeed());
+});
+test("another run's stale health does not hide this run's observations", () => {
+  const status = (changes: Record<string, unknown>) => parseMessage({ type: 'source_status', data: defaults('SourceStatus', {
+    source: observation.source, source_type: 'edge', room_id: 'room-01', online: true, observation_stale: false,
+    scenario_id: observation.scenario_id ?? null, run_id: observation.run_id ?? null, ...changes }) })!;
+  let state = reduceFeed(emptyFeed(), obs, 1000, 'edge');
+  state = reduceFeed(state, status({}), 1000, 'edge');
+  // The same source name, but a different (ended) run: stale.
+  state = reduceFeed(state, status({ scenario_id: 'other', run_id: 'old-run', online: false, observation_stale: true }), 1100, 'edge');
+  assert.equal(visibleObservations(state, 1200, true).length, 1);
+  assert.equal(latestSources(state).length, 1);
+  assert.equal(latestSources(state)[0].online, true);
 });
