@@ -463,3 +463,43 @@ Next run: stronger floor protection, a fair tolerance, more epochs for the slowe
 Check in the field test: `stand-...053107` -> `?` instead of `F`; `walk-...034202` -> not `F`;
 lie-downs still `F`. If it still keeps nothing, `model_closeup.pt` (run 2) is the fallback: it
 passed the strict rule and improved floor caught; its gaps are head-only and legs-only framing.
+
+## Close-up fine-tune, run 4 and next (2026-10-10)
+
+Run 4 (`--floor-penalty 10 --floor-tolerance 0.5 --epochs 15`, out `model_closeup3.pt`) kept
+nothing either:
+
+| | penalty 5 (run 3) | penalty 10 (run 4) |
+|---|---|---|
+| floor caught after epoch 1 | 91.8% | 91.8% |
+| best floor caught | 92.9% (epoch 4) | 92.2% (epoch 5) |
+| close-ups -> unknown at the end | 80% (10 epochs) | 76% (15 epochs) |
+| lying close-ups -> floor | 93-96% | 93-97% |
+
+Doubling the floor penalty changed nothing: floor caught drops to ~91.8% in the first epoch and
+stays there. So the lost floor frames are probably not being called "other" (the only thing the
+penalty punishes). Likely cause: with a 4th answer the probability is split four ways instead
+of three, so some borderline floor frames now have a top probability just under the 0.50
+cut-off and come out "unknown" for low confidence, which the penalty can't touch.
+
+Next run, testing that guess and possibly fixing it (the starting point is re-measured at the
+same cut-off, so the comparison stays fair):
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-penalty 5 --min-conf 0.4 --floor-tolerance 0.5 --out D:\hearth-data\model_closeup3.pt
+```
+
+- If an epoch is kept, the guess was right; the field test prints right after.
+- If nothing is kept, the dip is real and it's a trade-off decided by the field test:
+
+  ```powershell
+  .\.venv-pc\Scripts\python.exe edge\pc\07_finetune_closeups.py --floor-penalty 5 --floor-tolerance 1.5 --out D:\hearth-data\model_closeup3.pt
+  ```
+
+  This keeps the epoch with the most close-ups caught (~80%) at ~1.3 points less floor caught.
+  Worth it only if the field test shows `stand-...053107` and `walk-...034202` no longer called
+  floor while the lie-downs stay `F`.
+
+Time check: after this, stop iterating and decide. Still ahead: the locked test, the Jetson, the
+demo. If neither run gives a clean win, `model_3class.pt` is a solid choice; its one known
+weakness (close-up framing) is handled by placing the camera so it sees the whole body.
