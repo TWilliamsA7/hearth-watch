@@ -24,9 +24,9 @@ function who(event: FeedEvent): string {
   return name ?? (person ? `${person}` : 'Someone');
 }
 
-export default function EventLog({ events }: { events: FeedEvent[] }) {
+export default function EventLog({ events, notable }: { events: FeedEvent[]; notable: FeedEvent[] }) {
   const [all, setAll] = useState(false);
-  const shown = (all ? events : events.filter(e => e.event_type in NOTABLE)).slice(0, 40);
+  const shown = (all ? events : notable).slice(0, 50);
   return <section className="event-log" aria-label="Event log">
     <div className="section-heading">
       <h2>What happened</h2>

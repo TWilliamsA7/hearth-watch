@@ -8,9 +8,15 @@ export type FeedState = {
   observations: Record<string, { data: RoomObservation; receivedAt: number }>;
   sources: Record<string, RoomSource>;
   events: (Event | SimEvent)[];
+  // Events someone might act on, kept apart so the stream of face and visibility changes
+  // (several a second per person) can't push them out.
+  notable: (Event | SimEvent)[];
   alerts: Record<string, Alert>;
 };
-export function emptyFeed(): FeedState { return { observations: {}, sources: {}, events: [], alerts: {} }; }
+export const NOTABLE_EVENTS = new Set(['possible_fall', 'help_requested', 'appointment_overdue', 'recovered',
+  'alert_acknowledged', 'alert_resolved', 'source_offline', 'source_online']);
+export function emptyFeed(): FeedState { return { observations: {}, sources: {}, events: [], notable: [], alerts: {} }; }
+const newestFirst = <T extends { timestamp: string }>(items: T[]) => items.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 export function sourceKey(data: { source_type: string; source: string }): string { return `${data.source_type}:${data.source}`; }
 // The server keeps health per source, scenario and run (one source can have several: a live
 // room, an ended scripted run, a heartbeat-only entry). Match an observation to its own.
@@ -41,7 +47,11 @@ export function reduceFeed(state: FeedState, message: FeedMessage, now: number, 
       return { ...state, observations: { ...state.observations, [`${key}:${person ?? ''}`]: { data: message.data, receivedAt: now } } };
     }
     case 'source_status': return { ...state, sources: { ...state.sources, [statusKey(message.data)]: message.data } };
-    case 'event': return { ...state, events: [message.data, ...state.events.filter(e => e.event_id !== message.data.event_id)].slice(0, 100) };
+    case 'event': {
+      const event = message.data, others = <T extends { event_id: string }>(list: T[]) => list.filter(e => e.event_id !== event.event_id);
+      return { ...state, events: [event, ...others(state.events)].slice(0, 100),
+        notable: NOTABLE_EVENTS.has(event.event_type) ? newestFirst([event, ...others(state.notable)]).slice(0, 200) : state.notable };
+    }
     case 'alert': return { ...state, alerts: { ...state.alerts, [message.data.alert_id]: message.data } };
   }
 }

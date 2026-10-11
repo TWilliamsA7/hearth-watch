@@ -160,3 +160,13 @@ test("another run's stale health does not hide this run's observations", () => {
   assert.equal(latestSources(state).length, 1);
   assert.equal(latestSources(state)[0].online, true);
 });
+test('a burst of face and visibility events cannot push a fall out of the notable list', () => {
+  const event = (id: string, event_type: string, second: number) => parseMessage({ type: 'event', data: {
+    schema_version: '1', event_id: id, timestamp: new Date(Date.UTC(2026, 9, 10, 12, 0, second)).toISOString(), source: 'jetson-01', source_type: 'edge',
+    room_id: 'room-01', scenario_id: null, run_id: null, event_type, confidence: null, metadata: {} } })!;
+  let state = reduceFeed(emptyFeed(), event('fall', 'possible_fall', 0), 1000, 'simulation');
+  for (let i = 0; i < 300; i++) state = reduceFeed(state, event(`f${i}`, i % 2 ? 'face_present' : 'face_absent', 1), 1000, 'simulation');
+  assert.equal(state.events.length, 100);
+  assert.ok(!state.events.some(e => e.event_id === 'fall'));
+  assert.deepEqual(state.notable.map(e => e.event_id), ['fall']);
+});

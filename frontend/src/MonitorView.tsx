@@ -80,7 +80,7 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
       <div className="card alerts-card"><AlertList base={base} alerts={feed.state.alerts} connected={feed.connected} /></div>
       <div className="card log-card">
         <SourceHealth sources={sources} />
-        <EventLog events={feed.state.events} />
+        <EventLog events={feed.state.events} notable={feed.state.notable} />
       </div>
     </aside>
   </div>;

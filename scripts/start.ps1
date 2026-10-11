@@ -196,7 +196,8 @@ try {
     # The Jetson posts over the USB network, so listen beyond this computer when it is used.
     $bind = if ($Lan -or $useJetson) { '0.0.0.0' } else { '127.0.0.1' }
     Write-Host "Starting the Hearth server on ${bind}:$Port..."
-    $server = Start-Child $python @('-m', 'uvicorn', 'hearth.api.app:app', '--app-dir', 'backend', '--host', $bind, '--port', "$Port")
+    # No per-request access log: the cameras post many times a second and would bury real messages.
+    $server = Start-Child $python @('-m', 'uvicorn', 'hearth.api.app:app', '--app-dir', 'backend', '--host', $bind, '--port', "$Port", '--no-access-log')
     $healthy = $false
     for ($i = 0; $i -lt 120 -and -not $healthy; $i++) {
         if ($server.HasExited) { Fail "The server stopped during startup (exit $($server.ExitCode)). See its errors above." }
