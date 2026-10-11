@@ -1,4 +1,4 @@
-"""Run: python -m uvicorn hearth.api.app:app --host 0.0.0.0 --port 8000."""
+"""Hearth server: API, dashboard and Sim Studio on one port. Start it with scripts/start.ps1."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
 import os
@@ -8,8 +8,7 @@ import anyio
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
 
 from hearth_schema import (Alert, AlertMessage, Event, EventMessage, Heartbeat,
                            HelpRequest, NurseAction, NursePreferences, NurseProfile,
@@ -22,6 +21,7 @@ from hearth.monitor.appointments import Appointments, Appointment, AppointmentIn
 from hearth.sim.mount import mount_simulation
 from hearth.api.face_demo import create_face_router
 from hearth.api.camera_preview import create_preview_router
+from hearth.api.frontend import mount_frontend
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
@@ -61,10 +61,6 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
     app.include_router(create_preview_router(monitor))
     app.state.appointments = appointments
     app.include_router(create_face_router(appointments, monitor))
-
-    @app.get("/face-check-in", include_in_schema=False)
-    async def face_check_in_page():
-        return FileResponse(Path(__file__).with_name("static") / "face-check-in.html")
 
     def appointment_action(action):
         try:
@@ -109,21 +105,6 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
             and key[4] == scripted.status().run_id)
     app.add_middleware(CORSMiddleware, allow_origins=monitor.config.cors_origins,
                        allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
-    static = Path(__file__).with_name("static")
-    app.mount("/assets", StaticFiles(directory=static), name="assets")
-
-    @app.get("/", include_in_schema=False)
-    async def home():
-        return RedirectResponse("http://127.0.0.1:5173/")
-
-    @app.get("/nurses", include_in_schema=False)
-    async def nurse_page():
-        return RedirectResponse("http://127.0.0.1:5173/nurses")
-
-    @app.get("/room", include_in_schema=False)
-    async def room_page():
-        return RedirectResponse("http://127.0.0.1:5173/room")
-
     @app.get("/rooms")
     async def rooms():
         return {"room_ids": monitor.config.room_ids, "gesture_hold_seconds": monitor.config.gesture_hold_seconds}
@@ -299,6 +280,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
         await stream(websocket, queue, initial_payloads)
 
+    mount_frontend(app)  # last: it serves any GET path no API route claimed
     return app
 
 

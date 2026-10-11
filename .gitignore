@@ -16,6 +16,7 @@ frontend/.dependency-backup/
 frontend/.compat-python/
 frontend/dist/
 frontend/room-view/dev/dist/
+frontend/room-view/dist/
 *.tsbuildinfo
 
 # Env and secrets

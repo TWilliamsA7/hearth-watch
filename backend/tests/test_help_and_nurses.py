@@ -144,10 +144,8 @@ def test_room_snapshot_isolated(clock):
     with pytest.raises(ValueError):service.request_help(HelpRequest(request_id="one",room_id="room-01"))
 
 
-def test_nurse_api_websocket_and_static_pages(service):
+def test_nurse_api_websocket(service):
     with TestClient(create_app(service=service)) as client:
-        for path in ('/assets/nurse.js','/assets/room.js','/assets/style.css'):
-            assert client.get(path).status_code==200
         profile=client.post('/nurse-sessions',json=dict(display_name="Sam",room_ids=["room-01"],alert_kinds=["help_requested"],on_duty=True)).json()
         nurse_id=profile['nurse_id']
         with client.websocket_connect('/ws/nurse/'+nurse_id) as ws:
