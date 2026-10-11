@@ -14,7 +14,7 @@
 # discovered through "jetson-wifi", then "jetson" (-Jetson to choose explicitly). The laptop's
 # return address comes from SSH (-LaptopIp to override). Its face-ID token is read from the
 # Jetson. SSH uses key/agent authentication by default, with no repeated password prompts.
-# Telemetry returns through an SSH tunnel; only the video stream uses the laptop's network IP.
+# Telemetry and video return through SSH tunnels, without inbound laptop firewall rules.
 # Recognition's key is kept in data/face.key. Ctrl+C stops everything, the Jetson's camera too.
 param(
     [int]$Port = 8000,
@@ -250,9 +250,11 @@ try {
         # -tt: Ctrl+C reaches run_edge.py so it closes the camera cleanly. Only our [edge] lines are shown.
         # The clean camera image streams to this laptop; the relay hands it to the dashboard, which
         # draws the skeletons and posture calls from the observations.
-        $producers['Jetson video relay'] = Start-Child $python @('-m', 'hearth.perception.stream_relay', '--backend', $url, '--laptop-ip', $LaptopIp, '--jetson-ip', $connection.JetsonIp)
+        $relayArgs = @('-m', 'hearth.perception.stream_relay', '--backend', $url, '--ssh-target', $Jetson)
+        if (-not $JetsonBatch) { $relayArgs += '--ssh-password' }
+        $producers['Jetson video relay'] = Start-Child $python $relayArgs
         $checkBackend = "curl --noproxy '*' --fail --silent --show-error --max-time 5 $edgeUrl/health >/dev/null || { echo '[edge] SSH backend tunnel failed; camera not started' >&2; exit 1; }"
-        $edgeCommand = "$checkBackend; cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId --stream rtp://${LaptopIp}:1234 --stream-plain 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
+        $edgeCommand = "$checkBackend; cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId --stream rtp://127.0.0.1:1234 --stream-plain 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
         $tunnel = @('-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=3',
                     '-R', "127.0.0.1:${JetsonBackendPort}:127.0.0.1:$Port")
         $producers['Jetson camera'] = Start-Child 'ssh.exe' (@('-tt') + $tunnel + $ssh + @($edgeCommand))

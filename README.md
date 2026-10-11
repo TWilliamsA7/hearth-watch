@@ -27,7 +27,7 @@ Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm pack
 | `-Jetson jetson-wifi` | Choose an SSH target; by default try `jetson-wifi`, then `jetson`, using your SSH config's user and key |
 | `-JetsonBatch:$false` | Allow password prompts when key/agent authentication is unavailable; normal startup uses keys without prompting |
 | `-JetsonBackendPort 18001` | Change the SSH tunnel's loopback port on the Jetson if the default 18000 is occupied |
-| `-LaptopIp 100.x.y.z` | Override the laptop address for video; by default use the client address reported by SSH |
+| `-LaptopIp 100.x.y.z` | Override the address reported by discovery (normal video and telemetry use SSH tunnels) |
 | `-Camera 0` | Also this laptop's webcam as a second live camera |
 | `-Replay` | Recorded clips replayed as `replay-01`, no Jetson needed; `-Replay -People` plays two people at once |
 | `-Dev` | A Vite dev server with hot reload on http://127.0.0.1:5173/, forwarding to the server |
@@ -50,7 +50,7 @@ Use the path to your working Jetson private key (`id_jetson` above is the same k
 
 Discovery reports both endpoints. Observations and face templates return through an SSH reverse tunnel: `127.0.0.1:18000` on the Jetson forwards to the laptop backend's `127.0.0.1:8000` (or `-Port`). No inbound laptop firewall rule is needed for telemetry. The camera's SSH session owns the tunnel and refuses to start inference if forwarding or the backend health check fails. Change `-JetsonBackendPort` if the Jetson's tunnel port is already in use.
 
-The video stream still uses the laptop's detected Tailscale/USB IPv4 address and UDP 1234, which must be reachable through the firewall and any Tailscale access rules. USB also works through the `jetson` alias.
+Video also travels over SSH. The Jetson sends H.264/RTP to its own loopback UDP port 1234; a small SSH helper carries the packets to the laptop relay, which decodes and publishes the frames for the dashboard overlay. No inbound UDP firewall rule is needed, and no video is recorded. The helper exits when its SSH connection closes. USB also works through the `jetson` alias. The standalone relay still supports direct UDP when run without `--ssh-target`.
 
 **What is where** (all on the same server):
 

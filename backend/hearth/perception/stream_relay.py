@@ -39,12 +39,16 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=1234, help="UDP port the Jetson streams to")
     ap.add_argument("--laptop-ip", default="192.168.55.100")
     ap.add_argument("--jetson-ip", default="192.168.55.1")
+    ap.add_argument("--ssh-target", help="receive the Jetson's loopback RTP through this SSH alias")
+    ap.add_argument("--ssh-password", action="store_true", help="allow SSH password prompts")
     ap.add_argument("--max-fps", type=float, default=8.0, help="preview uploads per second")
     args = ap.parse_args(argv)
 
     import av
     import cv2
 
+    if args.ssh_target:
+        args.laptop_ip = args.jetson_ip = '127.0.0.1'
     sdp = Path(tempfile.gettempdir()) / f"hearth-{args.source}.sdp"
     sdp.write_text(SDP.format(jetson=args.jetson_ip, laptop=args.laptop_ip, port=args.port), encoding="ascii")
     url = args.backend.rstrip("/") + f"/camera-preview/{quote(args.room, safe='')}/{quote(args.source, safe='')}"
@@ -58,8 +62,13 @@ def main(argv=None):
                 reply.read()
 
     preview = LatestPreview(send)
+    tunnel = None
     print(f"[relay] waiting for {args.source}'s stream on udp {args.port}", flush=True)
     try:
+        if args.ssh_target:
+            from .rtp_tunnel import RtpTunnel
+            tunnel = RtpTunnel(args.ssh_target, port=args.port, batch=not args.ssh_password)
+            print(f"[relay] video over SSH from {args.ssh_target}", flush=True)
         while True:  # the Jetson may start later or restart: reopen until stopped
             last, frames = 0.0, 0
             try:
@@ -75,12 +84,13 @@ def main(argv=None):
                             print(f"[relay] {args.source} stream: {frame.shape[1]}x{frame.shape[0]}", flush=True)
                         preview.submit(frame)
             except (av.FFmpegError, OSError) as error:
-                if frames:
-                    print(f"[relay] {args.source} stream stopped ({error}); waiting for it again", flush=True)
+                print(f"[relay] {args.source}: {error}; waiting for video again", flush=True)
             time.sleep(1)
     except KeyboardInterrupt:
         pass
     finally:
+        if tunnel:
+            tunnel.close()
         preview.close()
         try:
             with opener.open(Request(url, method="DELETE"), timeout=1) as reply:
