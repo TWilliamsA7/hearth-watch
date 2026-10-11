@@ -10,12 +10,12 @@ import LiveLinkPanel from './LiveLinkPanel';
 import RoomView from './RoomView';
 import PersonInspector from './PersonInspector';
 import AlertList from './AlertList';
+import EventLog from './EventLog';
 import CameraOverlay from './CameraOverlay';
 import SourceHealth from './SourceHealth';
 import Popover from './Popover';
 import { peopleInView } from './people';
 import { liveNames } from '@hearth/room-view';
-import { kindLabel, sourceTypeLabels } from './alertText';
 
 export const sourceLabels: Record<SourceMode, string> = { simulation: 'Simulation', edge: 'Live camera', replay: 'Recorded replay' };
 
@@ -80,9 +80,7 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
       <div className="card alerts-card"><AlertList base={base} alerts={feed.state.alerts} connected={feed.connected} /></div>
       <div className="card log-card">
         <SourceHealth sources={sources} />
-        <h2>Event log</h2>
-        {!feed.state.events.length ? <p className="empty">No events yet.</p> : <ol className="timeline">{feed.state.events.slice(0, 40).map(event =>
-          <li key={event.event_id}><time>{new Date(event.timestamp).toLocaleTimeString()}</time><strong>{kindLabel(event.event_type)}</strong><span>{sourceTypeLabels[event.source_type] ?? event.source_type} · {event.source}{'person_id' in event && event.person_id ? ` · ${event.person_id.toUpperCase()}` : ''}</span></li>)}</ol>}
+        <EventLog events={feed.state.events} />
       </div>
     </aside>
   </div>;

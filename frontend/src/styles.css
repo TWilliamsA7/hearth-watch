@@ -40,7 +40,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* --- page frame: header, then the active view filling the rest of the window --- */
 .dashboard { height:100%; padding:10px 16px 14px; display:flex; flex-direction:column; gap:10px; }
 .page-header { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-.brand { color:var(--text); text-decoration:none; }
+.brand { color:var(--text); text-decoration:none; display:flex; align-items:center; gap:10px; }
+.brand-mark { display:block; height:52px; width:auto; }
 .brand h1 { font-family:"Lucida Calligraphy","Lucida Handwriting","Lucida Sans",cursive; color:var(--brand); font-weight:700; font-size:30px; line-height:1.3; padding-right:35px; }
 .wordmark-tail { position:relative; display:inline-block; }
 .heart-flourish { position:absolute; width:40px; height:40px; left:calc(100% - 6px); bottom:-1px; overflow:visible; }
@@ -115,6 +116,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .alert-label { font-size:13px; color:var(--mute); }
 .alert button { margin-top:4px; }
 .source-health > summary { cursor:pointer; font-weight:700; margin-bottom:8px; }
+.event-log .section-heading { margin-top:12px; }
+.events { list-style:none; margin:0; padding:0; max-height:320px; overflow:auto; display:grid; gap:4px; }
+.events li { display:grid; grid-template-columns:auto 1fr; column-gap:10px; padding:6px 8px; border-radius:8px; border-left:4px solid var(--line); background:var(--bg); }
+.events time { color:var(--mute); font-size:13px; font-variant-numeric:tabular-nums; grid-row:span 2; padding-top:1px; }
+.events .what { font-weight:600; font-size:15px; }
+.events .where { color:var(--mute); font-size:13px; }
+.events .tone-alert { border-left-color:var(--ember); }
+.events .tone-alert .what { color:var(--ember); }
+.events .tone-warn { border-left-color:var(--amber); }
+.events .tone-ok { border-left-color:var(--ok); }
+.events .tone-note { border-left-color:var(--mute); }
+.events .tone-quiet { border-left-color:transparent; background:none; }
+.events .tone-quiet .what { font-weight:400; color:var(--mute); }
+.inline-check { display:inline-flex; align-items:center; margin:0; font-size:14px; }
 .timeline { list-style:none; margin:0; padding:0; font-size:14px; max-height:260px; overflow:auto; }
 .timeline li { padding:5px 0; border-bottom:1px dashed var(--line); }
 .timeline time { color:var(--mute); margin-right:8px; font-variant-numeric:tabular-nums; }

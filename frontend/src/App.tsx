@@ -39,7 +39,7 @@ export default function App() {
   return <main className="dashboard">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <header className="page-header">
-      <a className="brand" href="/" onClick={event => { event.preventDefault(); go('monitor'); }}><h1 aria-label="HearthWatch">HearthWatc<span className="wordmark-tail" aria-hidden="true">h<svg className="heart-flourish" viewBox="0 0 36 36" fill="none"><path d="M 1 27 C 6 31 10 29 14 25 C 19 21 29 16 29 10 C 29 4 22 3 18 9 C 14 3 7 4 7 10 C 7 16 14 20 18 23" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg></span></h1></a>
+      <a className="brand" href="/" onClick={event => { event.preventDefault(); go('monitor'); }}><img className="brand-mark" src="/hearthwatch-mark.png" alt="" width="60" height="52" /><h1 aria-label="HearthWatch">HearthWatc<span className="wordmark-tail" aria-hidden="true">h<svg className="heart-flourish" viewBox="0 0 36 36" fill="none"><path d="M 1 27 C 6 31 10 29 14 25 C 19 21 29 16 29 10 C 29 4 22 3 18 9 C 14 3 7 4 7 10 C 7 16 14 20 18 23" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg></span></h1></a>
       <nav className="tabs" aria-label="Views">{TABS.map(item =>
         <a key={item.id} href={item.path} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'selected' : ''}
           onClick={event => { event.preventDefault(); go(item.id); }}>{item.label}</a>)}</nav>
