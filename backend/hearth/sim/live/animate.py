@@ -66,8 +66,13 @@ def gait(actor: Actor, speed: float, dt: float, *, stepping: float = 0.0, backwa
     return body_pose("standing", actor.gait_phase, gait_amount(stride, size) * smoothstep(fade))
 
 
-def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0, talking: bool = False) -> BodyPose:
-    """Layer breathing, sway, head turns and talking gestures over a held pose."""
+EAT_PERIOD_S = 7.0  # a forkful or a sip this often
+EAT_LIFT_S = 2.2  # ...taking this long, hand up to the mouth and down again
+
+
+def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0, talking: bool = False,
+         eating: bool = False) -> BodyPose:  # fmt: skip
+    """Layer breathing, sway, head turns, and talking or eating gestures over a held pose."""
     ph = actor.idle_phase
     out = dict(pose)
     upright = actor.posture in ("standing", "sitting")
@@ -103,6 +108,15 @@ def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0
         g = actor.gesture
         out = turn_limb(out, f"{side}_shoulder", L_AXIS, -math.radians(18) * g)
         out = turn_limb(out, f"{side}_elbow", L_AXIS, -math.radians(65) * g)
+    # Eating or drinking: now and then a hand comes up to the mouth and goes down again.
+    if eating:
+        u = (t + ph * 3.0) % EAT_PERIOD_S
+        g = math.sin(math.pi * u / EAT_LIFT_S) ** 2 if u < EAT_LIFT_S else 0.0
+        if g > 0.0:
+            side, inward = ("right", 1.0) if ph % 2 < 1 else ("left", -1.0)
+            out = turn_limb(out, f"{side}_shoulder", L_AXIS, -math.radians(30) * g)
+            out = turn_limb(out, f"{side}_elbow", L_AXIS, -math.radians(105) * g)
+            out = turn_limb(out, f"{side}_elbow", V_AXIS, inward * math.radians(30) * g)  # towards the mouth
     return out
 
 

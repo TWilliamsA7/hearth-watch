@@ -1,0 +1,73 @@
+"""Everyday behaviours the Brain can choose: eating at a table, watching TV, and the rest."""
+
+from __future__ import annotations
+
+import math
+
+import pytest
+
+from hearth.sim.live.activities import PLANNERS, Hold, facing_tv, reserve
+from hearth.sim.live.animate import heading_to, idle, wrap
+from hearth.sim.live.engine import World
+from hearth.sim.live.spec import EngineSpec
+from hearth.sim.pose import KEY_POSES
+
+
+def _world_where(ok, actors: int = 2) -> World:
+    for seed in range(80):
+        w = World(EngineSpec(actors=actors), seed)
+        if ok(w):
+            return w
+    raise AssertionError("no such room")
+
+
+def _do(w: World, intent: str):
+    """Have someone standing carry out a planner's plan; returns them once it's holding."""
+    a = next(x for x in w.actors if x.present)
+    plan = PLANNERS[intent](a, w)
+    assert plan, f"{intent}: nothing to do here"
+    held = [w.room.slot(s) for s in a.slots]
+    w.replace_plan(a, plan, intent)
+    reserve(a, w, *held)  # replace_plan frees seats not yet sat in; the Brain's own plans keep them
+    t0 = w.t
+    while not (isinstance(a.activity, Hold) and a.activity.name not in ("seated", "pausing")):
+        assert w.t - t0 < 60, f"stuck in {a.activity.name if a.activity else None}"
+        w.step()
+    return a
+
+
+def test_eating_happens_at_a_table() -> None:
+    w = _world_where(lambda w: any(p.kind.name == "table" for p in w.room.pieces))
+    a = _do(w, "table")
+    assert a.activity.name == "eating" and a.posture == "sitting" and a.label == "sitting"
+    chair = w.room.pieces[w.room.slot(a.slots[0]).piece]
+    assert any(p.kind.name == "table" and p.group == chair.group for p in w.room.pieces)
+
+
+def test_eating_brings_a_hand_to_the_mouth_now_and_then() -> None:
+    w = World(EngineSpec(actors=1), 0)
+    a = w.actors[0]
+    a.posture, a.look_at, a.idle_phase = "sitting", None, 0.5
+    rest = KEY_POSES["sitting"]
+    heights = [idle(a, rest, k * 0.1, 0.1, sway=0.0, eating=True)["right_wrist"][1] for k in range(80)]
+    assert max(heights) - rest["right_wrist"][1] > 0.2  # up by the mouth
+    assert min(heights) == pytest.approx(rest["right_wrist"][1], abs=0.01)  # and back in the lap
+    nose = rest["nose"]
+    top = idle(a, rest, heights.index(max(heights)) * 0.1, 0.1, sway=0.0, eating=True)["right_wrist"]
+    assert math.dist(top, nose) < 0.2
+
+
+def test_tv_is_watched_from_a_seat_facing_it() -> None:
+    w = _world_where(lambda w: any(facing_tv(w, s) for s in w.room.slots if s.kind == "sit"))
+    a = _do(w, "tv")
+    assert a.activity.name == "watching TV" and a.posture == "sitting"
+    seat = w.room.slot(a.slots[0])
+    tv = facing_tv(w, seat)
+    assert tv is not None and a.look_at == tv
+    assert abs(wrap(heading_to(seat.at, tv) - seat.heading)) <= math.radians(35)
+
+
+def test_no_tv_no_watching() -> None:
+    w = _world_where(lambda w: not any(p.kind.name == "cabinet" for p in w.room.pieces))
+    a = next(x for x in w.actors if x.present)
+    assert PLANNERS["tv"](a, w) is None

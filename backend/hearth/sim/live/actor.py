@@ -113,6 +113,7 @@ class Actor:
     history: deque[tuple[str, float]] = field(default_factory=lambda: deque(maxlen=12))
     cooldowns: dict[str, float] = field(default_factory=dict)  # intent -> scenario time it's allowed again
     slots: list[str] = field(default_factory=list)  # slot ids held (sitting in, lying on, or headed for)
+    shunned: dict[str, float] = field(default_factory=dict)  # slot id -> scenario time: couldn't reach it, leave it until then
     conversation: str | None = None
     engaged_by: str | None = None  # someone is coming over to talk
     incident: str | None = None  # kind of the incident in progress

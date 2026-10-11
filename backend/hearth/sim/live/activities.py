@@ -81,11 +81,11 @@ class Hold(Activity):
     """Stay in the current posture (or a given pose) for a while, never perfectly still."""
 
     def __init__(self, duration: float, name: str = "idle", *, pose: str | None = None, label: str | None = None,
-                 sway: float = 1.0, look: Floor | None = None, talking: bool = False,
+                 sway: float = 1.0, look: Floor | None = None, talking: bool = False, eating: bool = False,
                  until: Callable[[], bool] | None = None) -> None:  # fmt: skip
         super().__init__()
         self.duration, self.name, self.pose, self.sway = duration, name, pose, sway
-        self.look, self.talking, self.until = look, talking, until
+        self.look, self.talking, self.eating, self.until = look, talking, eating, until
         self._label = label
 
     def label_for(self, a: Actor) -> str:
@@ -107,7 +107,7 @@ class Hold(Activity):
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
         base = blend_body(self.start, self.target, smoothstep(self.tau / 0.6)) if self.tau < 0.6 else self.target
-        a.body = idle(a, base, w.t, dt, sway=self.sway, talking=self.talking)
+        a.body = idle(a, base, w.t, dt, sway=self.sway, talking=self.talking, eating=self.eating)
         if self.until is not None and self.until():
             return True
         return self.tau >= self.duration
@@ -673,10 +673,12 @@ def lie_plan(a: Actor, w: World, lie: Slot, entry: Slot) -> list[Activity] | Non
 
 BASE_WEIGHTS: dict[str, float] = {
     "sit": 3.0, "rest": 0.7, "window": 0.9, "browse": 0.8, "wander": 1.0, "pick_up": 0.35, "chat": 1.6,
-    "leave": 0.3, "pause": 0.8,
+    "leave": 0.3, "pause": 0.8, "table": 0.8, "tv": 0.9,
 }  # fmt: skip
 COOLDOWN_S: dict[str, float] = {"chat": 45.0, "leave": 150.0, "rest": 180.0, "pick_up": 60.0, "browse": 30.0,
-                                "window": 30.0}  # fmt: skip
+                                "window": 30.0, "table": 150.0, "tv": 180.0}  # fmt: skip
+TV_FACING = math.radians(35)  # a seat faces the TV if it's within this of straight ahead
+TV_RANGE_M = 5.0
 
 
 def dwell(a: Actor, w: World, lo: float, hi: float) -> float:
@@ -698,11 +700,11 @@ def choose(a: Actor, w: World) -> tuple[str, list[Activity]]:
         if intent in recent:
             wgt *= 0.25 if recent[-1] == intent else 0.6
         if a.posture == "sitting":
-            wgt *= {"sit": 0.15, "pause": 0.2, "pick_up": 0.3}.get(intent, 1.0)
+            wgt *= {"sit": 0.15, "pause": 0.2, "pick_up": 0.3, "table": 0.4, "tv": 0.4}.get(intent, 1.0)
         if a.posture == "lying":
             wgt *= {"rest": 0.0, "sit": 0.6}.get(intent, 1.0)
         # After a long time on their feet, people want to sit down.
-        if a.posture == "standing" and intent in ("sit", "rest"):
+        if a.posture == "standing" and intent in ("sit", "rest", "table", "tv"):
             wgt *= 1.0 + min(w.t - a.intent_since, 120.0) / 60.0
         if wgt > 0:
             weights[intent] = wgt
@@ -742,7 +744,7 @@ def plan_sit(a: Actor, w: World) -> list[Activity] | None:
     scored = []
     for s in seats:
         kind = w.room.pieces[s.piece].kind.name
-        if a.slots and s.slot_id in a.slots:
+        if (a.slots and s.slot_id in a.slots) or shunned(a, w, s):
             continue
         scored.append((s, pref.get(kind, 0.5) / (1.0 + distance(s.at, a.pos) / 3.0)))
     if not scored:
@@ -755,6 +757,54 @@ def plan_sit(a: Actor, w: World) -> list[Activity] | None:
     return first + sit_plan(a, w, seat) + [Hold(dwell(a, w, 25.0, 90.0), "seated")]  # type: ignore[operator]
 
 
+def shunned(a: Actor, w: World, slot: Slot) -> bool:
+    """Did they fail to reach this slot a moment ago?"""
+    return a.shunned.get(slot.slot_id, -1.0) > w.t
+
+
+def _take_seat(a: Actor, w: World, seats: list[Slot]) -> Slot | None:
+    """The nearest of `seats` that's free and can be reached."""
+    free = {s.slot_id for s in w.room.free_slots("sit")}
+    for s in sorted(seats, key=lambda s: distance(s.at, a.pos)):
+        if s.slot_id in free and s.slot_id not in a.slots and not shunned(a, w, s) and w.room.approach(s, a.size) is not None:
+            return s
+    return None
+
+
+def plan_table(a: Actor, w: World) -> list[Activity] | None:
+    """Sit at a table for something to eat or drink."""
+    tables = {p.group for p in w.room.pieces if p.kind.name == "table" and p.group is not None}
+    seat = _take_seat(a, w, [s for s in w.room.slots if s.kind == "sit" and w.room.pieces[s.piece].group in tables])
+    if seat is None:
+        return None
+    first = get_up(a, w)
+    reserve(a, w, seat)
+    return first + sit_plan(a, w, seat) + [Hold(dwell(a, w, 30.0, 120.0), "eating", eating=True)]  # type: ignore[operator]
+
+
+def facing_tv(w: World, seat: Slot) -> Floor | None:
+    """The TV (on a cabinet) a seat looks at, if any."""
+    for p in w.room.pieces:
+        if p.kind.name != "cabinet":
+            continue
+        d = distance(seat.at, p.at)
+        if d <= TV_RANGE_M and abs(wrap(heading_to(seat.at, p.at) - seat.heading)) <= TV_FACING:
+            return p.at
+    return None
+
+
+def plan_tv(a: Actor, w: World) -> list[Activity] | None:
+    """Sit somewhere facing the TV and watch it for a while."""
+    seats = [s for s in w.room.slots if s.kind == "sit" and facing_tv(w, s) is not None]
+    seat = _take_seat(a, w, seats)
+    if seat is None:
+        return None
+    first = get_up(a, w)
+    reserve(a, w, seat)
+    tv = facing_tv(w, seat)
+    return first + sit_plan(a, w, seat) + [Hold(dwell(a, w, 60.0, 200.0), "watching TV", look=tv, sway=0.5)]  # type: ignore[operator]
+
+
 def plan_rest(a: Actor, w: World) -> list[Activity] | None:
     beds = w.room.free_slots("lie", a.person_id)
     a.rng.shuffle(beds)
@@ -762,7 +812,7 @@ def plan_rest(a: Actor, w: World) -> list[Activity] | None:
         entry = w.room._slot_index.get(lie.entry or "")
         if entry is None or entry.occupant not in (None, a.person_id):
             entry = next((s for s in w.room.slots if s.group == lie.group and s.kind == "sit" and s.occupant is None), None)
-        if entry is None or w.room.approach(entry, a.size) is None:
+        if entry is None or w.room.approach(entry, a.size) is None or shunned(a, w, entry) or shunned(a, w, lie):
             continue
         if lie_stances(lie, w.room.pieces[lie.piece], a.size) is None:  # too short for them, even curled up
             continue
@@ -812,6 +862,8 @@ PLANNERS: dict[str, Callable[[Actor, World], list[Activity] | None]] = {
     "pick_up": plan_pick_up,
     "leave": plan_leave,
     "pause": plan_pause,
+    "table": plan_table,
+    "tv": plan_tv,
 }
 """intent -> planner. Add an entry (and a BASE_WEIGHTS weight) to teach people something new."""
 

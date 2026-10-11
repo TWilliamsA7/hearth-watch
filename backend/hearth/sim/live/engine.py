@@ -61,6 +61,7 @@ from hearth.sim.live.spec import CameraSpec, EngineSpec
 from hearth.sim.live.truth import TruthRecorder
 
 DT = 0.05
+SHUN_SLOT_S = 30.0  # how long someone who couldn't reach a seat leaves it alone
 Record = Observation | Heartbeat
 
 
@@ -230,6 +231,10 @@ class World:
             if isinstance(act, Walk):
                 self._end_walk(a, act.path)
             if act.failed:
+                # Couldn't get to a seat (someone in the way): try another one for a while.
+                if a.posture not in ("sitting", "lying"):
+                    for sid in a.slots:
+                        a.shunned[sid] = self.t + SHUN_SLOT_S
                 abandon(a, self)
                 if a.incident:
                     self.incidents.abandoned(a)
