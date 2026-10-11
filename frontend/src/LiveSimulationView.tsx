@@ -1,6 +1,9 @@
 import { Component, type ReactNode, useState } from 'react';
-import { LiveView3D } from '@hearth/room-view';
+import { DEFAULT_OVERLAYS, DEFAULT_THEME, LiveView3D } from '@hearth/room-view';
 import type { useLiveSimulation } from './useLiveSimulation';
+
+const ROOM_THEME = { ...DEFAULT_THEME, background: '#342b45' };
+const ROOM_OVERLAYS = { ...DEFAULT_OVERLAYS, fov: false };
 
 class RenderBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -22,7 +25,7 @@ export default function LiveSimulationView({ simulation, alertPersonIds }: {
   const { client, ready, error, selected, setSelected } = simulation;
   return <div className="live-simulation">
     {supported && client && <RenderBoundary key={client.world?.run_id ?? 'loading'}>
-      <LiveView3D client={client} selected={selected} onSelect={setSelected} alertPersonIds={alertPersonIds} cameraMode="orbit" />
+      <LiveView3D client={client} selected={selected} onSelect={setSelected} alertPersonIds={alertPersonIds} cameraMode="orbit" theme={ROOM_THEME} overlays={ROOM_OVERLAYS} lighting="day" />
     </RenderBoundary>}
     <span className="simulation-badge">SIMULATED · 3D ROOM</span>
     {!supported ? <div className="simulation-message" role="alert">The 3D room requires WebGL. Enable hardware acceleration in your browser and reload.</div>
