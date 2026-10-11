@@ -21,11 +21,13 @@ from hearth.sim.live.activities import (
     Transition,
     Walk,
     dwell,
+    floor_sit_steps,
     get_up,
     lie_plan,
     lie_stances,
     reserve,
     sit_plan,
+    tie_shoe_steps,
 )
 from hearth.sim.live.actor import Actor
 from hearth.sim.live.spec import IncidentSpec
@@ -33,7 +35,7 @@ from hearth.sim.live.spec import IncidentSpec
 if TYPE_CHECKING:
     from hearth.sim.live.engine import World
 
-CommandAction = Literal["go", "sit", "lie", "kneel", "pick_up", "fall"]
+CommandAction = Literal["go", "sit", "lie", "kneel", "tie_shoe", "pick_up", "floor_sit", "fall"]
 SLOT_ACTIONS = ("sit", "lie")
 
 
@@ -77,6 +79,10 @@ def command_plan(a: Actor, w: World, cmd: ActorCommand) -> list[Activity]:
             Hold(a.rng.uniform(5.0, 10.0), "kneeling", pose="kneel", label="bending", sway=0.3),
             Transition("standing", 1.2, name="getting up", label="standing", posture="standing"),
         ]
+    if cmd.action == "tie_shoe":
+        return there + tie_shoe_steps(a)
+    if cmd.action == "floor_sit":
+        return there + floor_sit_steps(a, w)
     if cmd.action == "pick_up":
         return there + [
             Transition("bending", 0.9, name="bending down", label="bending", posture="standing"),

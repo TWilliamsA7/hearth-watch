@@ -49,7 +49,7 @@ export interface HearthSimApi {
  * via the `definition` "ActorCommand".
  */
 export interface ActorCommand {
-  action: "go" | "sit" | "lie" | "kneel" | "pick_up" | "fall";
+  action: "go" | "sit" | "lie" | "kneel" | "tie_shoe" | "pick_up" | "floor_sit" | "fall";
   /**
    * sit, lie: which slot (LiveWorld.slots).
    */

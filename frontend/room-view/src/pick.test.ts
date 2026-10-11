@@ -28,7 +28,7 @@ describe("picking", () => {
 
   it("offers floor actions at the clicked point", () => {
     const acts = actionsFor({ kind: "floor", x: 1.23456, z: -2.5 }, world);
-    expect(acts.map(([, c]) => c.action)).toEqual(["go", "kneel", "pick_up", "fall"]);
+    expect(acts.map(([, c]) => c.action)).toEqual(["go", "kneel", "tie_shoe", "pick_up", "floor_sit", "fall"]);
     expect(acts[0][1].at).toEqual([1.235, -2.5]);
   });
 });

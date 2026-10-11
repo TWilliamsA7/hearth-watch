@@ -9,7 +9,9 @@
             "sit",
             "lie",
             "kneel",
+            "tie_shoe",
             "pick_up",
+            "floor_sit",
             "fall"
           ],
           "title": "Action",

@@ -33,7 +33,8 @@ if TYPE_CHECKING:
     from hearth.sim.live.engine import World
 
 POSTURE_LABEL: dict[str, str] = {"standing": "standing", "sitting": "sitting", "lying": "lying_intentional",
-                                 "floor": "fall", "absent": "absent"}  # fmt: skip
+                                 "floor": "fall", "floor_sit": "sitting", "absent": "absent"}  # fmt: skip
+ON_FLOOR = ("floor", "floor_sit")  # down on the floor (fallen, or sat there): walkers keep further off
 
 PERSONAL_SPACE_M = 0.75  # walkers start steering away inside this
 MIN_SEPARATION_M = 0.52  # bodies never get closer than this (centre to centre)
@@ -99,6 +100,8 @@ class Hold(Activity):
             self.target = KEY_POSES["standing"]
         elif a.posture == "sitting":
             self.target = a.rest_pose or KEY_POSES["sitting"]
+        elif a.posture == "floor_sit":
+            self.target = KEY_POSES["floor_sit"]
         else:
             self.target = a.body
         if self.look is not None:
@@ -146,7 +149,7 @@ class Walk(Activity):
             for o in w.bodies:
                 if o is a or not o.present or o.slots_in_use or distance(o.pos, a.pos) > 3.5:
                     continue
-                r = FALLEN_CLEARANCE_M if o.posture == "floor" else 0.6
+                r = FALLEN_CLEARANCE_M if o.posture in ON_FLOOR else 0.6
                 # Keep the disc of someone right next to us (a disc covering the start is ignored).
                 discs.append((o.pos[0], o.pos[1], min(r, distance(o.pos, a.pos) - 0.03)))
         path = w.room.nav.find_path(a.pos, self.goal, ignore=self.ignore, avoid=discs)
@@ -236,7 +239,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
         dist = math.hypot(rx, rz)
         if dist > 3.0 or dist < 1e-6:
             continue
-        space = FALLEN_CLEARANCE_M + 0.3 if o.posture == "floor" else PERSONAL_SPACE_M
+        space = FALLEN_CLEARANCE_M + 0.3 if o.posture in ON_FLOOR else PERSONAL_SPACE_M
         if dist < space:  # too close: move apart
             k = (space - dist) / space * 1.6
             ax -= rx / dist * k
@@ -290,7 +293,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
     for o in w.bodies:
         if o is a or not o.present or o.slots_in_use:
             continue
-        limit = FALLEN_CLEARANCE_M if o.posture == "floor" else MIN_SEPARATION_M
+        limit = FALLEN_CLEARANCE_M if o.posture in ON_FLOOR else MIN_SEPARATION_M
         before, after = distance(a.pos, o.pos), distance((px + mx, pz + mz), o.pos)
         if after < limit and after < before:
             ox, oz = px - o.pos[0], pz - o.pos[1]
@@ -301,7 +304,7 @@ def steer(a: Actor, w: World, dt: float, target: Floor, v_pref: float, ignore: s
                 mx, mz = mx - ox * inward, mz - oz * inward
     cand = (px + mx, pz + mz)
     if (mx or mz) and nav.free(cand, ignore) and all(
-        distance(cand, o.pos) >= min(distance(a.pos, o.pos), FALLEN_CLEARANCE_M if o.posture == "floor" else MIN_SEPARATION_M) - 1e-6
+        distance(cand, o.pos) >= min(distance(a.pos, o.pos), FALLEN_CLEARANCE_M if o.posture in ON_FLOOR else MIN_SEPARATION_M) - 1e-6
         for o in w.bodies if o is not a and o.present and not o.slots_in_use
     ):  # fmt: skip
         new = cand
@@ -594,7 +597,7 @@ def get_up(a: Actor, w: World) -> list[Activity]:
         out.append(Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
                               root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a), lag=0.67))  # fmt: skip
         return out
-    if a.posture == "floor":
+    if a.posture in ON_FLOOR:
         return [PlayMotion("get_up", name="getting up", label="standing", posture="standing", pace=pace)]
     if a.posture == "absent":
         return [Enter(a.rng.choice(w.room.doors).door_id)]
@@ -673,10 +676,11 @@ def lie_plan(a: Actor, w: World, lie: Slot, entry: Slot) -> list[Activity] | Non
 
 BASE_WEIGHTS: dict[str, float] = {
     "sit": 3.0, "rest": 0.7, "window": 0.9, "browse": 0.8, "wander": 1.0, "pick_up": 0.35, "chat": 1.6,
-    "leave": 0.3, "pause": 0.8, "table": 0.8, "tv": 0.9,
+    "leave": 0.3, "pause": 0.8, "table": 0.8, "tv": 0.9, "tie_shoe": 0.2, "reach_low": 0.3, "floor_sit": 0.12,
 }  # fmt: skip
 COOLDOWN_S: dict[str, float] = {"chat": 45.0, "leave": 150.0, "rest": 180.0, "pick_up": 60.0, "browse": 30.0,
-                                "window": 30.0, "table": 150.0, "tv": 180.0}  # fmt: skip
+                                "window": 30.0, "table": 150.0, "tv": 180.0, "tie_shoe": 120.0, "reach_low": 60.0,
+                                "floor_sit": 300.0}  # fmt: skip
 TV_FACING = math.radians(35)  # a seat faces the TV if it's within this of straight ahead
 TV_RANGE_M = 5.0
 
@@ -700,7 +704,8 @@ def choose(a: Actor, w: World) -> tuple[str, list[Activity]]:
         if intent in recent:
             wgt *= 0.25 if recent[-1] == intent else 0.6
         if a.posture == "sitting":
-            wgt *= {"sit": 0.15, "pause": 0.2, "pick_up": 0.3, "table": 0.4, "tv": 0.4}.get(intent, 1.0)
+            wgt *= {"sit": 0.15, "pause": 0.2, "pick_up": 0.3, "table": 0.4, "tv": 0.4, "tie_shoe": 0.3,
+                    "reach_low": 0.3, "floor_sit": 0.3}.get(intent, 1.0)  # fmt: skip
         if a.posture == "lying":
             wgt *= {"rest": 0.0, "sit": 0.6}.get(intent, 1.0)
         # After a long time on their feet, people want to sit down.
@@ -824,13 +829,74 @@ def plan_rest(a: Actor, w: World) -> list[Activity] | None:
     return None
 
 
-def plan_pick_up(a: Actor, w: World) -> list[Activity] | None:
-    """Bend down to the floor for something and straighten up: an ordinary movement that looks like trouble."""
+def _open_spot(a: Actor, w: World, clearance: float = 0.3) -> Floor | None:
+    """Somewhere on open floor within a few steps."""
     for _ in range(10):
         p = (a.pos[0] + a.rng.uniform(-2.5, 2.5), a.pos[1] + a.rng.uniform(-2.5, 2.5))
-        if w.room.nav.free(p) and w.room.nav.clearance(p) > 0.3:
-            break
-    else:
+        if w.room.nav.free(p) and w.room.nav.clearance(p) > clearance:
+            return p
+    return None
+
+
+# Everyday movements down near the floor. Ordinary, but they look a lot like trouble to a
+# camera, which is the point: the monitor has to tell them from a fall.
+
+
+def tie_shoe_steps(a: Actor) -> list[Activity]:
+    return [
+        Transition("half_kneel", 1.1, name="kneeling down", label="bending", posture="standing"),
+        Hold(a.rng.uniform(4.0, 8.0), "tying a shoe", pose="half_kneel", label="bending", sway=0.2),
+        Transition("standing", 1.2, name="getting up", label="standing", posture="standing"),
+    ]
+
+
+def floor_sit_steps(a: Actor, w: World) -> list[Activity]:
+    """Down onto the floor on purpose (crouch, kneel, sit with the legs out) and stay a while;
+    get_up() brings them back up."""
+    pace = mobility_pace(a)
+    return [
+        Transition("crouch", 1.0 * pace, name="crouching down", label="bending", posture="standing"),
+        Transition("kneel", 1.0 * pace, name="kneeling down", label="bending", posture="standing"),
+        Transition("floor_sit", 1.4 * pace, name="sitting down on the floor", label="sitting", posture="floor_sit"),
+        Hold(dwell(a, w, 20.0, 90.0), "sitting on the floor", label="sitting", sway=0.4),
+    ]
+
+
+def plan_tie_shoe(a: Actor, w: World) -> list[Activity] | None:
+    """Stop, go down on one knee to tie a shoe, and get up again."""
+    p = _open_spot(a, w)
+    if p is None:
+        return None
+    return get_up(a, w) + [Walk(p, purpose="to tie a shoe")] + tie_shoe_steps(a)
+
+
+def plan_reach_low(a: Actor, w: World) -> list[Activity] | None:
+    """Crouch in front of a cabinet or shelf for something on its bottom shelf."""
+    places = [p for p in w.room.places if p.name == "browse"
+              and not any(o is not a and o.present and distance(o.pos, p.at) < 0.9 for o in w.bodies)]  # fmt: skip
+    if not places:
+        return None
+    place = a.rng.choice(places)
+    return get_up(a, w) + [
+        Walk(place.at, purpose="to get something"), Turn(place.heading),
+        Transition("crouch", 1.0, name="crouching down", label="bending", posture="standing"),
+        Hold(a.rng.uniform(3.0, 6.0), "reaching low", pose="crouch", label="bending", sway=0.2),
+        Transition("standing", 1.1, name="straightening up", label="standing", posture="standing"),
+    ]
+
+
+def plan_floor_sit(a: Actor, w: World) -> list[Activity] | None:
+    """Sit down on the floor for a while, on purpose."""
+    p = _open_spot(a, w, clearance=0.44)  # nav.clearance() tops out at 0.45: as open as floor gets
+    if p is None:
+        return None
+    return get_up(a, w) + [Walk(p, purpose="to sit on the floor")] + floor_sit_steps(a, w)
+
+
+def plan_pick_up(a: Actor, w: World) -> list[Activity] | None:
+    """Bend down to the floor for something and straighten up: an ordinary movement that looks like trouble."""
+    p = _open_spot(a, w)
+    if p is None:
         return None
     return get_up(a, w) + [
         Walk(p, purpose="to pick something up"),
@@ -864,6 +930,9 @@ PLANNERS: dict[str, Callable[[Actor, World], list[Activity] | None]] = {
     "pause": plan_pause,
     "table": plan_table,
     "tv": plan_tv,
+    "tie_shoe": plan_tie_shoe,
+    "reach_low": plan_reach_low,
+    "floor_sit": plan_floor_sit,
 }
 """intent -> planner. Add an entry (and a BASE_WEIGHTS weight) to teach people something new."""
 

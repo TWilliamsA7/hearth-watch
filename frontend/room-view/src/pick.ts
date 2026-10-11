@@ -25,7 +25,9 @@ export function actionsFor(pick: Pick, world: LiveWorld): [string, ActorCommand]
     return [
       ["Go here", { action: "go", at, slot_id: null }],
       ["Kneel here", { action: "kneel", at, slot_id: null }],
+      ["Tie a shoe here", { action: "tie_shoe", at, slot_id: null }],
       ["Pick something up here", { action: "pick_up", at, slot_id: null }],
+      ["Sit on the floor here", { action: "floor_sit", at, slot_id: null }],
       ["Fall here", { action: "fall", at, slot_id: null }],
     ];
   }

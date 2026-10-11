@@ -21,7 +21,8 @@ from hearth.sim.pose import KEY_POSES, BodyPose
 if TYPE_CHECKING:
     from hearth.sim.live.activities import Activity
 
-Posture = Literal["standing", "sitting", "lying", "floor", "absent"]
+Posture = Literal["standing", "sitting", "lying", "floor", "floor_sit", "absent"]
+"""floor: fallen (or down there after a fall); floor_sit: sitting on the floor on purpose."""
 Mobility = Literal["normal", "slow"]
 
 
@@ -140,11 +141,13 @@ class Actor:
 
     @property
     def on_floor_space(self) -> bool:
-        """Standing or walking on open floor (not on furniture, not away): a body others walk around."""
-        return self.posture == "standing" and not self.slots_in_use
+        """Standing, walking or sitting on open floor (not on furniture, not away): a body others walk around."""
+        return self.posture in ("standing", "floor_sit") and not self.slots_in_use
 
     @property
     def slots_in_use(self) -> bool:
+        if getattr(self.activity, "posture", None) == "standing":  # standing up: out onto the floor
+            return False
         return bool(self.slots) and self.posture in ("sitting", "lying")
 
     @property
@@ -152,7 +155,7 @@ class Actor:
         if self.activity is not None:
             return self.activity.label_for(self)
         return {"standing": "standing", "sitting": "sitting", "lying": "lying_intentional", "floor": "fall",
-                "absent": "absent"}[self.posture]  # fmt: skip
+                "floor_sit": "sitting", "absent": "absent"}[self.posture]  # fmt: skip
 
 
 LIVE_LOOKS = Appearance("#c9a48a", "#e5484d", "#2f3542", "#5c4a3c", 1.0)  # the LIVE avatar's colours

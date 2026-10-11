@@ -22,6 +22,8 @@ LEGAL = {
     ("standing", "floor"): {"falling"},
     ("sitting", "floor"): {"falling"},
     ("floor", "standing"): {"getting up"},
+    ("standing", "floor_sit"): {"sitting down on the floor"},
+    ("floor_sit", "standing"): {"getting up"},
     ("standing", "absent"): {"away"},
     ("absent", "standing"): {"entering"},
 }

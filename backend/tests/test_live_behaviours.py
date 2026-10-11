@@ -6,10 +6,11 @@ import math
 
 import pytest
 
-from hearth.sim.live.activities import PLANNERS, Hold, facing_tv, reserve
-from hearth.sim.live.animate import heading_to, idle, wrap
+from hearth.sim.live.activities import PLANNERS, Hold, facing_tv, get_up, reserve
+from hearth.sim.live.animate import heading_to, idle, world_pose, wrap
 from hearth.sim.live.engine import World
-from hearth.sim.live.spec import EngineSpec
+from hearth.sim.live.incidents import IncidentError
+from hearth.sim.live.spec import EngineSpec, IncidentSpec
 from hearth.sim.pose import KEY_POSES
 
 
@@ -71,3 +72,33 @@ def test_no_tv_no_watching() -> None:
     w = _world_where(lambda w: not any(p.kind.name == "cabinet" for p in w.room.pieces))
     a = next(x for x in w.actors if x.present)
     assert PLANNERS["tv"](a, w) is None
+
+
+def test_tying_a_shoe_is_bending_then_standing_again() -> None:
+    w = World(EngineSpec(actors=1), 2)
+    a = _do(w, "tie_shoe")
+    assert a.activity.name == "tying a shoe" and a.label == "bending" and a.posture == "standing"
+    while a.intent == "tie_shoe":
+        w.step()
+    assert a.posture == "standing"
+
+
+def test_reaching_low_happens_in_front_of_a_cabinet_or_shelf() -> None:
+    w = _world_where(lambda w: any(p.name == "browse" for p in w.room.places))
+    a = _do(w, "reach_low")
+    assert a.activity.name == "reaching low" and a.label == "bending"
+    place = min((p for p in w.room.places if p.name == "browse"), key=lambda p: math.dist(p.at, a.pos))
+    assert math.dist(place.at, a.pos) < 0.2
+
+
+def test_sitting_on_the_floor_is_sitting_not_a_fall() -> None:
+    w = World(EngineSpec(actors=1), 2)
+    a = _do(w, "floor_sit")
+    assert a.posture == "floor_sit" and a.label == "sitting" and a.activity.name == "sitting on the floor"
+    assert max(j[1] for j in world_pose(a).values()) < 1.0  # down on the floor
+    with pytest.raises(IncidentError, match="already on the floor"):
+        w.incidents.trigger(IncidentSpec(kind="fall", actor=a.person_id))
+    w.replace_plan(a, get_up(a, w), "test")
+    while a.posture != "standing":
+        w.step()
+    assert not [g for g in w.ground_truth() if g.truth_label == "fall"]

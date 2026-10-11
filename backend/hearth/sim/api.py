@@ -198,8 +198,9 @@ def _live_routes(router: APIRouter, scripted: SimController, live: LiveControlle
 
     @router.post("/live/actors/{person_id}/command", response_model=ActorDetail, tags=["live simulation"])
     async def live_command(person_id: str, body: ActorCommand) -> ActorDetail:
-        """Have a resident sit or lie on a slot, or go, kneel, pick something up or fall at a
-        floor point, now. Their plan is replaced; afterwards they carry on as usual."""
+        """Have a resident sit or lie on a slot, or go, kneel, tie a shoe, pick something up, sit
+        on the floor or fall at a floor point, now. Their plan is replaced; afterwards they carry
+        on as usual."""
         need_world()
         assert live.world is not None
         if person_id not in {a.person_id for a in live.world.actors}:
