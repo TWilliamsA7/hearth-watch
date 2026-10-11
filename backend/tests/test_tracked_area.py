@@ -89,7 +89,7 @@ def test_leaving_the_area_is_noticed():
         a.update(keypoints(cam, 0.0, -2.0), "standing", cam, AREA, t)
         t += 0.1
     assert not a.outside
-    for step in range(30):  # walk out past the right edge of the tape
+    for step in range(100):  # walk out, then allow the speed-limited avatar to reach the boundary
         a.update(keypoints(cam, min(3.5, 0.2 * step), -2.0), "standing", cam, AREA, t)
         t += 0.1
     assert a.outside

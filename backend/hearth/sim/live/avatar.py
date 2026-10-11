@@ -3,8 +3,8 @@
 A single camera's keypoints are noisy, flicker in and out and carry no depth, so they don't
 drive the body directly. Each frame gives at most:
 
-  * a floor position (one depth anchor, kept steady with hysteresis, outliers rejected,
-    then One-Euro filtered: still when the person is still, quick when they walk);
+  * a floor position (one depth anchor, outliers checked over time, One-Euro filtered,
+    then limited to a controlled walking speed, with a dead zone for small jitter);
   * a heading (from the shoulders when upright, from hips to head on the floor);
   * the posture the real monitor concluded (debounced, then blended over ~0.6 s);
   * the direction of each arm, when its shoulder and elbow are seen.
@@ -40,7 +40,12 @@ FLOOR_BODY_Y = 0.15  # metres: mid-height of a body lying on the floor
 SWITCH_ANCHOR_S = 0.5  # another depth anchor must be available this long before it's used
 ANCHOR_GAP_S = 0.3  # an anchor missing for less than this (a dropped joint) still counts as available
 JUMP_M = 0.8  # a position this far from the filtered one is an outlier...
-JUMP_HOLD_S = 0.5  # ...unless it persists this long (then they really moved)
+JUMP_HOLD_S = 0.75  # a distant target must stay consistent this long before following it
+JUMP_TARGET_M = 0.35  # wildly different outliers cannot confirm each other
+POSITION_DEADBAND_M = 0.06  # ignore small floor-position jitter
+MAX_SPEED_M_S = 0.6  # controlled walking pace, including after posture/anchor changes
+MAX_TURN_RAD_S = math.radians(60)
+MAX_MOTION_DT_S = 0.2  # a camera stall never creates a large catch-up step
 POSTURE_HOLD_S = 0.4  # a posture change must hold this long before the body changes
 BLEND_S = 0.6  # how long the body takes to change posture
 ARM_SMOOTH = 0.35  # EMA weight of each new arm direction
@@ -112,6 +117,8 @@ class LiveAvatar:
     _avail_since: dict[str, float] = field(default_factory=dict)
     _avail_last: dict[str, float] = field(default_factory=dict)
     _jump_since: float | None = None
+    _jump_target: tuple[float, float] | None = None
+    _measurement_t: float | None = None
     _wanted: str = "standing"
     _wanted_since: float = 0.0
     _from_pose: BodyPose | None = None
@@ -330,19 +337,40 @@ class LiveAvatar:
         if not keypoints:
             return
         pts = {n: (u, v) for n, u, v in keypoints}
-        had_anchor = self._anchor is not None
+        gap = t - self._measurement_t if self._measurement_t is not None else 0.0
+        dt = min(MAX_MOTION_DT_S, max(0.0, gap))
+        if gap > ANCHOR_GAP_S:
+            self._jump_since, self._jump_target = None, None
+        self._measurement_t = t
         meas = self._measure_root(pts, camera, room, self.posture, t)
-        if meas is not None:
-            if self.root is None or (not had_anchor and self._anchor is not None):  # first fix, or first real anchor
+        if meas is not None and all(math.isfinite(v) for v in meas):
+            if self.root is None:  # only the first placement may set the position directly
                 self.root = (self._fx.reset(meas[0], t), self._fz.reset(meas[1], t))
-            elif math.dist(meas, self.root) > JUMP_M:
-                self._jump_since = self._jump_since if self._jump_since is not None else t
-                if t - self._jump_since >= JUMP_HOLD_S:  # they really are over there
-                    self.root = (self._fx.reset(meas[0], t), self._fz.reset(meas[1], t))
-                    self._jump_since = None
             else:
-                self._jump_since = None
-                self.root = (self._fx(meas[0], t), self._fz(meas[1], t))
+                accept = True
+                if math.dist(meas, self.root) > JUMP_M:
+                    if self._jump_target is None or math.dist(meas, self._jump_target) > JUMP_TARGET_M:
+                        self._jump_since, self._jump_target = t, meas
+                    # A smoothly moving target is consistent too; don't require a
+                    # fast walker to stop before the slower avatar can follow.
+                    self._jump_target = meas
+                    accept = t - self._jump_since >= JUMP_HOLD_S
+                else:
+                    self._jump_since, self._jump_target = None, None
+                if accept and math.dist(meas, self.root) > POSITION_DEADBAND_M:
+                    target = (self._fx(meas[0], t), self._fz(meas[1], t))
+                    dist = math.dist(target, self.root)
+                    fraction = min(1.0, MAX_SPEED_M_S * dt / max(dist, 1e-9))
+                    self.root = tuple(a + (b - a) * fraction for a, b in zip(self.root, target))
+                    # Keep the filters at the displayed position when speed-limited.
+                    if fraction < 1.0:
+                        self._fx.reset(self.root[0], t)
+                        self._fz.reset(self.root[1], t)
+                else:
+                    self._fx.reset(self.root[0], t)
+                    self._fz.reset(self.root[1], t)
+        else:
+            self._jump_since, self._jump_target = None, None
         if self.root is None:
             return
         out = (abs(self.root[0]) > room.width / 2 + OUTSIDE_MARGIN
@@ -351,7 +379,8 @@ class LiveAvatar:
         self.outside = out and t - self._outside_since >= OUTSIDE_S  # type: ignore[operator]
         h = self._measure_heading(pts, camera, self.posture)
         if h is not None:
-            self.heading += 0.2 * math.remainder(h - self.heading, 2 * math.pi)
+            turn = 0.2 * math.remainder(h - self.heading, 2 * math.pi)
+            self.heading += max(-MAX_TURN_RAD_S * dt, min(MAX_TURN_RAD_S * dt, turn))
         if self.posture in ("standing", "sitting"):
             self._measure_arms(pts, camera, t)
 

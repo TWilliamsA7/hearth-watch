@@ -150,7 +150,13 @@ In the Studio (`http://127.0.0.1:8000/studio/`, or the developer menu in the das
 
 The **Real camera** chip on the bottom panel switches the 2D view to the Jetson's own skeleton.
 
-API, if you want it without the Studio: `POST /sim/live/link {"enabled": true, "source": "jetson-01", "height": 1.7}`, and `GET /sim/live/link` for the state (`waiting`, `live` or `stale`) and `people`: for each person their room id, track id, posture, the model's call and whether an alert is open for them. The top-level `posture` is the first live person's; `alert_open` is true if anyone has one.
+The dashboard and Studio both have a **Maximum live people** control (1–10, default **3**). Avatars follow real walking at a controlled pace: movement is limited to **0.6 m/s**, small position jitter within **6 cm** is ignored, and large changes over **0.8 m** must form a consistent sequence for **0.75 seconds** before following. Consecutive distant estimates more than **0.35 m** apart restart that check; a smoothly moving target can still be followed. A camera stall, posture change, or change of visible body parts cannot bypass the movement limit. Turning is limited to **60 degrees/second**. This deliberately adds lag during fast real movement.
+
+A new track needs **1.5 seconds** and at least **five distinct observations** with a detected person and keypoints before an avatar appears. Gaps over **0.5 seconds** or missing-person evidence reset this confirmation. Jetson provides no person-detection confidence score; posture confidence is not used to decide whether someone exists.
+
+Confirmed people retain their slots through brief dropouts and expire **four seconds after their last valid observation arrives**. New candidates wait for space, with established tracks taking priority. Lowering the limit removes the most recently admitted excess tracks immediately. Unlinking, switching source/run, or replacing the room requires fresh confirmation. Monitoring and alerts still receive every observation, including people waiting for admission.
+
+API, if you want it without the Studio: `POST /sim/live/link {"enabled": true, "source": "jetson-01", "height": 1.7, "max_people": 3}`, and `GET /sim/live/link` for the effective `max_people`, state (`waiting`, `live` or `stale`) and confirmed `people`: for each person their room id, track id, posture, the model's call and whether an alert is open for them. Omit `max_people` to preserve its current value; it starts at three when the backend starts. The top-level `posture` is the first live person's; `alert_open` is true if anyone has one. This update needs a backend restart and refreshed frontend assets, with no Jetson redeployment.
 
 ## Limits
 - **Depth is inferred, not measured.** A wrong camera height or tilt puts the person in the wrong place; bodies are clamped inside the room. On the floor, from a low camera, expect up to ~0.3 m error.
