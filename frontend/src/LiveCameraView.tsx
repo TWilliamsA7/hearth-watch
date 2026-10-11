@@ -2,8 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 // A camera's annotated frames when it shares them (the laptop webcam client); otherwise the
 // skeletons it reports (the Jetson sends keypoints, never video).
-export default function LiveCameraView({base,source,room,skeleton,hasPeople}: {base:string; source:string; room:string; skeleton:ReactNode; hasPeople:boolean}) {
+export default function LiveCameraView({base,source,room,skeleton,hasPeople,overlay}: {base:string; source:string; room:string; skeleton:ReactNode; hasPeople:boolean; overlay?:(width:number,height:number)=>ReactNode}) {
   const [image,setImage] = useState('');
+  const [size,setSize] = useState<[number,number] | null>(null);
   useEffect(() => {
     let disposed = false, current = '';
     let timer: ReturnType<typeof setTimeout>;
@@ -25,7 +26,7 @@ export default function LiveCameraView({base,source,room,skeleton,hasPeople}: {b
     return () => {disposed=true; abort.abort(); clearTimeout(timer); if(current) URL.revokeObjectURL(current);};
   },[base,source,room]);
   return <div className="live-camera">
-    {image ? <img src={image} alt="Live camera with posture and hand detection bounding boxes"/> : <>
+    {image ? <><img src={image} alt="Live camera" onLoad={e => { const i = e.currentTarget; if (!size || size[0] !== i.naturalWidth || size[1] !== i.naturalHeight) setSize([i.naturalWidth, i.naturalHeight]); }}/>{overlay && size && overlay(size[0], size[1])}</> : <>
       {skeleton}
       {!hasPeople && <div className="simulation-message" role="status"><p>{source ? `Nobody in view of ${source} right now.` : 'No live camera is reporting. Start Hearth with scripts/start.ps1 (the Jetson starts with it).'}</p></div>}
     </>}

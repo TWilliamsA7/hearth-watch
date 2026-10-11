@@ -54,6 +54,9 @@ def parse_args(argv=None):
                     help="observations sent per second (frames beyond this are not sent)")
     ap.add_argument("--stream", default=None,
                     help="also stream the skeleton video, e.g. rtp://192.168.55.100:1234")
+    ap.add_argument("--stream-plain", action="store_true",
+                    help="stream the camera image without the skeleton, panel or face boxes "
+                         "(the laptop dashboard draws them from the observations)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print each observation as JSON instead of sending anything")
     ap.add_argument("--status-every", type=float, default=5.0, help="seconds between status lines")
@@ -350,13 +353,14 @@ def main(argv=None):
 
     cam = PoseCamera(camera=args.camera, width=args.width, height=args.height,
                      model=config.POSE_MODEL, threshold=args.threshold, stream=args.stream,
-                     fps=args.camera_fps)
+                     fps=args.camera_fps, plain=args.stream_plain)
 
     face = schedule = checker = None
     if not args.no_face:
         from hearth_edge.face import FaceDetector, FaceSchedule, head_box, summarize
         try:
-            face = FaceDetector(config.FACE_MODEL, args.face_threshold, draw=bool(args.stream))
+            face = FaceDetector(config.FACE_MODEL, args.face_threshold,
+                                draw=bool(args.stream) and not args.stream_plain)
             schedule = FaceSchedule(args.face_interval)
             if face.model == "res10" and not args.face_id:
                 checker = face.start_background()
@@ -430,7 +434,7 @@ def main(argv=None):
     # Preview panel (only when streaming): edge measurements + the backend's own view.
     overlay = backend_view = None
     emit_times = collections.deque()
-    if args.stream:
+    if args.stream and not args.stream_plain:
         from hearth_edge import overlay as panel
         overlay = panel.Overlay()
         if not args.dry_run:

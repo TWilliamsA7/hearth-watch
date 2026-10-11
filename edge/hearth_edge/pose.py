@@ -39,8 +39,9 @@ BONES = (("nose", "neck"), ("neck", "left_shoulder"), ("neck", "right_shoulder")
 
 class PoseCamera(object):
     def __init__(self, camera="/dev/video0", width=640, height=480, model="resnet18-body",
-                 threshold=0.15, stream=None, fps=None):
+                 threshold=0.15, stream=None, fps=None, plain=False):
         self.net = poseNet(model, threshold=threshold)
+        self.plain = plain  # stream the camera image without drawing on it (the dashboard draws)
         argv = ["--input-codec=mjpeg", "--input-width=%d" % width, "--input-height=%d" % height]
         if fps:
             argv.append("--input-rate=%d" % fps)
@@ -123,6 +124,9 @@ class PoseCamera(object):
         if self.output is None:
             return
         img = frame["img"]
+        if self.plain:
+            self.output.Render(img)
+            return
         override = frame.get("pose_override")
         if override is not None:  # a pose found on a rotated frame: draw it ourselves, in amber
             try:

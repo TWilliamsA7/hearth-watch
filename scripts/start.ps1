@@ -140,14 +140,13 @@ if (-not $NoJetson) {
     }
 }
 $ErrorActionPreference = 'Stop'
-try {
-    $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
-    $probe.Start(); $probe.Stop()
-} catch {
-    $running = $null
-    try { $running = Invoke-RestMethod "$url/health" -TimeoutSec 2 } catch {}
-    if ($running) { Fail "Hearth is already running on port $Port ($url/). Stop it first, or use -Port." }
-    Fail "Port $Port is in use by another program. Free it or choose another with -Port."
+$running = $null
+try { $running = Invoke-RestMethod "$url/health" -TimeoutSec 2 } catch {}
+if ($running) { Fail "Hearth is already running on port $Port ($url/). Stop it first (Ctrl+C in its window), or use -Port." }
+# Windows lets 127.0.0.1 and 0.0.0.0 bind the same port separately, so check both.
+foreach ($address in @([Net.IPAddress]::Any, [Net.IPAddress]::Loopback)) {
+    try { $probe = [Net.Sockets.TcpListener]::new($address, $Port); $probe.Start(); $probe.Stop() }
+    catch { Fail "Port $Port is in use by another program. Free it or choose another with -Port." }
 }
 
 # --- dashboard and Sim Studio ----------------------------------------------------------------------
@@ -229,7 +228,10 @@ try {
             $faceId = '--face-id --face-id-token-file ~/.hearth-face-token'
         }
         # -tt: Ctrl+C reaches run_edge.py so it closes the camera cleanly. Only our [edge] lines are shown.
-        $edgeCommand = "cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
+        # The clean camera image streams to this laptop; the relay hands it to the dashboard, which
+        # draws the skeletons and posture calls from the observations.
+        $producers['Jetson video relay'] = Start-Child $python @('-m', 'hearth.perception.stream_relay', '--backend', $url, '--laptop-ip', $LaptopIp)
+        $edgeCommand = "cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId --stream rtp://${LaptopIp}:1234 --stream-plain 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
         $producers['Jetson camera'] = Start-Child 'ssh.exe' @('-tt', '-o', 'BatchMode=yes', $Jetson, $edgeCommand)
         $jetsonStarted = $true
         $ErrorActionPreference = 'Stop'

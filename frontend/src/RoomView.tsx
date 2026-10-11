@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import type { RoomObservation } from './protocol';
 
-const bones = [['nose','neck'],['neck','left_shoulder'],['neck','right_shoulder'],['left_shoulder','left_elbow'],['left_elbow','left_wrist'],['right_shoulder','right_elbow'],['right_elbow','right_wrist'],['left_shoulder','left_hip'],['right_shoulder','right_hip'],['left_hip','right_hip'],['left_hip','left_knee'],['left_knee','left_ankle'],['right_hip','right_knee'],['right_knee','right_ankle']];
+export const bones = [['nose','neck'],['neck','left_shoulder'],['neck','right_shoulder'],['left_shoulder','left_elbow'],['left_elbow','left_wrist'],['right_shoulder','right_elbow'],['right_elbow','right_wrist'],['left_shoulder','left_hip'],['right_shoulder','right_hip'],['left_hip','right_hip'],['left_hip','left_knee'],['left_knee','left_ankle'],['right_hip','right_knee'],['right_knee','right_ankle']];
 
 export default function RoomView({ observations, illustrated = false, skeleton = false }: { observations: RoomObservation[]; illustrated?: boolean; skeleton?: boolean }) {
   const gridId = useId().replaceAll(':', '');
