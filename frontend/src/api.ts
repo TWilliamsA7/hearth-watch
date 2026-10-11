@@ -2,8 +2,9 @@ import { validateApi } from './protocol.ts';
 import type { Alert } from './generated/contract';
 import type { ScenarioInfo, SimStatus, EvaluationReport, EvaluationSummary } from './generated/simulation';
 
-export function websocketUrl(base: string): string {
-  const url = new URL('/ws/room/room-01', base);
+export const DEFAULT_ROOM = 'room-01';
+export function websocketUrl(base: string, room = DEFAULT_ROOM): string {
+  const url = new URL(`/ws/room/${encodeURIComponent(room)}`, base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
@@ -15,10 +16,10 @@ export async function request<T>(base: string, path: string, options?: RequestIn
 export async function acknowledgeAlert(base: string, id: string): Promise<Alert> {
   return validateApi('monitoring#/$defs/Alert', await request(base, `/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' }));
 }
-export async function requestHelp(base: string, requestId: string): Promise<Alert> {
+export async function requestHelp(base: string, requestId: string, room = DEFAULT_ROOM): Promise<Alert> {
   return validateApi('monitoring#/$defs/Alert', await request(base, '/help-requests', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ request_id: requestId, room_id: 'room-01' }),
+    body: JSON.stringify({ request_id: requestId, room_id: room }),
   }));
 }
 export async function scenarios(base: string): Promise<ScenarioInfo[]> {
@@ -40,4 +41,15 @@ export async function simCommand(base: string, action: 'load' | 'play' | 'pause'
 export async function evaluation(base: string, runId?: string): Promise<EvaluationReport | EvaluationSummary> {
   const path = runId ? `/eval/runs/${encodeURIComponent(runId)}` : '/eval/summary';
   return validateApi(`simApi#/$defs/${runId ? 'EvaluationReport' : 'EvaluationSummary'}`, await request(base, path));
+}
+// Ground truth so far against the monitor's events so far, for the live 3D room.
+export async function liveEvaluation(base: string): Promise<EvaluationReport> {
+  return validateApi('simApi#/$defs/EvaluationReport', await request(base, '/sim/live/report'));
+}
+export type RunInfo = { run_id: string; scenario_id: string; title: string; seed: number; start: string; duration: number };
+// Scripted runs completed since the server started.
+export async function completedRuns(base: string): Promise<RunInfo[]> {
+  const values = await request<unknown>(base, '/eval/runs');
+  if (!Array.isArray(values) || !values.every(item => item && typeof item.run_id === 'string')) throw new Error('Invalid run list.');
+  return values as RunInfo[];
 }

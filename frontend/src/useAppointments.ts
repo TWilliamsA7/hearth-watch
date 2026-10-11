@@ -46,11 +46,11 @@ export function useAppointments(base: string | null) {
     } catch (e) { if (session.current === generation) setError((e as Error).message); }
     finally { if (session.current === generation) setPending(false); }
   }
-  async function create(resident_label: string, scheduled_at: string) {
+  async function create(resident_label: string, scheduled_at: string, room_id: string) {
     if (!base || pending) return false;
     const generation = session.current; revision.current++; setPending(true); setError('');
     try {
-      const response = await fetch(new URL('/appointments',base), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resident_label,room_id:'room-01',scheduled_at,grace_seconds:900,demo:false}),signal:AbortSignal.timeout(5000)});
+      const response = await fetch(new URL('/appointments',base), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resident_label,room_id,scheduled_at,grace_seconds:900,demo:false}),signal:AbortSignal.timeout(5000)});
       if (!response.ok) throw new Error(`Appointment not saved (${response.status}).`);
       if (session.current !== generation) return false;
       setRefresh(value => value+1); return true;
@@ -69,6 +69,6 @@ export function useAppointments(base: string | null) {
     } catch (e) { if (session.current === generation) setError((e as Error).message); }
     finally { if (session.current === generation) setPending(false); }
   }
-  return {items, error, pending, checkIn, create, cancel};
+  return {items, error, pending, checkIn, create, cancel, reload: () => setRefresh(value => value + 1)};
 }
 export type AppointmentFeed = ReturnType<typeof useAppointments>;

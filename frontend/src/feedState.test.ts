@@ -136,3 +136,9 @@ test('resident help uses the real endpoint, room and retry-safe request id', asy
     assert.deepEqual(calls[0].body, { request_id: 'same-id-on-retry', room_id: 'room-01' });
   } finally { globalThis.fetch = original; }
 });
+test('the room feed follows the chosen room', () => {
+  const other = parseMessage({ type: 'observation', data: { ...observation, room_id: 'room-02' } })!;
+  assert.deepEqual(reduceFeed(emptyFeed(), other, 1000, 'edge'), emptyFeed());
+  assert.equal(visibleObservations(reduceFeed(emptyFeed(), other, 1000, 'edge', 'room-02'), 1200, true).length, 1);
+  assert.equal(websocketUrl('http://127.0.0.1:8000', 'room 2'), 'ws://127.0.0.1:8000/ws/room/room%202');
+});

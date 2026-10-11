@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { scenarios, simStatus, simCommand, evaluation } from './api';
+import { scenarios, simStatus, simCommand, evaluation, liveEvaluation, completedRuns, type RunInfo } from './api';
 import type { ScenarioInfo, SimStatus, EvaluationReport, EvaluationSummary } from './generated/simulation';
 import Icon from './Icon';
 
@@ -11,6 +11,7 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
   const [error, setError] = useState('');
   const [resultError, setResultError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [runs, setRuns] = useState<RunInfo[]>([]);
   useEffect(() => {
     setCatalog([]); setStatus(null); setReport(null); setError(''); setResultError('');
     if (!base) return;
@@ -32,6 +33,11 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
     evaluation(base, status.run_id).then(value => { if (!cancelled) setReport(value); }).catch(e => { if (!cancelled) setResultError(e.message); });
     return () => { cancelled = true; };
   }, [base, status?.state, status?.run_id]);
+  useEffect(() => {
+    let cancelled = false;
+    if (base) completedRuns(base).then(values => { if (!cancelled) setRuns(values); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [base, status?.state === 'ended']);
   async function command(action: 'load' | 'play' | 'pause' | 'reset' | 'replay') {
     if (!base) return;
     setBusy(true); setError('');
@@ -41,10 +47,10 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
-  async function loadSummary() {
+  async function load(fetchReport: (base: string) => Promise<EvaluationReport | EvaluationSummary>) {
     if (!base) return;
     setBusy(true); setResultError(''); setReport(null);
-    try { setReport(await evaluation(base)); } catch (e) { setResultError((e as Error).message); }
+    try { setReport(await fetchReport(base)); } catch (e) { setResultError((e as Error).message); }
     finally { setBusy(false); }
   }
   const loaded = status && status.state !== 'idle';
@@ -52,7 +58,7 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
   const delay = report && 'delay_median' in report ? report.delay_median : delays.length ? delays.reduce((a,b) => a+b,0) / delays.length : null;
   return <>
     <section className="card scenario-card" id="simulation"><div className="section-heading"><div><p className="eyebrow">Simulation</p><h2>Scripted scenario controls</h2></div><span className="status neutral">Scripted simulation</span></div>
-      {!base ? <div className="empty-state compact"><span className="empty-icon"><Icon name="play" /></span><h3>Choose a scenario to practice</h3><p>Connect in Connection settings, then choose Simulation to run a scenario.</p></div> : <>
+      {!base ? <div className="empty-state compact"><span className="empty-icon"><Icon name="play" /></span><h3>Choose a scenario to practice</h3><p>Choose Simulation as the main feed source to run a scenario.</p></div> : <>
         <label>Scenario<select value={selected} onChange={e => setSelected(e.target.value)} disabled={busy || !catalog.length}>{catalog.map(item => <option key={item.scenario_id} value={item.scenario_id}>{item.title}</option>)}</select></label>
         <p>{catalog.find(item => item.scenario_id === selected)?.description}</p>
         <div className="buttons"><button disabled={busy || !selected} onClick={() => command('load')}>Load</button><button disabled={busy || !loaded || status?.state === 'playing'} onClick={() => command('play')}>Play</button><button disabled={busy || status?.state !== 'playing'} onClick={() => command('pause')}>Pause</button><button disabled={busy || !loaded} onClick={() => command('reset')}>Reset</button><button disabled={busy || !loaded} onClick={() => command('replay')}>Run again</button></div>
@@ -62,7 +68,8 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
         {error && <p role="alert" className="error">{error}</p>}
       </>}
     </section>
-    <section className="card evaluation" id="evaluation"><div className="section-heading"><div><p className="eyebrow">After-action review</p><h2>Scenario evaluation</h2></div><button className="secondary" disabled={!base || busy} onClick={loadSummary}><Icon name="chart" />Load batch summary</button></div>
+    <section className="card evaluation" id="evaluation"><div className="section-heading"><div><p className="eyebrow">After-action review</p><h2>Scenario evaluation</h2></div><div className="buttons"><button className="secondary" disabled={!base || busy} onClick={() => load(liveEvaluation)} title="Ground truth so far against the monitor's alerts so far, for the live 3D room">Live room report</button><button className="secondary" disabled={!base || busy} onClick={() => load(evaluation)}><Icon name="chart" />Load batch summary</button></div></div>
+      {runs.length > 0 && <label>Completed scripted runs<select value="" disabled={busy} onChange={e => { const id = e.target.value; if (id) void load(b => evaluation(b, id)); }}><option value="">Choose a run to review…</option>{[...runs].reverse().map(run => <option key={run.run_id} value={run.run_id}>{run.title} · seed {run.seed} · {new Date(run.start).toLocaleTimeString()}</option>)}</select></label>}
       <p>{report ? 'run_id' in report ? `Completed run: ${report.run_id}` : `${report.runs} simulated runs across ${report.scenarios} scenarios` : 'Awaiting a completed run or saved batch results.'}</p>
       <div className="metrics">{[
         [report && 'delay_median' in report ? 'Median detection delay' : 'Mean detection delay', delay == null ? '—' : `${delay.toFixed(2)} s`],
@@ -71,7 +78,7 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
       ].map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       {report && 'segments' in report && <div className="table-scroll"><table><caption>After-action comparison: ground truth versus monitor results</caption><thead><tr><th>Activity</th><th>Expected event</th><th>Detected</th><th>Delay</th><th>False alarms</th></tr></thead><tbody>{report.segments.map(segment => <tr key={`${segment.person_id}:${segment.segment_id}`}><td>{segment.truth_label.replaceAll('_',' ')}</td><td>{segment.expected_event ?? 'None'}</td><td>{segment.detected == null ? 'Not applicable' : segment.detected ? 'Yes' : 'No'}</td><td>{segment.delay == null ? '—' : `${segment.delay.toFixed(2)} s`}</td><td>{segment.false_alerts}</td></tr>)}</tbody></table></div>}
       {resultError && <p role="alert" className="error">{resultError}</p>}
-      <p className="small">These are simulator measurements, not clinical or live-camera accuracy.</p>
+      <p className="small">These are simulator measurements, not clinical or live-camera accuracy. Batch summaries come from <code>python -m hearth.eval batch</code>.</p>
     </section>
   </>;
 }

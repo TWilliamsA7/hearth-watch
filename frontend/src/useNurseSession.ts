@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Alert, Event, NursePreferences, NurseProfile, NurseSnapshot } from './generated/contract';
 import { request } from './api';
-import { parseMessage, type FeedMessage } from './protocol';
+import { parseMessage, type FeedMessage, type RoomSource } from './protocol';
 type NurseEvent = Extract<FeedMessage, {type:'event'}>['data'];
+// One session per tab, kept across reloads (sessionStorage is per tab).
+const STORED = 'hearth-nurse';
+const sourceId = (s: RoomSource) => `${s.room_id}:${s.source_type}:${s.source}`;
+function remember(id: string | null) {
+  try { if (id) sessionStorage.setItem(STORED, id); else sessionStorage.removeItem(STORED); } catch { /* Sessions still work without storage. */ }
+}
 
 export function useNurseSession(base: string | null) {
   const [nurse, setNurse] = useState<NurseProfile | null>(null);
   const [alerts, setAlerts] = useState<Record<string, Alert>>({});
   const [events, setEvents] = useState<NurseEvent[]>([]);
+  const [sources, setSources] = useState<Record<string, RoomSource>>({});
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
@@ -18,10 +25,18 @@ export function useNurseSession(base: string | null) {
   const initialized = useRef(false);
   function snapshot(data: NurseSnapshot) {
     setNurse(data.nurse); setAlerts(Object.fromEntries(data.alerts.map(a => [a.alert_id, a]))); setEvents(data.events);
+    setSources(Object.fromEntries(data.sources.map(s => [sourceId(s), s]))); remember(data.nurse.nurse_id);
     seen.current = new Set(data.alerts.map(a => a.alert_id)); initialized.current = true;
   }
   useEffect(() => {
-    generation.current++; setNurse(null); setAlerts({}); setEvents([]); setError(''); setPending(false);
+    const version = ++generation.current; setNurse(null); setAlerts({}); setEvents([]); setSources({}); setError(''); setPending(false);
+    let stored: string | null = null;
+    try { stored = sessionStorage.getItem(STORED); } catch { /* No storage: start a new session. */ }
+    if (base && stored) {
+      request<NurseSnapshot>(base, `/nurse-sessions/${encodeURIComponent(stored)}/snapshot`)
+        .then(data => { if (version === generation.current) snapshot(data); })
+        .catch(() => { if (version === generation.current) { remember(null); setError('Your previous nurse session ended when the server restarted. Start a new session.'); } });
+    }
     return () => { generation.current++; };
   }, [base]);
   useEffect(() => () => { void audio.current?.close(); }, []);
@@ -53,6 +68,7 @@ export function useNurseSession(base: string | null) {
             }
             seen.current.add(item.alert_id); setAlerts(previous => ({...previous,[item.alert_id]:item}));
           }
+          if (message.type === 'source_status') { const s = message.data; setSources(previous => ({...previous,[sourceId(s)]:s})); }
           if (message.type === 'event') setEvents(previous => [message.data, ...previous.filter(e => e.event_id !== message.data.event_id)].slice(0,100));
         } catch (e) { setError((e as Error).message); }
       };
@@ -62,7 +78,7 @@ export function useNurseSession(base: string | null) {
         try {
           const response = await fetch(new URL(`/nurse-sessions/${id}/snapshot`,base!), {signal:AbortSignal.timeout(4000)});
           if (stopped) return;
-          if (response.status === 404) { setNurse(null); setAlerts({}); setEvents([]); setError('Session expired. Start a new session.'); return; }
+          if (response.status === 404) { remember(null); setNurse(null); setAlerts({}); setEvents([]); setSources({}); setError('Session expired. Start a new session.'); return; }
         } catch { /* Retry when the API returns. */ }
         if (!stopped) retry = setTimeout(connect,1000);
       };
@@ -96,6 +112,6 @@ export function useNurseSession(base: string | null) {
     try { audio.current ??= new AudioContext(); await audio.current.resume(); setSound(true); }
     catch { setError('Audio unavailable. Visual alerts remain active.'); }
   }
-  return {nurse,alerts,events,connected,error,pending,sound,save,action,enableSound};
+  return {nurse,alerts,events,sources,connected,error,pending,sound,save,action,enableSound};
 }
 export type NurseSession = ReturnType<typeof useNurseSession>;

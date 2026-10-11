@@ -192,3 +192,17 @@ body { height:auto; min-height:100dvh; overflow-y:auto; }
 
 .live-camera { position:absolute; inset:0; }
 .live-camera > img { width:100%; height:100%; object-fit:contain; display:block; }
+.room-picker { display:flex; align-items:center; gap:6px; }
+.room-picker select { width:auto; margin-top:0; padding:6px 8px; }
+.header-actions > select { width:auto; margin-top:0; padding:8px; }
+.developer-links { list-style:none; margin:8px 0 0; padding:0; display:grid; gap:10px; }
+.developer-links a { color:var(--amber); font-weight:700; }
+.developer-links .small { display:block; }
+.simulation-controls label { display:flex; align-items:center; gap:6px; }
+.simulation-controls select { width:auto; margin-top:0; padding:6px 8px; }
+.resident-side { display:grid; gap:12px; align-content:start; min-height:0; overflow:auto; }
+.recognition-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; }
+.recognition-video { display:block; width:100%; max-height:300px; background:#19242d; object-fit:contain; border-radius:10px; margin-bottom:8px; }
+.consent { display:flex; gap:8px; align-items:flex-start; margin:10px 0; }
+.consent input { width:auto; margin-top:3px; }
+.alerts-card label input, .observation-help label input[type=checkbox] { width:auto; }

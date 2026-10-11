@@ -1,6 +1,7 @@
 import type { Alert, Event } from './generated/contract';
 import type { Event as SimEvent } from './generated/simulationContract';
 import type { FeedMessage, RoomObservation, RoomSource } from './protocol.ts';
+import { DEFAULT_ROOM } from './api.ts';
 
 export type SourceMode = 'edge' | 'simulation' | 'replay';
 export type FeedState = {
@@ -11,11 +12,11 @@ export type FeedState = {
 };
 export function emptyFeed(): FeedState { return { observations: {}, sources: {}, events: [], alerts: {} }; }
 export function sourceKey(data: { source_type: string; source: string }): string { return `${data.source_type}:${data.source}`; }
-export function reduceFeed(state: FeedState, message: FeedMessage, now: number, mode: SourceMode): FeedState {
+export function reduceFeed(state: FeedState, message: FeedMessage, now: number, mode: SourceMode, room = DEFAULT_ROOM): FeedState {
   if (message.type === 'nurse_snapshot') return state;
   const data = message.data;
   const manualIncident = (data.source_type === 'manual' || data.source === 'appointments' || (message.type === 'alert' && message.data.kind === 'help_requested') || (message.type === 'event' && message.data.event_type === 'help_requested')) && (message.type === 'alert' || message.type === 'event');
-  if (data.room_id !== 'room-01' || (data.source_type !== mode && !manualIncident)) return state;
+  if (data.room_id !== room || (data.source_type !== mode && !manualIncident)) return state;
   const key = sourceKey(data);
   switch (message.type) {
     case 'observation': {
