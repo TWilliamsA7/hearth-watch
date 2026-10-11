@@ -38,6 +38,20 @@ def test_people_sharing_a_frame_are_tracked_separately(service):
         assert counts["accepted"] == 2 and counts["out_of_order"] == 0
     assert [e.person_id for e in falls(service)] == ["p1"]
     assert service.detector.states[track_key(observation(4, person_id="p2"))].posture == "upright"
+    # The source shows the most urgent posture among its people, not whoever came last.
+    assert service.health[next(iter(service.health))].status.posture == "fallen"
+    assert [a.metadata["person_id"] for a in service.alerts.values()] == ["p1"]
+
+
+def test_source_posture_does_not_stick_on_someone_who_left(service, clock):
+    service.ingest([observation(0, FLOOR, obs_id="p1-0", person_id="p1"),
+                    observation(0, UPRIGHT, obs_id="p2-0", person_id="p2")])
+    status = service.health[next(iter(service.health))].status
+    assert status.posture == "fallen"
+    for t in (1, 2, 3, 4):  # only p2 is seen from now on
+        clock.seconds = t
+        service.ingest([observation(t, UPRIGHT, obs_id=f"p2-{t}", person_id="p2")])
+    assert status.posture == "standing"
 
 
 @pytest.mark.parametrize("features", [UPRIGHT,
