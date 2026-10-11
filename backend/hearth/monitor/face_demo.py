@@ -34,6 +34,9 @@ class FaceDemo:
         self.db.execute("PRAGMA secure_delete=ON")
         self.db.execute("CREATE TABLE IF NOT EXISTS face_enrollments (id TEXT PRIMARY KEY, payload BLOB NOT NULL)")
         self.sessions = {}
+        # Called after any enrollment change (enroll, withdraw, link): identity held
+        # elsewhere (e.g. Jetson tracks) must be re-earned against the new enrollments.
+        self.listeners = []
         self.profiles()  # Reject a wrong key before allowing any enrollment.
 
     def profiles(self):
@@ -45,6 +48,20 @@ class FaceDemo:
             else:
                 profiles.append(record)
         return profiles
+
+    def changed(self):
+        self.sessions.clear()
+        for listener in tuple(self.listeners):
+            listener()
+
+    def match(self, feature, records):
+        """(score, record) of the one clear match for a template, or None when no enrollment
+        clears the threshold or the best two are too close to tell apart."""
+        scored = sorted(((similarity(feature, r["template"]), r) for r in records), key=lambda x: x[0], reverse=True)
+        if (not scored or scored[0][0] < self.THRESHOLD or
+                (len(scored) > 1 and scored[0][0] - scored[1][0] < self.MARGIN)):
+            return None
+        return scored[0]
 
     @staticmethod
     def public(record):
@@ -80,13 +97,13 @@ class FaceDemo:
         with self.db:
             self.db.execute("INSERT INTO face_enrollments VALUES (?, ?)",
                             (record["profile_id"], self.cipher.encrypt(json.dumps(record).encode())))
-        self.sessions.clear()
+        self.changed()
         return self.public(record)
 
     def delete(self, profile_id):
         with self.db:
             self.db.execute("DELETE FROM face_enrollments WHERE id=?", (profile_id,))
-        self.sessions.clear()
+        self.changed()
 
     def link_appointment(self, profile_id, appointment_id, token):
         record = next((r for r in self.profiles() if r["profile_id"] == profile_id), None)
@@ -140,12 +157,11 @@ class FaceDemo:
         except ValueError:
             state["profile_id"], state["count"] = None, 0
             raise
-        scored = sorted(((similarity(feature, r["template"]), r) for r in records), key=lambda x: x[0], reverse=True)
-        if (not scored or scored[0][0] < self.THRESHOLD or
-                (len(scored) > 1 and scored[0][0] - scored[1][0] < self.MARGIN)):
+        best = self.match(feature, records)
+        if best is None:
             state["profile_id"], state["count"] = None, 0
             return dict(status="unknown", matches=0)
-        score, record = scored[0]
+        score, record = best
         if repeated:
             state["profile_id"], state["count"] = None, 0
             return dict(status="new_frame_required", matches=0)

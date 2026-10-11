@@ -3,11 +3,13 @@ from pathlib import Path
 from datetime import timedelta
 import os
 import asyncio
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from hearth.monitor.appointments import CheckIn
+from hearth.monitor.edge_identity import EdgeFaceTemplate, EdgeIdentities
 from hearth.monitor.patient_camera import PatientCamera, TrackedBody
 from starlette.concurrency import run_in_threadpool
 from hearth_schema import Observation
@@ -37,7 +39,7 @@ class CameraObservation(CameraFrame):
     body: TrackedBody | None = None
 
 
-def create_face_router(appointments, monitor, demo=None):
+def create_face_router(appointments, monitor, demo=None, edge_token=None):
     setup_error = "Disabled. Enable HEARTH_FACE_DEMO=1 and provide HEARTH_FACE_KEY to use patient enrollment."
     if demo is None and os.environ.get("HEARTH_FACE_DEMO") == "1":
         try:
@@ -53,6 +55,9 @@ def create_face_router(appointments, monitor, demo=None):
             setup_error = "Face demo unavailable: check optional dependencies, downloaded models, and the original encryption key."
 
     camera = PatientCamera(demo, monitor.config) if demo is not None else None
+    # An empty token is no token: the edge route stays closed.
+    edge_token = (edge_token if edge_token is not None else os.environ.get("HEARTH_EDGE_FACE_TOKEN")) or None
+    edge = EdgeIdentities(demo, monitor) if demo is not None else None
 
     def local_only(request: Request):
         if (request.client is None or request.client.host not in {"127.0.0.1", "::1"}
@@ -73,13 +78,24 @@ def create_face_router(appointments, monitor, demo=None):
     async def serialize_face_access(request: Request):
         # Bound work rather than queueing old camera frames behind a busy recognizer.
         # All enrollment/session access uses the same guard as the worker thread.
-        if inference_lock.locked() and request.url.path.endswith(("/observe", "/recognize")):
+        if inference_lock.locked() and request.url.path.endswith(("/observe", "/recognize", "/edge-embeddings")):
             raise HTTPException(503, "Recognition busy; keep monitoring without identity and retry a fresh frame")
         async with inference_lock:
             yield
 
     router = APIRouter(prefix="/face-demo", tags=["patient face demo"],
                        dependencies=[Depends(local_only), Depends(serialize_face_access)])
+
+    def edge_only(request: Request):
+        # The Jetson is not on loopback, so it proves itself with a shared token instead.
+        # It sends face templates only, never frames. No browser page may call this.
+        supplied = request.headers.get("authorization", "")
+        if (edge_token is None or request.headers.get("origin") is not None
+                or not secrets.compare_digest(supplied.encode(), f"Bearer {edge_token}".encode())):
+            raise HTTPException(403, "Edge face templates need HEARTH_EDGE_FACE_TOKEN")
+
+    edge_router = APIRouter(prefix="/face-demo", tags=["patient face demo"],
+                            dependencies=[Depends(edge_only), Depends(serialize_face_access)])
 
     def action(fn):
         try:
@@ -90,7 +106,8 @@ def create_face_router(appointments, monitor, demo=None):
     @router.get("/status")
     async def status():
         return {"enabled": demo is not None, "message": "Ready for consenting demo patients" if demo else setup_error,
-                "body_detectors": ["yolo", "posenet"], "transport": "loopback_only",
+                "body_detectors": ["yolo", "posenet"],
+                "transport": "loopback_only" + ("+edge_templates" if edge_token else ""),
                 "identity_ttl_seconds": PatientCamera.IDENTITY_TTL}
 
     @router.get("/profiles")
@@ -198,4 +215,18 @@ def create_face_router(appointments, monitor, demo=None):
                     result[key] = arrival[key]
         return {**counts, "identity": result}
 
-    return router
+    @edge_router.post("/edge-embeddings")
+    async def edge_embedding(body: EdgeFaceTemplate):
+        active()
+        age = (monitor.utcnow() - body.timestamp).total_seconds()
+        if not -monitor.config.edge_future_tolerance_seconds <= age <= monitor.config.edge_observation_max_age_seconds:
+            raise HTTPException(422, "Face template is outside live timestamp limits")
+        result = await run_in_threadpool(action, lambda: edge.submit(body))
+        check_arrival(result)
+        # The edge needs only progress, not who it is: a name goes no further than incidents.
+        return {key: result[key] for key in ("status", "matches", "checked_in") if key in result}
+
+    outer = APIRouter()
+    outer.include_router(router)
+    outer.include_router(edge_router)
+    return outer

@@ -40,6 +40,11 @@ class MonitorService:
         self.gestures = HelpGestureDetector(config)
         self.events: deque[Event] = deque(maxlen=config.event_capacity)
         self.event_listeners: list[Callable[[Event], None]] = []
+        # Called with every accepted observation (e.g. ending a person's recognized identity).
+        self.observation_listeners: list[Callable[[Observation], None]] = []
+        # Optional incident metadata naming an observation's person, from identity the
+        # server established itself (edge face templates); the observation cannot assert it.
+        self.incident_labeler: Callable[[Observation], dict | None] | None = None
         # API control may explicitly pause a simulated observation clock.
         # Live producers always retain the usual stale-evidence behavior.
         self.observation_clock_paused: Callable[[SourceKey], bool] = lambda key: False
@@ -251,6 +256,8 @@ class MonitorService:
                 self.invalidate_source(source_key(obs), tracked_only=True)
             self.touch(obs, observation=True)
             self.observations[key] = obs
+            for listener in tuple(self.observation_listeners):
+                listener(obs)
             self.publish(ObservationMessage(data=obs))
             for event in events:
                 if event.event_type in {"possible_fall", "help_requested"}:
@@ -262,6 +269,9 @@ class MonitorService:
                         if (event.event_type != "help_requested" or event.metadata.get("method") != "hand_gesture"
                                 or hand_matches_body):
                             event.metadata.update(label)
+                    elif self.incident_labeler is not None and event.metadata.get("method") != "hand_gesture":
+                        # A hand is not tied to a tracked person's body here, so it stays anonymous.
+                        event.metadata.update(self.incident_labeler(obs) or {})
                     self.open_alert(event)
                     continue
                 if event.event_type == "recovered":
