@@ -293,9 +293,20 @@ say floor once the person is down, and the backend waits for 3 s of floor anyway
 missed fall is the worst error, reports show **floor caught** (of all floor frames, how many
 were called floor) on its own.
 
-**"Unknown"**: the system declines to answer when the network says "other", when the torso isn't
-visible (no shoulder or no hip: the edge's `torso_visible` rule; with only a head nobody can tell
-standing from lying), or when its top probability (softmax) is under the cut-off (`--min-conf`, default 0.70, saved in
+First 4-class run (2026-10-10, 15 epochs): worse than 3 classes. "Other" was recognised only 45%
+of the time and floor caught fell to 85% (from ~93%): OmniFall's "other" describes activities,
+not postures (standing while handling things, the first half of getting up still on the floor),
+so single frames labelled "other" look exactly like upright / sitting / floor and contradict
+them. So both designs are options, compared on validation:
+
+- `--classes 3` (default): upright / sitting / floor; "other" frames sit out of training; the
+  negative ("unknown") comes from low confidence.
+- `--classes 4`: "other" is a learned 4th answer, reported as unknown, plus low confidence.
+- `--torso-rule` (off by default): also unknown when no shoulder or no hip is visible. It threw
+  away right answers on our recordings (lying clips with head and shoulders only), so it's off.
+
+**"Unknown"**: the system declines to answer when its top probability (softmax) is under the
+cut-off (and, with the options above, when the network says "other" or the torso is hidden) (`--min-conf`, default 0.70, saved in
 the model file). After training, and with `--test-only`, a table on **validation** shows each
 cut-off's trade-off: how often it decides vs how often it's right then. Pick the cut-off there,
 never on the test. Field-test timelines show `?` for unknown; reports give "decided on X%,
@@ -359,8 +370,11 @@ From the repo folder (`cd C:\Users\Gaston\hearth-watch`):
 .\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py --check
 .\.venv-pc\Scripts\python.exe edge\pc\05_extract_keypoints.py
 .\.venv-pc\Scripts\python.exe edge\pc\06_train.py --show-data
-.\.venv-pc\Scripts\python.exe edge\pc\06_train.py
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --epochs 15 --classes 3 --out D:\hearth-data\model_3class.pt
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --epochs 15 --classes 4 --out D:\hearth-data\model_4class.pt
 ```
+
+Compare the two runs' validation cut-off tables (floor caught first), keep the better one.
 
 1. `--check`: all five datasets should be listed and matched.
 2. Extraction: about 2,600 videos, and every labelled segment now (including "other"), so maybe

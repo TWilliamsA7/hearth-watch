@@ -9,7 +9,7 @@ Input: D:\\hearth-data\\keypoints.npz from 05_extract_keypoints.py. Built in par
            that hand out shuffled batches (--show-data prints what the network is fed, then stops)
   part 2 - the network (nn.Module) and the training loop, with live progress: a line per batch,
            a summary per epoch, a chart window that redraws every epoch; saves the best model to
-           D:\\hearth-data\\posture_mlp.pt and the curves to training_curves.png
+           D:\\hearth-data\\posture_mlp.pt (--out) and the curves next to it (..._curves.png)
   part 3 - the real test: the saved model on OUR Jetson recordings (recordings/*.jsonl, real
            poseNet output from our camera), per clip and overall. Runs after training, or alone
            with --test-only.
@@ -36,13 +36,23 @@ from torch.utils.data import DataLoader, Dataset
 
 # --- part 1: data ---------------------------------------------------------------------------
 
-CLASSES = ["upright", "sitting", "floor", "other"]
+ALL_CLASSES = ["upright", "sitting", "floor", "other"]
+CLASSES = list(ALL_CLASSES)   # set by configure(): 3 classes (default) or 4 with --classes 4
+RULES = {"torso": False}      # --torso-rule: also "unknown" when no shoulder or no hip
 OTHER = 3                # "none of these": falling, sitting/lying down, getting up, kneeling,
                          # squatting, crawling, jumping, other activities (bending, picking up...)
 # OmniFall's label (stored by 05 for every frame) -> our class. Mid-fall counts as "other": the
 # model should say floor once the person is down, and the backend waits for 3 s of floor anyway.
 FROM_OMNIFALL = dict((k, OTHER) for k in range(16))
 FROM_OMNIFALL.update({0: 0, 8: 0, 4: 1, 2: 2, 6: 2})   # walk, standing | sitting | fallen, lying
+
+
+def configure(classes, torso_rule):
+    """3 classes: "other" frames are left out of training and the negative ("unknown") comes only
+    from low confidence. 4 classes: "other" is a 4th answer the network learns, also reported as
+    unknown. The list is changed in place so everything holding CLASSES sees the new one."""
+    CLASSES[:] = ALL_CLASSES[:classes]
+    RULES["torso"] = torso_rule
 # YOLO gives every keypoint a confidence; the Jetson's poseNet only reports keypoints it found.
 # A keypoint counts as "found" above this confidence, so training sees poses like poseNet's.
 FOUND_CONF = 0.5
@@ -172,6 +182,8 @@ def load_splits(path, drop_p):
         labels = lookup[d["raw_label"]]
     else:
         labels = d["label"]
+    if len(CLASSES) == 3:
+        keep &= labels != OTHER                            # 3 classes: "other" frames sit out
     split_file = Path(path).parent / "split.json"
     split = locked_split(person, split_file)
     part = np.array([split[p] for p in person])
@@ -342,18 +354,22 @@ DECIDED = ["upright", "sitting", "floor", "unknown"]    # what a decision can be
 def decide(scores, x, min_conf):
     """Network scores + its inputs -> a class per frame, or -1 = unknown.
 
-    Unknown for three reasons:
-      - the network's answer is "other" (none of upright / sitting / floor)
-      - it isn't confident: softmax turns the 4 raw scores into probabilities that add up to 1
-        (e.g. 0.92 / 0.05 / 0.02 / 0.01); the top one is under min_conf
-      - the torso isn't visible: with only a head (or no head and no hips) nobody can tell
-        standing from lying, so a guess there is just noise
+    Unknown when:
+      - it isn't confident: softmax turns the raw scores into probabilities that add up to 1
+        (e.g. 0.92 / 0.05 / 0.03); the top one is under min_conf
+      - (4 classes) the network's answer is "other" (none of upright / sitting / floor)
+      - (--torso-rule) no shoulder or no hip is visible. Off by default: on our recordings it
+        threw away right answers, e.g. lying clips where poseNet found head and shoulders only.
     """
     probability = torch.softmax(scores, dim=1)
     confidence, predicted = probability.max(dim=1)
     found = x.view(-1, 17, 3)[:, :, 2] > 0.5           # the "found" flags inside the input
-    torso = found[:, SHOULDERS].any(dim=1) & found[:, HIPS].any(dim=1)
-    predicted[(predicted == OTHER) | (confidence < min_conf) | ~torso] = -1
+    unknown = confidence < min_conf
+    if len(CLASSES) > OTHER:
+        unknown |= predicted == OTHER
+    if RULES["torso"]:
+        unknown |= ~(found[:, SHOULDERS].any(dim=1) & found[:, HIPS].any(dim=1))
+    predicted[unknown] = -1
     return predicted
 
 
@@ -388,7 +404,8 @@ def decided_report(predicted, labels):
             "accuracy": decided.diagonal().sum() / max(decided.sum(), 1),
             "per_class": decided.diagonal() / np.maximum(decided.sum(axis=1), 1),
             "floor_caught": confusion[2, 2] / max(confusion[2].sum(), 1),
-            "other_unknown": confusion[3, 3] / confusion[3].sum() if confusion[3].sum() else None,
+            "other_unknown": (confusion[3, 3] / confusion[3].sum()
+                              if len(CLASSES) > OTHER and confusion[3].sum() else None),
             "confusion": confusion}
 
 
@@ -501,8 +518,8 @@ def final_test(model, out, measure, device, min_conf):
         if name not in measure:
             continue
         _, acc, per_class, _ = run_epoch(model, measure[name], loss_fn, device)
-        print("\n%s, network alone (4 classes): %.0f%% right, balanced %.0f%% (%s)"
-              % (title, 100 * acc, 100 * per_class.mean(), by_class(per_class)))
+        print("\n%s, network alone (%d classes): %.0f%% right, balanced %.0f%% (%s)"
+              % (title, len(CLASSES), 100 * acc, 100 * per_class.mean(), by_class(per_class)))
         scores, inputs, labels = collect(model, measure[name], device)
         r = decided_report(decide(scores, inputs, min_conf), labels)
         print("%s, as the system answers (cut-off %.2f): %s" % (title, min_conf, describe(r)))
@@ -527,6 +544,11 @@ def main():
     ap.add_argument("--test-only", action="store_true", help="part 3 only: field-test the saved model")
     ap.add_argument("--final-test", action="store_true",
                     help="score the saved model on the LOCKED test people (logged; do this last)")
+    ap.add_argument("--classes", type=int, choices=(3, 4), default=3,
+                    help="3: upright/sitting/floor, unknown from low confidence (default); "
+                         "4: also a learned 'other' (negative) class")
+    ap.add_argument("--torso-rule", action="store_true",
+                    help="also unknown when no shoulder or no hip is visible (off by default)")
     ap.add_argument("--min-conf", type=float, default=None,
                     help="cut-off for 'unknown' (default: the saved model's, else %.2f)" % UNSURE_BELOW)
     ap.add_argument("--recordings", type=Path, default=Path("recordings"),
@@ -535,6 +557,16 @@ def main():
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
     torch.manual_seed(0)                       # same starting weights every run: comparable runs
+    out = args.out or args.data.parent / "posture_mlp.pt"
+    saved = None
+    if args.test_only or args.final_test:      # a saved model brings its own settings
+        saved = torch.load(out, map_location="cpu")
+        configure(len(saved["classes"]), saved.get("torso_rule", "torso" in saved.get("unknown_rule", "")))
+    else:
+        configure(args.classes, args.torso_rule)
+    print("%d classes (%s); unknown = low confidence%s%s"
+          % (len(CLASSES), ", ".join(CLASSES), " or 'other'" if len(CLASSES) == 4 else "",
+             " or no torso" if RULES["torso"] else ""))
 
     sets, info = load_splits(args.data, args.drop)
     train, val = sets["train"], sets["val"]
@@ -550,10 +582,8 @@ def main():
         return
 
     device = torch.device(args.device)
-    model = PostureNet().to(device)            # weights move to the GPU
-    out = args.out or args.data.parent / "posture_mlp.pt"
-    if args.test_only or args.final_test:
-        saved = torch.load(out, map_location=device)
+    model = PostureNet(classes=len(CLASSES)).to(device)    # weights move to the GPU
+    if saved is not None:
         model.load_state_dict(saved["state_dict"])
         min_conf = args.min_conf if args.min_conf is not None else saved.get("min_conf", UNSURE_BELOW)
         if args.final_test:
@@ -589,10 +619,14 @@ def main():
         mark = ""
         if balanced > best[0]:
             best = (balanced, epoch)
-            torch.save({"state_dict": model.state_dict(), "classes": CLASSES,
+            torch.save({"state_dict": model.state_dict(), "classes": list(CLASSES),
+                        "torso_rule": RULES["torso"],
                         "found_conf": FOUND_CONF, "min_found": MIN_FOUND, "epoch": epoch,
                         "val_balanced_acc": balanced, "split_file": str(info["split_file"]),
-                        "min_conf": min_conf, "unknown_rule": "class 'other', or no shoulder or no hip, or top probability < min_conf",
+                        "min_conf": min_conf,
+                        "unknown_rule": "top probability < min_conf"
+                                        + (", or class 'other'" if len(CLASSES) == 4 else "")
+                                        + (", or no shoulder or no hip" if RULES["torso"] else ""),
                         "features": "17 COCO keypoints x (dx, dy, found); see features()"}, out)
             mark = "  <- best so far, saved"
         print("\r  epoch %2d/%d  train loss %.3f acc %.0f%% | val loss %.3f acc %.0f%% (%s)  %.1f s%s"
@@ -600,7 +634,7 @@ def main():
                  by_class(va_class), time.time() - start, mark))
         chart.update(history)
 
-    curves = out.parent / "training_curves.png"
+    curves = out.with_name(out.stem + "_curves.png")     # posture_mlp.pt -> posture_mlp_curves.png
     chart.save(curves)
     model.load_state_dict(torch.load(out, map_location=device)["state_dict"])
     _, va_acc, va_class, confusion = run_epoch(model, val_loader, loss_fn, device)
