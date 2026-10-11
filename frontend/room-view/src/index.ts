@@ -14,6 +14,7 @@ export { buildRoom3D, roomBounds, setupRenderer, type Lighting, type Room3D } fr
 export { buildFurniture } from "./furniture3d";
 export { buildFurnitureDebug, type FurnitureDebug } from "./furnitureDebug";
 export { actionsFor, describePick, nearestSlot, type Pick } from "./pick";
+export { readSettings, roomDiffers, writeSettings, type StudioSettings } from "./studioUrl";
 export type { Appearance } from "./scene3d";
 export type {
   ActorCommand, ActorDetail, EngineSpec, IncidentRecord, IncidentSpec, LiveActorInfo, LiveFrame, LivePerson, LiveSlot, LiveStatus,

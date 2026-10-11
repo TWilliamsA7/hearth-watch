@@ -11,7 +11,10 @@ import {
   RoomView,
   actionsFor,
   describePick,
+  readSettings,
+  roomDiffers,
   websocketFeed,
+  writeSettings,
   wsUrl,
   type ActorDetail,
   type CameraMode,
@@ -21,7 +24,9 @@ import {
   type Overlays,
   type Pick,
   type ServerMessage,
+  type StudioSettings,
 } from "../src";
+
 
 type FallMotion = "trip" | "faint" | "collapse" | "sit_miss" | "stand_up";
 
@@ -148,7 +153,17 @@ function Slider(props: { label: string; value: number; min: number; max: number;
   );
 }
 
+/** What a fresh studio starts with; the URL carries only what differs (see studioUrl). */
+const STUDIO_DEFAULTS: StudioSettings = {
+  seed: 7, actors: 6, width: 7, depth: 6, density: 0.6, preset: "corner_left", camHeight: 2.4, camTilt: 12, camFov: 62,
+  lighting: "day", activity: 1, social: 1, overlays: DEFAULT_OVERLAYS, cameraMode: "orbit",
+};
+
 function Studio() {
+  const initial = useMemo(() => readSettings(window.location.search, STUDIO_DEFAULTS), []);
+  // Opened from a link: offer to load its room if the backend is running a different one.
+  const [linked, setLinked] = useState(() => new URLSearchParams(window.location.search).has("seed"));
+  const [copied, setCopied] = useState(false);
   const client = useLive(useMemo(() => new LiveClient(wsUrl("/sim/live/ws")), []));
   const [link, setLink] = useState<LinkStatus | null>(null);
   const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
@@ -163,27 +178,40 @@ function Studio() {
   const { feed, log, alertPersonIds } = useMonitorFeed(link?.enabled ? link.source : null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [overlays, setOverlays] = useState<Overlays>(DEFAULT_OVERLAYS);
-  const [cameraMode, setCameraMode] = useState<CameraMode>("orbit");
+  const [overlays, setOverlays] = useState<Overlays>(initial.overlays);
+  const [cameraMode, setCameraMode] = useState<CameraMode>(initial.cameraMode);
   const [hideTruth, setHideTruth] = useState(false);
-  const [lighting, setLighting] = useState<Lighting>("day");
+  const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const [detail, setDetail] = useState<ActorDetail | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; pick: Pick } | null>(null);
   const [fallMotion, setFallMotion] = useState<FallMotion | "">("");
   const [recover, setRecover] = useState(true);
 
   // Room and population settings for the next "Generate".
-  const [seed, setSeed] = useState(7);
-  const [actors, setActors] = useState(6);
-  const [width, setWidth] = useState(7);
-  const [depth, setDepth] = useState(6);
-  const [density, setDensity] = useState(0.6);
-  const [preset, setPreset] = useState<EngineSpec["camera"]["preset"]>("corner_left");
-  const [camHeight, setCamHeight] = useState(2.4);
-  const [camTilt, setCamTilt] = useState(12);
-  const [camFov, setCamFov] = useState(62);
-  const [activity, setActivity] = useState(1);
-  const [social, setSocial] = useState(1);
+  const [seed, setSeed] = useState(initial.seed);
+  const [actors, setActors] = useState(initial.actors);
+  const [width, setWidth] = useState(initial.width);
+  const [depth, setDepth] = useState(initial.depth);
+  const [density, setDensity] = useState(initial.density);
+  const [preset, setPreset] = useState<EngineSpec["camera"]["preset"]>(initial.preset);
+  const [camHeight, setCamHeight] = useState(initial.camHeight);
+  const [camTilt, setCamTilt] = useState(initial.camTilt);
+  const [camFov, setCamFov] = useState(initial.camFov);
+  const [activity, setActivity] = useState(initial.activity);
+  const [social, setSocial] = useState(initial.social);
+  const settings: StudioSettings = { seed, actors, width, depth, density, preset, camHeight, camTilt, camFov, lighting, activity,
+    social, overlays, cameraMode };
+  // Keep the URL in step with the settings, so the address is always a link to this view.
+  const search = writeSettings(settings, STUDIO_DEFAULTS);
+  useEffect(() => {
+    if (search !== window.location.search) window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
+  }, [search]);
+  const copyLink = () => {
+    void navigator.clipboard?.writeText(window.location.href).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   const frame = client.latest;
   const world = client.world;
@@ -211,7 +239,10 @@ function Studio() {
           activity_frequency: activity,
           social_frequency: social,
         },
-      }).then(() => setSelected(null)),
+      }).then(() => {
+        setSelected(null);
+        setLinked(false);
+      }),
     );
 
   const togglePlay = () => run(() => api(state === "playing" ? "/sim/live/pause" : "/sim/live/play", {}));
@@ -371,6 +402,7 @@ function Studio() {
           <div className="btns" style={{ marginTop: 10 }}>
             <button className="primary" onClick={() => generate(true)}>Generate room</button>
             <button onClick={() => generate(false)}>Generate paused</button>
+            <button title="Copy a link to this room and view" onClick={copyLink}>{copied ? "Copied" : "Copy link"}</button>
           </div>
           {error && <div className="err">{error}</div>}
         </section>
@@ -512,6 +544,16 @@ function Studio() {
             return true;
           }}
           alertPersonIds={alertPersonIds} hideTruth={hideTruth} lighting={lighting} />
+        {linked && world && roomDiffers(settings, world) && (
+          <div className="link-banner">
+            <span>This link is for a different room (seed {seed}, {actors} people). The backend is running seed {world.seed}.</span>
+            <button className="primary" onClick={() => {
+              setLinked(false);
+              generate(true);
+            }}>Load this room</button>
+            <button onClick={() => setLinked(false)}>Keep the current one</button>
+          </div>
+        )}
         {menu && selected && world && (
           <div className="cmd-menu" style={{ left: menu.x, top: menu.y }}>
             <div className="cmd-title">{selected.toUpperCase()} â†’ {describePick(menu.pick, world)}</div>
