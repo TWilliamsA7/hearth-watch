@@ -31,7 +31,7 @@ export interface Dims {
 
 const DEFAULT_DIMS: Record<"chair" | "sofa" | "bed", Dims> = {
   chair: { seat: 0.485, surface: 0, arm: 0, armH: 0, back: 0.05 },
-  sofa: { seat: 0.43, surface: 0.43, arm: 0.16, armH: 0.62, back: 0.31 },
+  sofa: { seat: 0.43, surface: 0.43, arm: 0.16, armH: 0.62, back: 0.26 },
   bed: { seat: 0.565, surface: 0.565, arm: 0, armH: 0, back: 0.06 },
 };
 

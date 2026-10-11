@@ -16,17 +16,18 @@ PLANNERS. Neither needs changes to the engine.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from hearth.sim.generator import Stance
 from hearth.sim.nav import Floor, distance
-from hearth.sim.pose import KEY_POSES, BodyPose, blend_body, smoothstep
+from hearth.sim.pose import KEY_POSES, BodyPose, blend_body, smoothstep, tucked
 
 from hearth.sim.live.actor import Actor, Posture
 from hearth.sim.live.animate import Blend, Play, apply, gait, heading_to, idle, stance, wrap
-from hearth.sim.live.room import Slot, forward
+from hearth.sim.live.room import Piece, Slot, forward
 
 if TYPE_CHECKING:
     from hearth.sim.live.engine import World
@@ -572,16 +573,27 @@ def get_up(a: Actor, w: World) -> list[Activity]:
                            root=root, on_end=_releaser(a), lag=0.67)]  # fmt: skip
     if a.posture == "lying":
         lie = _slot_of(a, w, "lie")
-        entry = w.room.slot(lie.entry) if lie and lie.entry and lie.entry in w.room._slot_index else None
+        # Off the side they got on from (the seat they hold), else the lie slot's usual one.
+        entry = _slot_of(a, w, "sit")
+        if entry is None and lie and lie.entry and lie.entry in w.room._slot_index:
+            entry = w.room.slot(lie.entry)
+        stances = lie_stances(lie, w.room.pieces[lie.piece], a.size) if lie else None
+        out: list[Activity] = []
+        if stances is not None:  # sit up where they lie, then swing the legs down off the edge
+            out.append(_to(stances[1], 1.6 * pace, name="sitting up", label="sitting", posture="sitting"))
         if entry is not None:
-            sit_up = _to(seat_stance(entry, a.size), 2.3 * pace, name="sitting up", label="sitting", posture="sitting")
+            edge = seat_stance(entry, a.size)
+            if stances is not None:
+                out.append(_to(dataclasses.replace(edge, body=tucked(edge.body)), 1.5 * pace, name="swinging legs down",
+                               label="sitting", posture="sitting"))  # fmt: skip
+            out.append(_to(edge, 0.9 * pace, name="swinging legs down", label="sitting", posture="sitting"))
         else:
-            sit_up = Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting", base=0.0)
+            out.append(Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting", base=0.0))
         if entry is not None and entry.slot_id not in a.slots:
             a.slots.append(entry.slot_id)
-        stand = Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                           root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a), lag=0.67)  # fmt: skip
-        return [sit_up, stand]
+        out.append(Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
+                              root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a), lag=0.67))  # fmt: skip
+        return out
     if a.posture == "floor":
         return [PlayMotion("get_up", name="getting up", label="standing", posture="standing", pace=pace)]
     if a.posture == "absent":
@@ -594,9 +606,24 @@ def seat_stance(seat: Slot, size: float) -> Stance:
     return Stance(seat.pose(size), seat.heading, seat.at[0], seat.at[1], 0.0)
 
 
-def lie_stance(lie: Slot, size: float) -> Stance:
-    """How someone `size` metres tall ends up lying in `lie`."""
-    return Stance(KEY_POSES["lying"], lie.heading, lie.at[0], lie.at[1], lie.base)
+def lie_stances(lie: Slot, piece: Piece, size: float) -> tuple[Stance, Stance] | None:
+    """How someone `size` metres tall lies on `lie` (fit.lie_fit: centred, knees drawn up or
+    curled if the piece is short for them), and sits up on the same spot on the way:
+    (lying, sitting up). None if they don't fit."""
+    from hearth.sim.live.fit import lie_fit
+
+    fit = lie_fit(piece.kind, lie.heading - piece.rotation, size)
+    if fit is None:
+        return None
+    x, z = piece.local(*fit.root)
+    sx, sz = piece.local(*fit.sit_root)
+    return (Stance(fit.pose, lie.heading, x, z, fit.base), Stance(fit.sit_pose, lie.heading, sx, sz, fit.sit_base))
+
+
+def lie_stance(lie: Slot, piece: Piece, size: float) -> Stance | None:
+    """How someone `size` metres tall ends up lying on `lie`; None if they don't fit."""
+    st = lie_stances(lie, piece, size)
+    return st[0] if st else None
 
 
 def _to(st: Stance, duration: float, **kw) -> Transition:
@@ -616,20 +643,30 @@ def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
     return [
         Walk(approach, purpose="to a seat", ignore=ignore, stop_short_ok=False),
         Turn(seat.heading),
-        Step(seat.stand_point(a.size), speed=0.3, name="stepping back", face=False, stride=0.35),
+        Step(seat.stand_point(a.size), speed=0.3, name="stepping back", face=False, stride=0.25),
         _to(seat_stance(seat, a.size), 1.4 * pace, name="sitting down", label="sitting", posture="sitting", lag=1.5),
     ]
 
 
 def lie_plan(a: Actor, w: World, lie: Slot, entry: Slot) -> list[Activity] | None:
-    """Sit on `entry`, then lie down on `lie` and rest (both already reserved)."""
+    """Sit on `entry`, swing the legs up onto the piece, lie back and rest (both already
+    reserved). Going straight from sitting on the edge to lying would sweep the body through
+    the backrest or the mattress."""
+    stances = lie_stances(lie, w.room.pieces[lie.piece], a.size)
     sit = sit_plan(a, w, entry)
-    if sit is None:
+    if sit is None or stances is None:
         return None
-    lie_down = _to(lie_stance(lie, a.size), 2.6 * mobility_pace(a), name="lying down", label="lying_intentional",
-                   posture="lying")  # fmt: skip
-    return sit + [Hold(a.rng.uniform(1.0, 3.0), "seated"), lie_down,
-                  Hold(dwell(a, w, 50.0, 160.0), "resting", sway=0.0)]  # fmt: skip
+    lying, sitting_up = stances
+    pace = mobility_pace(a)
+    edge = seat_stance(entry, a.size)
+    return sit + [
+        Hold(a.rng.uniform(1.0, 3.0), "seated"),
+        _to(dataclasses.replace(edge, body=tucked(edge.body)), 0.9 * pace, name="lifting legs up", label="sitting",
+            posture="sitting"),  # fmt: skip
+        _to(sitting_up, 1.5 * pace, name="lifting legs up", label="sitting", posture="sitting"),
+        _to(lying, 1.6 * pace, name="lying down", label="lying_intentional", posture="lying"),
+        Hold(dwell(a, w, 50.0, 160.0), "resting", sway=0.0),
+    ]
 
 
 # --- the Brain ---
@@ -726,6 +763,8 @@ def plan_rest(a: Actor, w: World) -> list[Activity] | None:
         if entry is None or entry.occupant not in (None, a.person_id):
             entry = next((s for s in w.room.slots if s.group == lie.group and s.kind == "sit" and s.occupant is None), None)
         if entry is None or w.room.approach(entry, a.size) is None:
+            continue
+        if lie_stances(lie, w.room.pieces[lie.piece], a.size) is None:  # too short for them, even curled up
             continue
         first = get_up(a, w)
         reserve(a, w, lie, entry)

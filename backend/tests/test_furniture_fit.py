@@ -17,7 +17,7 @@ import pytest
 from hearth.sim.live.activities import Hold, Walk, get_up, lie_plan, lie_stance, release, reserve, seat_stance, sit_plan
 from hearth.sim.live.animate import idle, world_pose
 from hearth.sim.live.engine import World
-from hearth.sim.live.fit import Overlap, penetration, seat_gap
+from hearth.sim.live.fit import Overlap, lowest, penetration, seat_gap
 from hearth.sim.live.room import KINDS, Piece, Slot, _slots, generate_room
 from hearth.sim.live.spec import EngineSpec, RoomSpec
 from hearth.sim.pose import KEY_POSES
@@ -28,7 +28,6 @@ HEIGHTS = (1.52, 1.69, 1.86)  # the range make_profile draws from
 BUILDS = (1.0, 1.15)  # Appearance.build: the 3D view widens the body by this
 SEATED = ("chair", "armchair", "couch", "loveseat", "bed")
 LYING = ("couch", "loveseat", "bed")
-UNFITTED = pytest.mark.xfail(reason="bodies aren't fitted to furniture yet", strict=False)
 
 
 def _top(slot: Slot, piece: Piece) -> float:
@@ -56,19 +55,24 @@ def test_a_seated_body_rests_on_the_seat(kind: str, size: float, build: float) -
         assert -TOL <= gap <= TOL, f"{slot.slot_id}: hips {gap:+.3f} m from the seat"
 
 
-@UNFITTED
 @pytest.mark.parametrize("build", BUILDS)
 @pytest.mark.parametrize("size", HEIGHTS)
 @pytest.mark.parametrize("kind", LYING)
 def test_a_lying_body_lies_on_the_surface_and_inside_the_arms(kind: str, size: float, build: float) -> None:
     for piece, slot in _stance_case(kind, "lie"):
-        st = lie_stance(slot, size)
-        assert st is not None, f"{kind}: nowhere to lie for someone {size} m tall"
+        st = lie_stance(slot, piece, size)
+        if st is None:
+            assert kind == "loveseat" and size > 1.5, f"{kind}: nowhere to lie for someone {size} m tall"
+            continue  # they rest somewhere longer
         joints = body(st.body, st.heading, st.x, st.z, st.base, size)
         o = penetration(joints, piece, size, build)
         assert o.depth <= TOL, f"{slot.slot_id}: {o}"
+        # Resting on it: the underside of the body on the surface. (The hips themselves sit
+        # higher when lying on one side: the width of the pelvis is under them.)
+        rest = lowest(joints, size) - _top(slot, piece)
+        assert -TOL <= rest <= TOL, f"{slot.slot_id}: underside {rest:+.3f} m from the surface"
         gap = seat_gap(joints, size, _top(slot, piece))
-        assert -TOL <= gap <= TOL, f"{slot.slot_id}: hips {gap:+.3f} m from the surface"
+        assert -TOL <= gap <= 0.08, f"{slot.slot_id}: hips {gap:+.3f} m from the surface"
 
 
 @pytest.mark.parametrize("rotation", [math.pi / 2, math.pi, -math.pi / 2])
@@ -164,7 +168,6 @@ def test_sitting_down_and_standing_up_stay_out_of_the_furniture(kind: str, size:
     assert a.posture == "standing"
 
 
-@UNFITTED
 @pytest.mark.parametrize("size", HEIGHTS)
 @pytest.mark.parametrize("kind", LYING)
 def test_lying_down_and_getting_up_stay_out_of_the_furniture(kind: str, size: float) -> None:
@@ -176,7 +179,9 @@ def test_lying_down_and_getting_up_stay_out_of_the_furniture(kind: str, size: fl
     a.pos = w.room.approach(entry, size)
     reserve(a, w, lie, entry)
     plan = lie_plan(a, w, lie, entry)
-    assert plan is not None, f"{kind}: nowhere to lie for someone {size} m tall"
+    if plan is None:
+        assert kind == "loveseat" and size > 1.5, f"{kind}: nowhere to lie for someone {size} m tall"
+        return  # they rest somewhere longer
     plan = [x for x in plan if not (isinstance(x, Hold) and x.name == "resting")]  # don't wait out the rest
     o = _run(w, a, plan, [piece])
     assert o.depth <= TOL, f"lying down: {o}"
@@ -189,7 +194,6 @@ def test_lying_down_and_getting_up_stay_out_of_the_furniture(kind: str, size: fl
 # --- whole runs ---
 
 
-@UNFITTED
 @pytest.mark.parametrize("seed", range(6))
 def test_nobody_goes_into_the_furniture_they_use_in_a_run(seed: int) -> None:
     w = World(EngineSpec(actors=6), seed)

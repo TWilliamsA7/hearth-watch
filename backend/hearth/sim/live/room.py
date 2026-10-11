@@ -68,8 +68,8 @@ KINDS: dict[str, Kind] = {
     for k in (
         Kind("chair", 0.48, 0.5, 0.9, seat=0.485, back=0.05),
         Kind("armchair", 0.92, 0.85, 0.95, seat=0.43, arm=0.09, arm_h=0.62, back=0.31),
-        Kind("couch", 2.0, 0.9, 0.85, seat=0.43, surface=0.43, arm=0.16, arm_h=0.62, back=0.31),
-        Kind("loveseat", 1.5, 0.88, 0.85, seat=0.43, surface=0.43, arm=0.16, arm_h=0.62, back=0.31),
+        Kind("couch", 2.0, 0.9, 0.85, seat=0.43, surface=0.43, arm=0.16, arm_h=0.62, back=0.26),
+        Kind("loveseat", 1.5, 0.88, 0.85, seat=0.43, surface=0.43, arm=0.16, arm_h=0.62, back=0.26),
         Kind("bed", 1.05, 2.05, 0.55, seat=0.565, surface=0.565, back=0.06),
         Kind("table", 1.4, 0.85, 0.75),
         Kind("side_table", 0.5, 0.5, 0.55),

@@ -579,3 +579,61 @@ def seated_pose(seat: float, front: float, size: float) -> BodyPose:
     it, and the shins stand as upright as they can; on a seat too high for the feet to
     reach the floor, they hang."""
     return dict(_seated(round(seat, 3), round(front, 3), round(size, 3)))
+
+
+def curled_lying(bend: float, roll: float) -> BodyPose:
+    """On the side, curled up by `bend` (0 = straight, 1 = knees well up), arms in front:
+    how someone fits a body onto a couch shorter than they are. Head towards -f, like "lying";
+    roll +-pi/2 = which side they lie on."""
+    p = dict(STANDING)
+    for side in SIDES:
+        p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(85.0 * bend))
+        p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(110.0 * bend))
+        p = turn_limb(p, f"{side}_shoulder", L_AXIS, -math.radians(30.0))
+        p = turn_limb(p, f"{side}_elbow", L_AXIS, -math.radians(100.0))  # hands up by the face
+    p = turn_limb(p, "neck", L_AXIS, math.radians(15.0 * bend))
+    return fit_bones(lay(fit_bones(p), head=-1.0, roll=roll))
+
+
+def supine(bend: float = 0.0) -> BodyPose:
+    """On the back, head towards -f like "lying", but compact: arms folded on the chest, and
+    the knees drawn up by `bend` (0 = legs straight, 1 = feet flat by the hips), as on a couch
+    that's narrow or short for the person on it."""
+    p = lay(STANDING, head=-1.0, roll=0.0)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        sh = p[f"{side}_shoulder"]
+        p[f"{side}_elbow"] = (sh[0] + 0.17, sh[1] + 0.01, sign * 0.13)  # upper arms by the sides
+        p[f"{side}_wrist"] = (sh[0] + 0.22, sh[1] + 0.07, sign * 0.03)  # hands together on the belly
+    p = fit_bones(p)
+    if bend > 0:
+        for side in SIDES:
+            p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(60.0 * bend))
+            p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(120.0 * bend))
+    return fit_bones(p)
+
+
+def tucked(seated: BodyPose) -> BodyPose:
+    """Sitting on an edge with the knees drawn up and the feet off the floor, leaning back a
+    little: how the legs come up onto a bed or couch (and down again) without the feet
+    sliding through its side."""
+    p = seated
+    for side in SIDES:
+        p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(55.0))
+    return lean(p, L_AXIS, -math.radians(12.0))
+
+
+def long_sit(bend: float = 0.0) -> BodyPose:
+    """Sitting up with the legs along the bed or couch ("floor_sit", on whatever is under the
+    hips), the knees up by `bend` (as for curled_lying): half way between sitting on the edge
+    and lying down."""
+    p = dict(KEY_POSES["floor_sit"])
+    for side, sign in (("left", 1.0), ("right", -1.0)):  # hands on the thighs, not propped up behind
+        sh = p[f"{side}_shoulder"]
+        p[f"{side}_elbow"] = (sh[0] + 0.05, sh[1] - 0.17, sign * 0.14)
+        p[f"{side}_wrist"] = (sh[0] + 0.21, sh[1] - 0.22, sign * 0.10)
+    p = fit_bones(p)
+    if bend > 0:
+        for side in SIDES:
+            p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(45.0 * bend))
+            p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(90.0 * bend))
+    return fit_bones(p)
