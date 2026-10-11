@@ -575,6 +575,21 @@ def get_up(a: Actor, w: World) -> list[Activity]:
     return []
 
 
+def seat_stance(seat: Slot, size: float) -> Stance:
+    """How someone `size` metres tall ends up sitting in `seat`."""
+    return Stance(KEY_POSES["sitting"], seat.heading, seat.at[0], seat.at[1], 0.0)
+
+
+def lie_stance(lie: Slot, size: float) -> Stance:
+    """How someone `size` metres tall ends up lying in `lie`."""
+    return Stance(KEY_POSES["lying"], lie.heading, lie.at[0], lie.at[1], lie.base)
+
+
+def _to(st: Stance, duration: float, **kw) -> Transition:
+    """A Transition to a whole stance."""
+    return Transition(st.body, duration, root=(st.x, st.z), heading=st.heading, base=st.base, **kw)
+
+
 def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
     """Walk to a seat, step in front of it, turn round and sit down (slot already reserved)."""
     approach = w.room.approach(seat, a.size)
@@ -587,9 +602,19 @@ def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
         Walk(approach, purpose="to a seat", ignore=ignore, stop_short_ok=False),
         Step(seat.stand_point(a.size), speed=0.4, name="stepping up"),
         Turn(seat.heading),
-        Transition("sitting", 1.4 * pace, name="sitting down", label="sitting", posture="sitting",
-                   root=seat.at, heading=seat.heading, base=0.0),  # fmt: skip
+        _to(seat_stance(seat, a.size), 1.4 * pace, name="sitting down", label="sitting", posture="sitting"),
     ]
+
+
+def lie_plan(a: Actor, w: World, lie: Slot, entry: Slot) -> list[Activity] | None:
+    """Sit on `entry`, then lie down on `lie` and rest (both already reserved)."""
+    sit = sit_plan(a, w, entry)
+    if sit is None:
+        return None
+    lie_down = _to(lie_stance(lie, a.size), 2.6 * mobility_pace(a), name="lying down", label="lying_intentional",
+                   posture="lying")  # fmt: skip
+    return sit + [Hold(a.rng.uniform(1.0, 3.0), "seated"), lie_down,
+                  Hold(dwell(a, w, 50.0, 160.0), "resting", sway=0.0)]  # fmt: skip
 
 
 # --- the Brain ---
@@ -689,12 +714,9 @@ def plan_rest(a: Actor, w: World) -> list[Activity] | None:
             continue
         first = get_up(a, w)
         reserve(a, w, lie, entry)
-        sit = sit_plan(a, w, entry)
-        assert sit is not None
-        lie_down = Transition("lying", 2.6 * mobility_pace(a), name="lying down", label="lying_intentional",
-                              posture="lying", root=lie.at, heading=lie.heading, base=lie.base)  # fmt: skip
-        return first + sit + [Hold(a.rng.uniform(1.0, 3.0), "seated"), lie_down,
-                              Hold(dwell(a, w, 50.0, 160.0), "resting", sway=0.0)]  # fmt: skip
+        rest = lie_plan(a, w, lie, entry)
+        assert rest is not None
+        return first + rest
     return None
 
 
