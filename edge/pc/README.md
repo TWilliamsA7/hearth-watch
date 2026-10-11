@@ -557,3 +557,18 @@ Real people, frame counts:
 - Our own camera (Jetson poseNet recordings): floor caught 96%, so the model transfers.
 
 Full write-up of the results (test, validation, field test, false positive rates, what was tried): [RESULTS.md](RESULTS.md).
+
+## Step 7a: `08_export_weights.py` - the model for the Jetson
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\08_export_weights.py
+```
+
+The Jetson (Python 3.6, numpy 1.13) can't run PyTorch and doesn't need to: the network is three
+matrix multiplications. This writes `edge\hearth_edge\posture_mlp.npz` (~37 KB, committed with
+the code; `edge/models/` would be git-ignored): the three layers' weights (W1 64x51, W2 64x64,
+W3 3x64 and biases, 7,683 numbers), the classes, the cut-off (0.50, chosen on validation), the
+feature recipe, the source model's SHA-256 and the locked test result. Before writing, it runs the
+same inputs through PyTorch and a plain numpy copy of the network (validation frames and our
+recordings) and refuses to export unless scores, classes and decisions match (tested: largest
+difference ~4e-6, 100% identical). The Jetson's numpy 1.13 loads the file (checked).
