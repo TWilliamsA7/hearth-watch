@@ -1,6 +1,6 @@
 # Optional patient recognition: laptop demo
 
-This local hackathon demo uses consenting teammates playing fictional residents. Enrollment is in the dashboard's patient view, under **Face recognition check-in** (`http://127.0.0.1:8000/room#recognition`).
+This local hackathon demo uses consenting teammates playing fictional residents. Enrollment is in the dashboard's **Recognition** tab (`http://127.0.0.1:8000/recognition`), run by staff with the resident's consent.
 
 ## Hugging Face models
 
@@ -16,21 +16,17 @@ From the repository root, with the existing project environment installed:
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e "./backend[vision,face-demo]"
 .\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check
-# Once: keep this file private and stable (git-ignored; scripts/face_id_demo.sh makes the same file).
-$key = (& .\.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())").Trim()
-Set-Content -Encoding ascii .env.face-demo "HEARTH_FACE_KEY=$key"
-
 .\scripts\start.ps1
 ```
 
-`start.ps1` reads `.env.face-demo` and turns recognition on (`HEARTH_FACE_DEMO=1`). Create the key once and keep the file. A different key cannot decrypt existing enrollments; preserve the original key privately if retaining enrollments across sessions. Do not commit the key. Withdraw all enrollments before changing keys.
+Recognition is on by default. `start.ps1` installs the packages and downloads the models when they're missing, and the server makes its encryption key in `data/face.key` on first start (git-ignored). Keep that file. `HEARTH_FACE_KEY` (or `.env.face-demo`, which `scripts/face_id_demo.sh` writes and `start.ps1` loads) overrides it; `HEARTH_FACE_DEMO=0` turns recognition off. A different key cannot decrypt existing enrollments; preserve the original key privately if retaining enrollments across sessions. Do not commit the key. Withdraw all enrollments before changing keys.
 
-The feature is disabled unless explicitly enabled. Its API accepts loopback requests only.
+Its API accepts loopback requests only.
 
 ## Demo steps
 
-1. Open `http://127.0.0.1:8000/room#recognition` and pick the room in the header.
-2. To test arrival, schedule an appointment under **My appointments → Schedule an appointment** in the same view (use the patient's name and a time a few minutes ahead).
+1. Open `http://127.0.0.1:8000/recognition`.
+2. Enter the resident's name.
 3. Select an appointment only if you want recognition check-in. Confirm face-enrollment consent and separately select **Also show my name on possible-fall and camera help-signal alerts** if testing named safety alerts, then click **Start camera**.
 4. Click **Capture 3 views and enroll**, following the prompts. Keep one face in view with good lighting.
 5. Click **Check in with recognition**. Three consecutive matching frames confirm the patient. A linked, open appointment in the same room is marked arrived.
@@ -57,7 +53,7 @@ Or let the start script run it: stop Hearth, then `.\scripts\start.ps1 -Camera 0
 
 Use `--camera 1` if the Logitech USB camera is device 1. The same script can test an integrated laptop webcam or a Logitech webcam attached to the laptop. Add `--hand-gestures` after downloading that model if testing help gestures too.
 
-3. In the caregiver view (`/`), start a nurse session and select room-01 and possible-fall alerts.
+3. Open the Monitor tab (`/`); alerts appear in its alert list.
 4. Stand alone in view, facing the camera. Wait for your demo name in the preview/terminal. Three distinct matching frames are required. Any linked open demo appointments for this room are checked in.
 5. Stage the existing lie-down demonstration on a mat; do not perform a real fall. Once the fall detector's hold passes, the nurse alert should read **Possible fall · Alex**, using your enrolled demo name. The detector still reports a possible fall, not a confirmed injury.
 6. If the face turns away, its confirmed name can persist for up to **8 seconds** while a single body remains continuously detected. Identity clears on a gap, an abrupt box change, multiple people, an ambiguous/unknown face, expiration, or enrollment withdrawal. The alert then shows **Identity unconfirmed**.
@@ -77,7 +73,7 @@ Add-Content -Encoding ascii .env.face-demo "HEARTH_EDGE_FACE_TOKEN=$token"
 .\scripts\start.ps1 -Lan
 ```
 
-2. Enroll at `http://127.0.0.1:8000/room#recognition` **on the laptop** (enrollment stays loopback-only) and select **Also show my name on possible-fall and camera help-signal alerts**.
+2. Enroll at `http://127.0.0.1:8000/recognition` **on the laptop** (enrollment stays loopback-only) and select **Also show my name on possible-fall and camera help-signal alerts**.
 3. On the Jetson, once: `bash ~/hearth-watch/edge/tools/get_face_id_model.sh`. Then put the same token in a file readable only by you, and run:
 
 ```bash

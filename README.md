@@ -30,19 +30,20 @@ Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm pack
 | `-Port 8010` | Another port, if 8000 is taken |
 | `-NoBuild` | Use the existing build without npm |
 
-Optional sources that fail (no webcam, no models) are reported and the rest keeps running. Face recognition turns on when `.env.face-demo` exists; `scripts/face_id_demo.sh` creates it (see [docs/face-demo.md](docs/face-demo.md)).
+Optional sources that fail (no webcam, no models) are reported and the rest keeps running. Face recognition is on by default: the script installs its packages and models when they're missing, and the server keeps its encryption key in `data/face.key` (see [docs/face-demo.md](docs/face-demo.md)).
 
 **What is where** (all on the same server):
 
 | Address | What |
 | --- | --- |
-| `/` | Caregiver view: main feed (simulated 3D room, live camera or recorded replay), nurse session and coverage, incident alerts with accept/resolve, source health, event log, appointments, staged incidents, scripted scenarios and evaluation reports |
-| `/room` | Patient view: help (SOS) button, appointments and check-in, opt-in face recognition check-in (`/room#recognition`) |
+| `/` | **Monitor:** the room (simulated 3D room, live camera or recorded replay), staging incidents, the **Live people** link that brings real people from the Jetson or a replay into the simulated room, a person inspector, alerts to acknowledge and resolve, source health and the event log |
+| `/scenarios` | **Scenarios:** scripted scenarios and their evaluation reports, earlier runs, the live room's report, the batch summary |
+| `/recognition` | **Recognition:** staff-run, opt-in resident enrollment and a recognition test |
 | `/studio/` | Sim Studio, the developer tool for the live simulator: resident inspector, overlays, actor commands, live-camera calibration |
 | `/studio/runs` | Recorded run player: saved sim runs against ground truth |
 | `/docs` | API reference |
 
-Both views have a room picker for every configured room. The header's developer menu links to the Studio, run player and API reference.
+The dashboard is for staff and watches the server's configured room (`room-01`). The header's tabs switch views and its Developer menu links to the Studio, run player and API reference.
 
 ## Status
 
@@ -102,9 +103,9 @@ $env:PYTHONPATH="$PWD\backend;$PWD\shared\python"
 
 Add `--laptop` on a slow CPU (384px posture, 640px hand inference, no contrast retry). Press Q in the preview or Ctrl+C to stop.
 
-### 3. Start a nurse session
+### 3. Watch the alerts
 
-In the caregiver view, open **Nurse session**, enter a display name, keep **room-01**, **Possible falls** and **Help requests** checked and **On duty** on, and start the session.
+Alerts appear in the Monitor tab's alert list whichever main view is showing. **Acknowledge** marks one as seen; **Resolve** it after checking on the person. **Sound on** plays a tone for each new alert.
 
 ### 4. Test the expected behavior
 
@@ -163,34 +164,23 @@ The live config supports both producers: supplied model predictions are authorit
 
 AngelCare 8B is a separate, unverified GPU experiment; it is not part of these CPU-laptop commands or nurse alerts, and its setup notes are not in this repository.
 
-## Nurse desk and help requests
+## Alerts and help requests
 
-Start Hearth (`.\scripts\start.ps1`), then open the dashboard. The **caregiver view** (`/`) holds the nurse session: coverage preferences, the live alert list with named acceptance and resolution, source health and the event log. The **patient view** (`/room`) holds the room help button with visible request/acknowledgement confirmation. A nurse session belongs to its browser tab and survives a reload of that tab; it ends when the server restarts.
+Alerts arrive on the room WebSocket from every source (live camera, simulation, replay) and appear in the Monitor tab's alert list. **Acknowledge** marks an alert as seen and **Resolve** closes it after someone has checked on the person (`POST /alerts/{id}/ack`, then `/resolve`). Help requests come from camera gestures (a held fist, or a raised arm for pose-only sources) and from `POST /help-requests`. There is no patient-facing button in the dashboard.
 
-**Minimum demo:**
-
-1. In the caregiver view, open **Nurse session**, enter a display name, keep `room-01` and **Help requests** checked and **On duty** on, and start the session. Click **Enable alert sound** if desired.
-2. Open `/room` in a separate tab and press **SOS**. A **Button request** alert appears in the caregiver view.
-3. Accept the request in the nurse tab. The patient view shows the nurse's acknowledgement. Resolve it to allow a fresh request; **Show resolved** keeps it visible.
-4. Open a second caregiver tab with a different name and the same coverage. Both see matching alerts and who accepted them; only the first accepting nurse owns the alert and can resolve it.
-5. Change the second nurse's coverage to **Camera / source offline** only and save. Help requests will no longer be routed there. Off-duty sessions receive no new matching requests; their already accepted work remains visible.
-6. To test a gesture without hardware, run the synthetic trace below. A brief wave or an interrupted gesture should not produce a help request.
+To test a gesture without hardware, run the synthetic traces below with Hearth running. A brief wave or an interrupted gesture should not produce a help request.
 
 ```powershell
 .\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture
 .\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario wave
 .\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture_occlusion
-# Optional second logical room for subscription routing:
-.\.venv\Scripts\python.exe backend/scripts/fake_observations.py --scenario gesture --room room-02
 ```
 
-The second logical room has no camera data until a source sends it. The default config permits `room-01` and `room-02`; change `additional_room_ids` to configure coverage. Room WebSocket streams and snapshots are isolated by room.
+**Nurse sessions (API only).** The server still has nurse sessions with room/alert-kind coverage, duty status and exclusive acceptance (`/nurse-sessions`, `/ws/nurse/{id}`, `/alerts/{id}/accept`), covered by `backend/tests/test_help_and_nurses.py`. The dashboard doesn't use them: without authentication or persistence they added setup without real capability. Additional rooms (`additional_room_ids`, `room-02` by default) are likewise routing labels with no camera feeding them.
 
 **Gesture contract:** Person 1 sends the existing normalized pose keypoints. A wrist must be above both the nose and same-side shoulder by `gesture_raise_margin`, with all three confidence values at least `gesture_keypoint_confidence_min`. The same arm must satisfy that condition continuously for `gesture_hold_seconds` (default 2 seconds). Missing frames, low-confidence keypoints, or occlusion clear pending evidence. One held gesture creates one `help_requested` event/alert. Re-arming requires observing the triggering arm lowered for `gesture_release_seconds` and respecting `gesture_cooldown_seconds`. Occlusion never counts as release. These rules do not identify the person or prove their intent; validate them against reaching, waving and stretching on the actual camera.
 
-The room panel provides visual confirmation for camera gestures and button requests. It does not control a Jetson speaker. Nurse alert sound requires enabling audio in that browser tab. These are live **open-page notifications**, not SMS, mobile push, or delivery while a browser is closed. Connection interruptions are displayed; reconnect restores current matching alerts without sounding every historical request again.
-
-Profiles, subscriptions, ownership, and events are in memory and clear when the backend restarts. Nurse profiles are local demo sessions, **not authenticated staff accounts**; nurse IDs are identifiers, not security credentials. Exclusive acceptance prevents accidental competing claims through the workflow; authentication and durable delivery would be separate deployment work.
+Alerts are live **open-page notifications**, not SMS, mobile push, or delivery while a browser is closed. Connection interruptions are displayed; reconnecting restores the room's current alerts without sounding old ones again. Alerts and events are in memory and clear when the server restarts.
 
 ## Run the monitoring core
 
@@ -296,65 +286,9 @@ These are simulated results only, not measured accuracy. The thresholds need per
 
 ## Scope
 
-### Appointment check-ins and overdue reminders
+### Appointments (backend only)
 
-The backend supports `POST /appointments`, `GET /appointments`,
-`GET /appointments/{id}`, `PUT /appointments/{id}` (reschedule), and POST
-`/appointments/{id}/check-in` and `/appointments/{id}/cancel`.
-Use an ISO timestamp with a timezone. The default grace period is **900 seconds**:
-arrival not confirmed at scheduled time + 15 minutes creates one
-`appointment_overdue` alert. Nurses select **Appointment reminders** and the
-destination room in the dashboard's nurse session, then save their coverage. Alerts use the usual live
-WebSocket, accept/acknowledge, and resolve workflow. Late check-in records recovery;
-human review still resolves the alert. Cancelling/rescheduling closes an obsolete
-reminder. Appointments and their reminder state survive restart in
-`data/appointments.sqlite` (override with `HEARTH_APPOINTMENTS_DB`); nurse sessions
-must reconnect after restart. Use one backend worker.
-
-In the dashboard, schedule from **Schedule an appointment** (caregiver or patient view),
-check in from the patient view, and subscribe nurses to **Appointment reminders**; the
-overdue alert names the patient and the scheduled time. For a compressed judge demo of the
-reminder, with Hearth running, run in a second PowerShell terminal:
-
-```powershell
-$backend = 'http://127.0.0.1:8000'
-$body = @{
-    resident_label = 'Demo guest'
-    room_id = 'room-01'
-    scheduled_at = [DateTimeOffset]::UtcNow.ToString('o')
-    grace_seconds = 15
-    demo = $true
-} | ConvertTo-Json
-$appointment = Invoke-RestMethod "$backend/appointments" -Method Post -ContentType 'application/json' -Body $body
-$appointment
-```
-
-In the caregiver view, enable **Appointment reminders** for room-01 and start/save the
-nurse session. In 15 seconds its **SIMULATED** appointment alert appears. To demonstrate
-arrival, run:
-
-```powershell
-$checkIn = @{ method = 'token'; token = $appointment.check_in_token } | ConvertTo-Json
-Invoke-RestMethod "$backend/appointments/$($appointment.appointment_id)/check-in" -Method Post -ContentType 'application/json' -Body $checkIn
-```
-
-Repeat with a new appointment and check in before the deadline to show that no
-reminder is sent. This is a compressed demonstration of the real 15-minute rule.
-
-**Optional face-assisted demo:** use the existing Jetson face detector in room-01,
-then send `{"method":"face_assisted_demo","token":"<appointment token>","source":"<Jetson source ID>"}`
-to the same check-in endpoint. This requires `demo: true`, a valid appointment token,
-and fresh live `person_detected` / `face_present` observations from that camera.
-It confirms a token check-in while someone is visible, **not that the camera
-recognized the scheduled person**. Camera presence alone never checks anyone in.
-This method does no identity matching; opt-in recognition is separate (see
-[Optional patient recognition](#optional-patient-recognition)). The laptop posture/hand
-runner alone does not emit face detections. Manual check-in uses `{"method":"manual"}`.
-
-The hackathon API has no authentication; the demo token is not a security or identity
-guarantee, and appointment APIs expose it locally for demonstration. Use fictional
-resident labels for judging. Authentication and protected check-in delivery are
-needed before using real resident records.
+The server has an appointments API (`/appointments`, check-in, cancel, reschedule) that raises an `appointment_overdue` alert when arrival isn't confirmed 15 minutes after the scheduled time; see `/docs` and `backend/tests/test_appointments.py`. The dashboard doesn't offer appointments; if an overdue alert arrives, the alert list shows it like any other.
 
 The initial demo uses one camera and one person at a time. The backend now supports configured logical rooms for nurse subscription routing, without a building map or cross-camera identity tracking.
 
@@ -398,11 +332,10 @@ Jetson Nano 2GB                              |
                                         WebSocket
                                              |
                                     React dashboard (same server and port)
-                                      caregiver view: room feed, skeleton,
-                                      alerts, nurse session, scenario
-                                      controls, evaluation report
-                                      patient view: help, appointments,
-                                      opt-in recognition check-in
+                                      Monitor: room view, live people link,
+                                      person inspector, alerts, event log
+                                      Scenarios: scripted runs, evaluation
+                                      Recognition: opt-in enrollment
                                     Sim Studio (/studio/, developer tool)
 ```
 
@@ -568,7 +501,7 @@ Recorded runs (`python -m hearth.sim run`) play back at http://127.0.0.1:8000/st
 
 ## Optional patient recognition
 
-The dashboard's patient view includes opt-in patient enrollment using **YuNet and SFace from Hugging Face** (`/room#recognition`). The laptop camera can check in linked appointments and label possible-fall/help alerts with a confirmed patient name. See [setup, model details, and demo testing](docs/face-demo.md).
+The dashboard's **Recognition** tab (`/recognition`) offers staff-run, opt-in resident enrollment using **YuNet and SFace from Hugging Face**. With a second opt-in, possible-fall and camera help-signal alerts name the resident. See [setup, model details, and demo testing](docs/face-demo.md).
 
 For cross-branch integration, see [recognition placement, poseNet envelope, and dashboard handoff](docs/recognition-integration.md).
 
@@ -576,7 +509,7 @@ Frontend handoff: [copy-paste recognition integration prompt for the frontend AI
 
 ### Recognition with the dashboard
 
-Recognition stays disabled unless the server has `HEARTH_FACE_DEMO=1`, a persistent `HEARTH_FACE_KEY`, the `face-demo` extra and the downloaded models. `start.ps1` sets the first two from `.env.face-demo` when that file exists. Install with `.\.venv\Scripts\python.exe -m pip install -e "backend[face-demo]"`; download/check models with `.\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check`. Keep the encryption key private and stable; a new key cannot read existing enrollments. Enrollment and incident naming require separate opt-ins. Recognition accepts requests only from the page this computer's server served (loopback and same origin), so enroll on the laptop itself.
+Recognition is on by default. It needs the `face-demo` extra and the downloaded models, which `start.ps1` installs when they're missing; the server makes its encryption key in `data/face.key` on first start (git-ignored). Keep that file: a new key cannot read existing enrollments. `HEARTH_FACE_KEY` overrides it, and `HEARTH_FACE_DEMO=0` turns recognition off. When recognition can't run, the Recognition tab says why. Enrollment and alert naming are separate opt-ins. Recognition accepts requests only from the page this computer's server served (loopback and same origin), so enroll on the laptop itself.
 
 With recognition enabled, `.\scripts\start.ps1 -Camera 0` adds `--patient-recognition` to the webcam client; fall detection works the same without identity. Stop the enrollment camera in the browser before the webcam client needs the same camera. Physical camera accuracy must be tested separately from API integration.
 
