@@ -1,18 +1,23 @@
 # Start Hearth: the monitoring server, the dashboard and the Sim Studio, all on one port.
 #
-#   .\scripts\start.ps1                 # http://127.0.0.1:8000/  (dashboard; Sim Studio at /studio/)
-#   .\scripts\start.ps1 -Lan            # ...also reachable from the Jetson on this network
-#   .\scripts\start.ps1 -Camera 0       # ...plus this laptop's webcam as a live camera source
-#   .\scripts\start.ps1 -Replay         # ...plus recorded clips replayed as replay-01 (no Jetson needed)
+#   .\scripts\start.ps1                 # everything: server, dashboard, Sim Studio, and the Jetson camera
+#                                       #   (run_edge.py over ssh) -> http://127.0.0.1:8000/
+#   .\scripts\start.ps1 -NoJetson       # ...without the Jetson (simulation and replay still work)
+#   .\scripts\start.ps1 -Camera 0       # ...plus this laptop's webcam as another live camera
+#   .\scripts\start.ps1 -Replay         # ...plus recorded clips replayed as replay-01
 #   .\scripts\start.ps1 -Replay -People # ...the same clips as two people at once (one lies down)
 #   .\scripts\start.ps1 -Dev            # ...plus a Vite dev server with hot reload on :5173
 #
 # It installs the dashboard's packages and rebuilds it when its sources changed (-NoBuild skips
-# that), and installs face recognition's packages and models when they are missing. Recognition's
-# key is kept in data/face.key; .env.face-demo (from scripts/face_id_demo.sh) still applies if present.
-# Everything runs in this window; Ctrl+C stops all of it.
+# that), and installs face recognition's packages and models when they are missing. The Jetson is
+# the ssh host "jetson" (-Jetson to change); it reaches this laptop at 192.168.55.100 over USB
+# (-LaptopIp to change). Its face-ID token is read from the Jetson. Recognition's key is kept in
+# data/face.key. Everything runs in this window; Ctrl+C stops all of it, the Jetson's camera too.
 param(
     [int]$Port = 8000,
+    [switch]$NoJetson,
+    [string]$Jetson = 'jetson',
+    [string]$LaptopIp = '192.168.55.100',
     [switch]$Lan,
     [int]$Camera = -1,
     [switch]$Replay,
@@ -98,6 +103,42 @@ if ($LASTEXITCODE) {
     if ($LASTEXITCODE) { Write-Host 'Could not download the face recognition models; everything else will run.' -ForegroundColor Yellow }
 }
 Pop-Location
+
+# --- laptop webcam (optional): download its models once, so the camera client can start ------------
+$NoCamera = $Camera -lt 0
+if (-not $NoCamera) {
+    & $python -c 'import ultralytics, torch' 2>$null
+    if ($LASTEXITCODE) {
+        Write-Host "The webcam needs PyTorch and Ultralytics; starting without it. Install once with:" -ForegroundColor Yellow
+        Write-Host "  .\.venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu" -ForegroundColor Yellow
+        Write-Host "  .\.venv\Scripts\python.exe -m pip install -e './backend[vision]'" -ForegroundColor Yellow
+        $NoCamera = $true
+    } elseif (-not (Test-Path -LiteralPath (Join-Path $root 'models\human-fall-detection\best.pt')) -or
+              -not (Test-Path -LiteralPath (Join-Path $root 'models\hand-gesture\gesture.pt'))) {
+        Write-Host 'Downloading the webcam models...'
+        Push-Location $root
+        & $python edge/run_fall_model.py --download-only --hand-gestures
+        Pop-Location
+        if ($LASTEXITCODE) { Write-Host 'Could not download the webcam models; starting without the webcam.' -ForegroundColor Yellow; $NoCamera = $true }
+    }
+}
+
+# --- Jetson: reachable over ssh? (problems here only warn; everything else still runs) -------------
+$ssh = @('-o', 'ConnectTimeout=5', '-o', 'BatchMode=yes', $Jetson)
+$useJetson = $false
+$jetsonToken = $null
+if (-not $NoJetson) {
+    & ssh.exe @ssh true 2>$null
+    if ($LASTEXITCODE) {
+        Write-Host "Cannot reach the Jetson as '$Jetson' (USB cable in? powered on? try: ssh $Jetson). Starting without it." -ForegroundColor Yellow
+    } elseif (& ssh.exe @ssh 'pgrep -f ''^python3 -u run_edge.py'' >/dev/null && echo busy') {
+        Write-Host "run_edge.py is already running on the Jetson; leaving it alone (stop it with: ssh $Jetson pkill -INT -f run_edge.py)." -ForegroundColor Yellow
+    } else {
+        $useJetson = $true
+        # The Jetson's face-ID token, so the server accepts its face templates (never printed).
+        $jetsonToken = (& ssh.exe @ssh 'cat ~/.hearth-face-token 2>/dev/null') | Select-Object -First 1
+    }
+}
 $ErrorActionPreference = 'Stop'
 try {
     $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
@@ -132,6 +173,7 @@ if (Test-Path -LiteralPath $secrets) {
         if ($line -match '^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$') { Set-Env $Matches[1] $Matches[2] }
     }
 }
+if ($jetsonToken -and -not $env:HEARTH_EDGE_FACE_TOKEN) { Set-Env 'HEARTH_EDGE_FACE_TOKEN' $jetsonToken.Trim() }
 
 $children = New-Object System.Collections.ArrayList
 $failed = $false
@@ -145,7 +187,8 @@ function Start-Child([string]$file, [string[]]$arguments, [string]$dir = $root) 
 
 try {
     # --- server ------------------------------------------------------------------------------------
-    $bind = if ($Lan) { '0.0.0.0' } else { '127.0.0.1' }
+    # The Jetson posts over the USB network, so listen beyond this computer when it is used.
+    $bind = if ($Lan -or $useJetson) { '0.0.0.0' } else { '127.0.0.1' }
     Write-Host "Starting the Hearth server on ${bind}:$Port..."
     $server = Start-Child $python @('-m', 'uvicorn', 'hearth.api.app:app', '--app-dir', 'backend', '--host', $bind, '--port', "$Port")
     $healthy = $false
@@ -160,7 +203,38 @@ try {
 
     # --- optional producers: each may fail without stopping the rest ----------------------------------
     $producers = @{}
-    if ($Camera -ge 0) {
+    $jetsonStarted = $false
+    if ($useJetson) {
+        $ErrorActionPreference = 'Continue'
+        # Latest edge/ code onto the Jetson (tar over ssh, swapped in whole; CRLF stripped there).
+        $copy = "cd ~ && mkdir -p hearth-watch && cd hearth-watch && rm -rf edge.new && mkdir edge.new && tar -xf - -C edge.new --strip-components=1 && find edge.new \( -name '*.sh' -o -name '*.py' \) -exec sed -i 's/\r`$//' {} + && rm -rf edge && mv edge.new edge"
+        & cmd.exe /c "tar -C `"$root`" --exclude=__pycache__ --exclude=tests -cf - edge | ssh -o BatchMode=yes $Jetson `"$copy`""
+        if ($LASTEXITCODE) { Write-Host 'Could not copy edge/ to the Jetson; using the code already there.' -ForegroundColor Yellow }
+        # The backend drops observations more than 3 s old, so the clocks must agree.
+        $before = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000
+        $remote = (& ssh.exe @ssh 'date +%s.%N') | Select-Object -First 1
+        $after = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000
+        $offset = [double]$remote - ($before + $after) / 2
+        if ([Math]::Abs($offset) -gt 1) {
+            Write-Host ("The Jetson clock is {0:N1} s off this laptop's; its observations will be dropped as stale. Fix: edge/tools/sync_clock.sh" -f $offset) -ForegroundColor Yellow
+        }
+        $edgeUrl = "http://${LaptopIp}:$Port"
+        & ssh.exe @ssh "curl -s -m 3 $edgeUrl/health >/dev/null"
+        if ($LASTEXITCODE) {
+            Write-Host "The Jetson cannot reach this server at $edgeUrl (allow Python through Windows Firewall on private networks, or pass -LaptopIp)." -ForegroundColor Yellow
+        }
+        # Face ID when the Jetson has its token and engine and this server has the same token.
+        $faceId = ''
+        if ($env:HEARTH_EDGE_FACE_TOKEN -and (& ssh.exe @ssh 'test -f ~/.hearth-face-token -a -f ~/hearth-watch/models/face-id/sface_fp16.engine && echo yes')) {
+            $faceId = '--face-id --face-id-token-file ~/.hearth-face-token'
+        }
+        # -tt: Ctrl+C reaches run_edge.py so it closes the camera cleanly. Only our [edge] lines are shown.
+        $edgeCommand = "cd ~/hearth-watch/edge && python3 -u run_edge.py --backend $edgeUrl $faceId 2>&1 >/dev/null | (trap '' INT; grep --line-buffered -aE '\[edge')"
+        $producers['Jetson camera'] = Start-Child 'ssh.exe' @('-tt', '-o', 'BatchMode=yes', $Jetson, $edgeCommand)
+        $jetsonStarted = $true
+        $ErrorActionPreference = 'Stop'
+    }
+    if (-not $NoCamera) {
         $arguments = @('edge/run_fall_model.py', '--camera', "$Camera", '--backend', $url, '--hand-gestures', '--dashboard-preview')
         if ($face) { $arguments += '--patient-recognition' }
         $producers['webcam'] = Start-Child $python $arguments
@@ -184,13 +258,8 @@ try {
     Write-Host "  API reference   $url/docs"
     if ($Dev) { Write-Host '  Hot reload      http://127.0.0.1:5173/' }
     Write-Host ("  Recognition     " + $(if ($face) { 'on' } elseif ($recognition) { "off: $($recognition.message)" } else { 'status unavailable' }))
-    if ($Lan) {
-        $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-              Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress
-        Write-Host "  Jetson          python3 run_edge.py --backend http://${ip}:$Port   (allow port $Port in Windows Firewall)"
-    } else {
-        Write-Host '  Jetson          restart with -Lan so it can reach this computer'
-    }
+    Write-Host ("  Jetson camera   " + $(if ($jetsonStarted) { "running ($Jetson -> http://${LaptopIp}:$Port$(if ($faceId) { ', face ID on' }))" } elseif ($NoJetson) { 'off (-NoJetson)' } else { 'not started (see above)' }))
+    if (-not $NoCamera) { Write-Host "  Laptop webcam   camera $Camera" }
     Write-Host ''
 
     $warned = @{}
@@ -210,6 +279,8 @@ try {
     Write-Host "The server stopped (exit $($server.ExitCode))." -ForegroundColor Yellow
     $failed = $true
 } finally {
+    # Stop the Jetson program this script started (never someone else's run), freeing its camera.
+    if ($jetsonStarted) { & ssh.exe -o ConnectTimeout=5 -o BatchMode=yes $Jetson 'pkill -INT -f ''^python3 -u run_edge.py''' 2>&1 | Out-Null }
     foreach ($process in $children) {
         if (-not $process.HasExited) { & taskkill.exe /T /F /PID $process.Id 2>&1 | Out-Null }
     }

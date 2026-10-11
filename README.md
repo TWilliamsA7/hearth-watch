@@ -23,8 +23,8 @@ Open **http://127.0.0.1:8000/**. The first run installs the dashboard's npm pack
 
 | Option | Adds |
 | --- | --- |
-| `-Lan` | Listen on the network too, so the Jetson can post to `http://<laptop-ip>:8000` (allow the port in Windows Firewall) |
-| `-Camera 0` | This laptop's webcam as a live source, with its annotated feed in the dashboard (needs `./backend[vision]` and the models; see below) |
+| `-NoJetson` | Skip the Jetson (by default the script copies `edge/` to it over ssh and runs `run_edge.py` there, with face ID when its token is present) |
+| `-Camera 0` | Also this laptop's webcam as a second live camera |
 | `-Replay` | Recorded clips replayed as `replay-01`, no Jetson needed; `-Replay -People` plays two people at once |
 | `-Dev` | A Vite dev server with hot reload on http://127.0.0.1:5173/, forwarding to the server |
 | `-Port 8010` | Another port, if 8000 is taken |

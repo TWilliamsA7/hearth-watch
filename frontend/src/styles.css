@@ -79,6 +79,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .room-stage > svg { position:absolute; inset:0; width:100%; height:100%; }
 .live-simulation, .live-camera { position:absolute; inset:0; }
 .live-camera > img { width:100%; height:100%; object-fit:contain; display:block; }
+.live-camera > svg { position:absolute; inset:0; width:100%; height:100%; }
 .simulation-badge, .simulation-hint { position:absolute; left:10px; pointer-events:none; background:var(--card); color:var(--text); padding:5px 9px; border-radius:6px; font-size:12px; }
 .simulation-badge { top:10px; font-weight:700; }
 .simulation-hint { bottom:10px; max-width:calc(100% - 20px); }

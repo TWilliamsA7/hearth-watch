@@ -47,7 +47,7 @@ export default function MonitorView({ base, room, mode, setMode, feed, simulatio
       </div>
       <div className="room-stage">{simulating
         ? <LiveSimulationView simulation={simulation} alertPersonIds={alerts.flatMap(alert => alert.status !== 'resolved' && typeof alert.metadata.person_id === 'string' ? [alert.metadata.person_id] : [])} />
-        : mode === 'edge' ? <LiveCameraView base={base} room={room} source={activeSource?.replace(/^edge:/, '') || 'fall-model-01'} />
+        : mode === 'edge' ? <LiveCameraView base={base} room={room} source={activeSource?.replace(/^edge:/, '') ?? ''} skeleton={<RoomView observations={shown} />} hasPeople={people.length > 0} />
         : <>{!keys.length && <div className="simulation-message" role="status"><p>No recorded replay is playing. Start one with <code>scripts/start.ps1 -Replay</code>.</p></div>}<RoomView observations={shown} /></>}</div>
       {simulating && <div className="simulation-controls">
         <button disabled={idle} onClick={() => void simulation.command('toggle')}>{simulation.state === 'playing' ? 'Pause' : 'Play'}</button>
