@@ -42,12 +42,15 @@ HTTP_TIMEOUT_S = 2.0
 # About 10 s of observations are buffered while the backend is unreachable; older ones drop.
 QUEUE_MAX = 100
 
-# Video preview panel (overlay.py, only when streaming). The dashed line marks the height the
-# team backend requires the hips to be below to count as floor level
-# (backend/hearth/monitor/config.json floor_hip_y_min; the head needs floor_head_y_min, 0.40):
-# an aiming aid only. edge/tests/test_contract.py checks it against config.json.
-FLOOR_GUIDE_Y = 0.45
 BACKEND_POLL_S = 0.5   # how often the panel asks the backend for its posture/alert view
+
+# Optional Hugging Face fall model (fall_model.py, --fall-model): TensorRT engine from
+# edge/tools/get_fall_model.sh. Checked every FALL_INTERVAL_S on a background thread; the latest
+# result (up to FALL_MAX_AGE_S old) goes on EVERY observation, because the backend restarts its
+# floor timer whenever observations switch between model evidence and pose evidence.
+FALL_MODEL_SIZE = 416
+FALL_INTERVAL_S = 0.3
+FALL_MAX_AGE_S = 1.0
 
 # Rotated poseNet passes for people lying down (pose_rotate.RotationPolicy): only when the
 # upright pose looks lying or incomplete; standing costs nothing extra.

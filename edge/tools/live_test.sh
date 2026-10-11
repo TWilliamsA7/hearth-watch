@@ -13,7 +13,9 @@
 #   3. starts the stand-in backend (edge/tools/stub_backend.py) on the laptop, or with --real
 #      the team backend (uvicorn hearth.api.app:app); then open http://127.0.0.1:8000/nurses
 #   4. opens the video window (ffplay) unless --no-video
-#   5. runs run_edge.py on the Jetson, streaming the skeleton video to the window
+#   5. runs run_edge.py on the Jetson, streaming the skeleton video to the window. Our posture
+#      model is on by default and its posture_prediction is what the team backend's alerts use
+#      (edge/POSTURE_MODEL.md); "-- --no-posture-mlp" turns it off
 # Press Ctrl+C once to stop the Jetson side. The backend keeps running ~5 s so you can see
 # "jetson-01 -> source_offline" (silence is not safety), then everything is shut down.
 #
@@ -35,7 +37,7 @@ while [ $# -gt 0 ]; do
     --real) real=1 ;;
     --config) monitor_config="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift ;;
     --) shift; edge_args=("$@"); break ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)"; exit 2 ;;
   esac
   shift

@@ -1,5 +1,11 @@
 # Local standing / sitting / lying inference
 
+> **Note (2026-10-10):** the team backend's `config.json` now trusts our own posture model by
+> default (`fall_model_id` `hearth/posture-mlp`, `model_confidence_min` 0.5; see
+> [POSTURE_MODEL.md](POSTURE_MODEL.md)). To use this runner's Hugging Face predictions with the
+> backend, start the backend with a config whose `fall_model_id` is
+> `melihuzunoglu/human-fall-detection` and `model_confidence_min` 0.65, via `HEARTH_CONFIG`.
+
 `run_fall_model.py` runs [melihuzunoglu/human-fall-detection](https://huggingface.co/melihuzunoglu/human-fall-detection), a YOLO11 object detector with **Standing**, **Sitting**, and **Fallen** classes. Inference runs locally; only structured JSON goes to the existing Hearth API. It does not send or save frames. The checkpoint is pinned by revision and SHA-256 in `backend/hearth/perception/model.json`.
 
 ## Laptop setup (Python 3.11+)
