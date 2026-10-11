@@ -16,6 +16,7 @@ export interface HearthSimApi {
   LiveAppearance?: LiveAppearance;
   LiveConversation?: LiveConversation;
   LiveFrame?: LiveFrame;
+  LiveModelCall?: LiveModelCall;
   LivePerson?: LivePerson;
   LiveStatus?: LiveStatus;
   LiveWorld?: LiveWorld;
@@ -151,6 +152,24 @@ export interface LivePerson {
    * 'live': a real person from a live camera feed, not simulated.
    */
   kind: "simulated" | "live";
+  /**
+   * Live people: the camera's own posture model on them, latest frame.
+   */
+  model: LiveModelCall | null;
+}
+/**
+ * A live camera's own posture model on this person (e.g. the Jetson's hearth/posture-mlp).
+ *
+ * This interface was referenced by `HearthSimApi`'s JSON-Schema
+ * via the `definition` "LiveModelCall".
+ */
+export interface LiveModelCall {
+  model_id: string;
+  /**
+   * standing | sitting | fallen | unknown (the contract's PosturePrediction).
+   */
+  label: string;
+  confidence: number | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema

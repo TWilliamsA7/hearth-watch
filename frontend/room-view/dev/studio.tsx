@@ -75,6 +75,23 @@ interface LogLine {
   live: boolean;
 }
 
+interface ModelCall {
+  model_id: string;
+  label: string;
+  confidence: number | null;
+}
+
+/** One real person the linked camera tracks (person_id is their id in the room). */
+interface LivePersonStatus {
+  person_id: string;
+  track_id: string | null;
+  state: "live" | "stale" | "outside";
+  posture: string | null;
+  label: string | null;
+  model: ModelCall | null;
+  alert_open: boolean;
+}
+
 interface LinkStatus {
   enabled: boolean;
   source: string;
@@ -85,6 +102,7 @@ interface LinkStatus {
   label: string | null;
   alert_open: boolean;
   camera: { preset: string; height: number; tilt: number; fov: number; corner: string; pan: number } | null;
+  people: LivePersonStatus[];
 }
 
 interface CalibrateResult {
@@ -102,6 +120,19 @@ interface CalibrateResult {
 // Sources that send keypoints (the fall model sends none, so it can't be placed in the room).
 const LIVE_SOURCES = ["jetson-01", "replay-01"];
 
+/** A live person's id in the room: the camera's track id ("p2") is added when it reports several people. */
+const liveId = (source: string, trackId?: string | null) => (trackId ? `live-${source}-${trackId}` : `live-${source}`);
+
+/** "LIVE P2" for live-jetson-01-p2, "LIVE" for a one-person camera. */
+const liveName = (personId: string | null | undefined, source: string | undefined) => {
+  const track = personId && source && personId.startsWith(`live-${source}-`) ? personId.slice(`live-${source}-`.length) : "";
+  return track ? `LIVE ${track.toUpperCase()}` : "LIVE";
+};
+
+/** "sitting 93%": what the camera's own posture model says. */
+const modelText = (m: ModelCall | null | undefined) =>
+  m ? `${m.label}${m.confidence != null ? ` ${Math.round(m.confidence * 100)}%` : ""}` : "—";
+
 function useMonitorFeed(liveSource: string | null) {
   const feed = useMemo(() => websocketFeed(wsUrl(`/ws/room/${ROOM_ID}`)), []);
   const [log, setLog] = useState<LogLine[]>([]);
@@ -113,8 +144,8 @@ function useMonitorFeed(liveSource: string | null) {
         const e = msg.data;
         const live = e.source === liveSource;
         if (e.source !== "sim" && !live) return;
-        // The live camera tracks one unnamed person: they're the live avatar in the room.
-        const person = live ? `live-${e.source}` : e.person_id;
+        // Live people are in the room as live-<source>[-<track id>].
+        const person = live ? liveId(e.source, e.person_id) : e.person_id;
         eventsById.current.set(e.event_id, person);
         if (e.event_type === "face_present" || e.event_type === "face_absent" || e.event_type === "person_visible") return;
         setLog((l) => [{ key: e.event_id, at: e.timestamp, kind: e.event_type, person, text: "", live,
@@ -122,7 +153,8 @@ function useMonitorFeed(liveSource: string | null) {
       } else if (msg.type === "alert") {
         const a = msg.data;
         if (a.source !== "sim" && a.source !== liveSource) return;
-        const person = eventsById.current.get(a.event_id) ?? (a.source === liveSource ? `live-${a.source}` : null);
+        const track = typeof a.metadata?.person_id === "string" ? a.metadata.person_id : null;
+        const person = eventsById.current.get(a.event_id) ?? (a.source === liveSource ? liveId(a.source, track) : null);
         setAlerts((m) => ({ ...m, [a.alert_id]: { person, open: a.status !== "resolved" && !a.recovered_at } }));
       }
     });
@@ -306,7 +338,11 @@ function Studio() {
       <header className="topbar">
         <div className="brand">Hearth <span>Sim Studio</span></div>
         <span className="pill sim">SIMULATED</span>
-        {link?.enabled && <span className={`pill live ${link.state}`}>LIVE · {link.source} · {link.state.toUpperCase()}</span>}
+        {link?.enabled && (
+          <span className={`pill live ${link.state}`}>
+            LIVE · {link.source} · {link.state.toUpperCase()}{link.people.length > 1 ? ` · ${link.people.length} PEOPLE` : ""}
+          </span>
+        )}
         <span className={`pill ${state === "playing" ? "playing" : ""} ${client.connected ? "" : "off"}`}>
           {client.connected ? state.toUpperCase() : "DISCONNECTED"}
         </span>
@@ -418,7 +454,8 @@ function Studio() {
           )}
           {link?.enabled && (
             <p className="hint">
-              {link.state === "live" ? `In the room: ${link.label ?? link.posture}${link.alert_open ? " · ALERT OPEN" : ""}`
+              {link.state === "live" ? `In the room: ${link.people.filter((q) => q.state === "live").map((q) =>
+                  `${link.people.length > 1 ? `${liveName(q.person_id, link.source)} ` : ""}${q.label ?? q.posture}${q.alert_open ? " (ALERT OPEN)" : ""}`).join(" · ")}`
                 : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
                 : link.state === "outside" ? "Outside the tracked area: step back inside the tape"
                 : `No fresh frames from ${link.source}`}
@@ -475,8 +512,8 @@ function Studio() {
               return (
                 <div key={p.person_id} className={`person ${live ? "live" : ""} ${selected === p.person_id ? "sel" : ""}`} onClick={() => setSelected(selected === p.person_id ? null : p.person_id)}>
                   <span className="swatch" style={{ background: live ? LIVE_APPEARANCE.top : info?.appearance.top }} />
-                  <span className="pid">{live ? "LIVE" : p.person_id?.toUpperCase()}</span>
-                  <span className="doing">{p.incident ? `⚠ ${p.incident}` : p.activity}</span>
+                  <span className="pid">{live ? liveName(p.person_id, link?.source) : p.person_id?.toUpperCase()}</span>
+                  <span className="doing">{p.incident ? `⚠ ${p.incident}` : live && p.model ? `model: ${modelText(p.model)}` : p.activity}</span>
                   {!hideTruth && <span className={`tag ${p.label}`}>{p.label.replace("_intentional", "")}</span>}
                 </div>
               );
@@ -530,13 +567,15 @@ function Studio() {
           {me && me.kind === "live" && (
             <dl className="kv">
               <dt>Live person</dt>
-              <dd><b>{link?.source ?? me.person_id}</b> · a real camera, not simulated</dd>
+              <dd><b>{liveName(me.person_id, link?.source)}</b> · {link?.source ?? me.person_id}, a real camera, not simulated</dd>
               <dt>Monitor says</dt>
               <dd>{me.label} ({me.posture})</dd>
+              <dt>Camera's model</dt>
+              <dd>{modelText(me.model)}{me.model ? <span className="hint"> · {me.model.model_id}</span> : null}</dd>
               <dt>Feed</dt>
-              <dd>{link ? `${link.state}${link.last_seen ? ` · last frame ${new Date(link.last_seen).toLocaleTimeString()}` : ""}` : "…"}</dd>
+              <dd>{link ? `${link.people.find((q) => q.person_id === me.person_id)?.state ?? link.state}${link.last_seen ? ` · last frame ${new Date(link.last_seen).toLocaleTimeString()}` : ""}` : "…"}</dd>
               <dt>Alert</dt>
-              <dd>{link?.alert_open ? <span style={{ color: "var(--alert)" }}>possible fall open</span> : "—"}</dd>
+              <dd>{link?.people.find((q) => q.person_id === me.person_id)?.alert_open ? <span style={{ color: "var(--alert)" }}>possible fall open</span> : "—"}</dd>
               <dt>Helper</dt>
               <dd>{people.find((q) => q.intent === "help")?.person_id?.toUpperCase() ?? "—"}</dd>
             </dl>
@@ -620,6 +659,7 @@ function Studio() {
           <div className="cam-inner">
             {showReal && link?.enabled ? (
               <RoomView key={link.source} feed={feed} scene={null} roomId={ROOM_ID} source={link.source}
+                alertPersonIds={link.people.filter((q) => q.alert_open && q.track_id).map((q) => q.track_id!)}
                 alertActive={link.alert_open} style={{ height: "100%", width: "auto", maxWidth: "100%" }} />
             ) : (
               <RoomView feed={feed} scene={world?.scene ?? null} roomId={ROOM_ID} source="sim" alertPersonIds={alertPersonIds} alertActive={alertPersonIds.length > 0}
@@ -635,7 +675,7 @@ function Studio() {
               <li key={l.key} className={l.alert ? "alert" : ""}>
                 <span className="when">{new Date(l.at).toLocaleTimeString()}</span>
                 <span>{l.kind.replace(/_/g, " ")}</span>
-                <span>{l.live ? "LIVE" : l.person?.toUpperCase() ?? ""}</span>
+                <span>{l.live ? liveName(l.person, link?.source) : l.person?.toUpperCase() ?? ""}</span>
                 <span className="hint">{l.text}</span>
               </li>
             ))}
