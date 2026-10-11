@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from hearth.sim.generator import Stance
 from hearth.sim.nav import Floor, distance
-from hearth.sim.pose import KEY_POSES, BodyPose, blend_body, smoothstep, tucked
+from hearth.sim.pose import L_AXIS, KEY_POSES, REST, BodyPose, blend_body, hips_of, lean, smoothstep, tucked, two_bone
 
 from hearth.sim.live.actor import Actor, Posture
 from hearth.sim.live.animate import Blend, Play, apply, gait, heading_to, idle, stance, wrap
@@ -566,14 +566,47 @@ def mobility_pace(a: Actor) -> float:
     return 1.45 if a.profile.mobility == "slow" else 1.0
 
 
+def push_up_pose(seat: Slot, piece: Piece, size: float, *, reaching: bool = False) -> BodyPose:
+    """Sitting forward, weight over the feet, hands pushing down on the armrests (an armchair)
+    or on the knees (anything else): how someone frail starts to get out of a seat.
+    reaching: the hands on their way up and over onto the armrests."""
+    p = lean(seat.pose(size), L_AXIS, math.radians(22))
+    k = piece.kind
+    hips = hips_of(p)
+    for side, sign in (("left", 1.0), ("right", -1.0)):
+        if k.name == "armchair":  # on top of each arm, half way along it
+            reach = (k.w / 2 - k.arm / 2) / size
+            wrist = (hips[0] + 0.06, k.arm_h / size + (0.1 if reaching else 0.03), sign * (reach * 0.6 if reaching else reach))
+        else:  # on the knees
+            knee = p[f"{side}_knee"]
+            wrist = (knee[0] - 0.02, knee[1] + 0.05, sign * 0.09)
+        sh = f"{side}_shoulder"
+        el, wr = f"{side}_elbow", f"{side}_wrist"
+        # The elbow bends out and back, as when leaning on something.
+        p[el], p[wr] = two_bone(p[sh], wrist, (-0.4, 0.0, sign), REST[(sh, el)], REST[(el, wr)])
+    return p
+
+
+def _rise(a: Actor, w: World, seat: Slot | None, pace: float) -> list[Activity]:
+    """Stand up out of `seat` (pushing up first, for someone frail)."""
+    out: list[Activity] = []
+    if seat is not None and a.profile.mobility == "slow":
+        piece = w.room.pieces[seat.piece]
+        if piece.kind.name == "armchair":  # hands up and over onto the arms, not through them
+            out.append(Transition(push_up_pose(seat, piece, a.size, reaching=True), 0.5 * pace, name="pushing up",
+                                  label="sitting", posture="sitting", root=seat.at, heading=seat.heading, base=0.0))  # fmt: skip
+        out.append(Transition(push_up_pose(seat, piece, a.size), 0.7 * pace, name="pushing up", label="sitting",
+                              posture="sitting", root=seat.at, heading=seat.heading, base=0.0))  # fmt: skip
+    out.append(Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
+                          root=seat.stand_point(a.size) if seat else None, on_end=_releaser(a), lag=0.67))  # fmt: skip
+    return out
+
+
 def get_up(a: Actor, w: World) -> list[Activity]:
     """Whatever it takes to be standing on open floor again."""
     pace = mobility_pace(a)
     if a.posture == "sitting":
-        seat = _slot_of(a, w, "sit")
-        root = seat.stand_point(a.size) if seat else None
-        return [Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                           root=root, on_end=_releaser(a), lag=0.67)]  # fmt: skip
+        return _rise(a, w, _slot_of(a, w, "sit"), pace)
     if a.posture == "lying":
         lie = _slot_of(a, w, "lie")
         # Off the side they got on from (the seat they hold), else the lie slot's usual one.
@@ -594,9 +627,7 @@ def get_up(a: Actor, w: World) -> list[Activity]:
             out.append(Transition("sitting", 2.3 * pace, name="sitting up", label="sitting", posture="sitting", base=0.0))
         if entry is not None and entry.slot_id not in a.slots:
             a.slots.append(entry.slot_id)
-        out.append(Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                              root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a), lag=0.67))  # fmt: skip
-        return out
+        return out + _rise(a, w, entry, pace)
     if a.posture in ON_FLOOR:
         return [PlayMotion("get_up", name="getting up", label="standing", posture="standing", pace=pace)]
     if a.posture == "absent":

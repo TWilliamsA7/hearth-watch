@@ -37,6 +37,7 @@ from hearth.sim.world import WorldPose, body
 from hearth.sim.live.actor import Actor
 
 STILL_SPEED = 0.15  # m/s: below this the gait fades out, so standing still looks still
+SHUFFLE = 0.75  # stride of someone with slow mobility, against everyone else's: short, quick steps
 MAX_HEAD_YAW = math.radians(65)
 HEAD_TURN_RATE = 2.5  # rad/s
 
@@ -55,9 +56,10 @@ def gait(actor: Actor, speed: float, dt: float, *, stepping: float = 0.0, backwa
     """A standing body walking at `speed` m/s. The cycle advances with distance covered,
     so the planted foot keeps pace with the floor (and runs the other way when stepping
     backwards); `stepping` adds a little stepping on the spot (turning in place). `stride`
-    scales the step length: under 1, shorter quicker steps (a shuffle)."""
+    scales the step length: under 1, shorter quicker steps (a shuffle). Someone with slow
+    mobility always shuffles a little."""
     size = actor.size
-    stride = stride_length(speed, size) * stride
+    stride = stride_length(speed, size) * stride * (SHUFFLE if actor.profile.mobility == "slow" else 1.0)
     ahead = -1.0 if backwards else 1.0
     actor.gait_phase = (actor.gait_phase + 2.0 * math.pi * (ahead * speed * dt / stride + stepping * dt * 0.9)) % (2 * math.pi)
     fade = min(1.0, max(speed / STILL_SPEED, stepping * 1.5))

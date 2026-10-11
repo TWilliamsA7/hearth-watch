@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
 
 from hearth.sim.live.activities import PLANNERS, Hold, facing_tv, get_up, reserve
-from hearth.sim.live.animate import heading_to, idle, world_pose, wrap
+from hearth.sim.live.animate import gait, heading_to, idle, world_pose, wrap
 from hearth.sim.live.engine import World
 from hearth.sim.live.incidents import IncidentError
 from hearth.sim.live.spec import EngineSpec, IncidentSpec
@@ -102,3 +103,16 @@ def test_sitting_on_the_floor_is_sitting_not_a_fall() -> None:
     while a.posture != "standing":
         w.step()
     assert not [g for g in w.ground_truth() if g.truth_label == "fall"]
+
+
+def test_someone_frail_shuffles() -> None:
+
+    w = World(EngineSpec(actors=2), 0)
+    steady, frail = w.actors[0], w.actors[1]
+    frail.profile = dataclasses.replace(frail.profile, mobility="slow")
+    steady.profile = dataclasses.replace(steady.profile, mobility="normal", height=frail.profile.height)
+    for a in (steady, frail):
+        a.gait_phase = 0.0
+        for _ in range(5):  # a quarter of a metre at 1 m/s: less than one stride
+            gait(a, 1.0, 0.05)
+    assert frail.gait_phase == pytest.approx(steady.gait_phase / 0.75, rel=1e-6)  # more, shorter steps

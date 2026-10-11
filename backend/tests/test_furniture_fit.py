@@ -213,3 +213,19 @@ def test_nobody_goes_into_the_furniture_they_use_in_a_run(seed: int) -> None:
                     worst = dataclasses.replace(o, where=f"{a.person_id} {o.where} at t={w.t:.1f} "
                                                          f"({a.activity.name if a.activity else None})")
     assert worst.depth <= TOL, str(worst)
+
+
+@pytest.mark.parametrize("kind", ("chair", "armchair", "couch", "bed"))
+def test_someone_frail_pushes_up_out_of_a_seat_without_going_into_it(kind: str) -> None:
+    w, a = _stage(kind, 1.62)
+    a.profile = dataclasses.replace(a.profile, mobility="slow")
+    seat = next(s for s in w.room.slots if w.room.pieces[s.piece].kind.name == kind and s.kind == "sit")
+    piece = w.room.pieces[seat.piece]
+    a.pos = w.room.approach(seat, a.size)
+    reserve(a, w, seat)
+    _run(w, a, sit_plan(a, w, seat), [piece])
+    plan = get_up(a, w)
+    assert [x.name for x in plan][-2:] == ["pushing up", "standing up"]
+    o = _run(w, a, plan, [piece])
+    assert o.depth <= TOL, f"standing up: {o}"
+    assert a.posture == "standing"

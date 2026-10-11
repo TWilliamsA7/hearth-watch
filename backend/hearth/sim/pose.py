@@ -637,3 +637,9 @@ def long_sit(bend: float = 0.0) -> BodyPose:
             p = turn_limb(p, f"{side}_hip", L_AXIS, -math.radians(45.0 * bend))
             p = turn_limb(p, f"{side}_knee", L_AXIS, math.radians(90.0 * bend))
     return fit_bones(p)
+
+
+def two_bone(root: Vec, target: Vec, pole: Vec, upper: float, lower: float) -> tuple[Vec, Vec]:
+    """(middle joint, end) for a limb of two bones from root reaching for target, bending
+    towards pole: a knee or an elbow. As the knees in blend_body."""
+    return _knee(root, target, pole, upper, lower)
