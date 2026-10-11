@@ -497,3 +497,7 @@ The default factory uses the real monitor with a virtual receipt clock; no test 
 The real monitor can alert on intentional lying too: sustained floor posture is a **possible** fall, not proof of an accident. The evaluator reports those false positives rather than hiding them. Calibrated bed/chair polygons downgrade alerts but do not remove them; scenario room-meter geometry is not automatically converted into camera-frame suppression polygons.
 
 The React room-view development page on port 5174 currently plays **recorded** runs; the live pages are `/room` and `/nurses` on the backend. The simulator and evaluation APIs are connected, while a combined React scenario/evaluation control page remains dashboard work. Both frontend development ports 5173 and 5174 are allowed by the default backend CORS config. See [component interfaces](docs/interfaces.md) for the clocks, ingestion seam and routes.
+
+## Optional patient recognition
+
+The nurse dashboard includes opt-in demo patient enrollment using **YuNet and SFace from Hugging Face**. The laptop camera can check in linked appointments and label possible-fall/help alerts with a confirmed demo patient name. See [setup, model details, and demo testing](docs/face-demo.md).

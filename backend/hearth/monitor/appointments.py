@@ -94,8 +94,10 @@ class Appointments:
             self.monitor.record(event)
             self.monitor.publish(AlertMessage(data=alert))
 
-    def check_in(self, appointment_id, body):
+    def check_in(self, appointment_id, body, *, verified_demo_face=False):
         item = self.items[appointment_id]
+        if verified_demo_face and (not item.demo or body.method != "token"):
+            raise ValueError("Verified recognition requires a token-bound demo appointment")
         if item.status == "cancelled":
             raise ValueError("Appointment is cancelled")
         if body.method != "manual":
@@ -122,13 +124,14 @@ class Appointments:
                 raise ValueError("A fresh live face-presence observation is required; this does not verify identity")
         if item.status == "arrived":
             return item
+        method = "face_recognition_demo" if verified_demo_face else body.method
         updated = item.model_copy(update={"status": "arrived", "checked_in_at": self.monitor.utcnow(),
-                                          "check_in_method": body.method})
+                                          "check_in_method": method})
         self._save(updated)
         if item.alert_id:
             alert = self.monitor.alerts[item.alert_id]
             alert.recovered_at = updated.checked_in_at
-            alert.metadata["check_in_method"] = body.method
+            alert.metadata["check_in_method"] = method
             self._save(updated, alert)
             self.monitor.publish(AlertMessage(data=alert))
         return updated

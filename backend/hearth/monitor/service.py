@@ -200,7 +200,7 @@ class MonitorService:
                 if tracked[:5] == key and (not tracked_only or len(tracked) > 5):
                     detector.invalidate(tracked)
 
-    def ingest(self, batch: list[Observation]) -> dict[str, int]:
+    def ingest(self, batch: list[Observation], *, patient_labels=None) -> dict[str, int]:
         # Validate the complete batch before applying anything.
         for obs in batch:
             self.validate_room(obs.room_id)
@@ -240,6 +240,10 @@ class MonitorService:
             self.publish(ObservationMessage(data=obs))
             for event in events:
                 if event.event_type in {"possible_fall", "help_requested"}:
+                    # Only the local recognition route supplies these labels, bound
+                    # to this exact observation. Ordinary ingest cannot assert a name.
+                    if patient_labels and obs.obs_id in patient_labels:
+                        event.metadata.update(patient_labels[obs.obs_id])
                     self.open_alert(event)
                     continue
                 if event.event_type == "recovered":

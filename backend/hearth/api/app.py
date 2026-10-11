@@ -20,6 +20,7 @@ from hearth.monitor.appointments import Appointments, Appointment, AppointmentIn
 from hearth.sim.controller import SimController
 from hearth.sim.api import create_sim_router
 from hearth.eval.api import create_eval_router
+from hearth.api.face_demo import create_face_router
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
@@ -64,6 +65,11 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
     app.state.monitor = monitor
     app.state.appointments = appointments
+    app.include_router(create_face_router(appointments, monitor))
+
+    @app.get("/face-check-in", include_in_schema=False)
+    async def face_check_in_page():
+        return FileResponse(Path(__file__).with_name("static") / "face-check-in.html")
 
     def appointment_action(action):
         try:

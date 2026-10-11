@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hearth · Patient enrollment</title><link rel="stylesheet" href="/assets/style.css">
+<style>video{display:block;width:100%;max-height:420px;background:#19242d;object-fit:contain;margin:12px 0}select{width:100%;padding:9px;margin:8px 0 14px}button{margin:4px 4px 4px 0}.enrollment{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #ddd}#result{min-height:48px}label.consent{display:flex;gap:10px;align-items:flex-start;margin:16px 0}label.consent input{width:auto;margin-top:4px}</style></head>
+<body><header><a class="brand" href="/nurses">Hearth<span class="brand-note">Patient enrollment</span></a><nav><a href="/nurses">Care desk</a></nav></header>
+<main><div class="intro"><div><h1>Optional patient recognition</h1><p>Opt in once, then use camera recognition for demo appointment arrivals and named fall alerts.</p></div><span class="pill simulation">DEMO</span></div>
+<div id="notice" role="status" aria-live="polite">Checking setup…</div>
+<div class="layout"><aside class="panel"><h2>Enroll a patient</h2>
+<label for="alias">Demo patient name</label><input id="alias" maxlength="40" placeholder="e.g. Guest A">
+<label for="room">Check-in room</label><select id="room"></select>
+<label for="appointment">Optional demo appointment</label><select id="appointment"><option value="">Recognition only</option></select>
+<button id="create-appointment" class="secondary" disabled>Create a demo appointment</button>
+<p class="small">The demo appointment is due in 30 seconds, with a 15-second grace period. A confirmed match in this room checks it in.</p>
+<label class="consent"><input type="checkbox" id="consent"><span>I am the demo patient in front of the camera and opt in to face recognition for demo appointment check-in and showing my demo name on possible-fall and help alerts.</span></label>
+<p class="small">Camera frames go to this laptop's local backend for matching and are not saved. Enrollment templates and aliases are encrypted at rest and expire after 24 hours. Named alerts are visible to the demo nurse dashboard. Delete enrollment below to withdraw.</p>
+<button id="enroll" disabled>Capture 3 views and enroll</button>
+<p class="small">Look forward, then turn slightly left and right when prompted. Use an alias; recognition data is pseudonymous, not anonymous.</p>
+</aside><section class="workspace"><section class="panel"><h2>Enrollment camera</h2><p>After enrollment, stop this camera before running the fall-model script with <code>--patient-recognition</code>. That script uses one camera stream for posture and recognition.</p>
+<video id="camera" autoplay muted playsinline aria-label="Local camera preview"></video>
+<button id="open" disabled>Start camera</button><button id="recognize" disabled>Start recognition</button><button id="stop" class="secondary" disabled>Stop camera</button>
+<p id="result" role="status" aria-live="polite">Camera is off. Nothing is being captured.</p>
+<p class="small">This staged demo matches opted-in participants playing patients. Three consistent matches are required. This demo has no liveness or photo-spoof protection.</p>
+</section><section class="panel timeline-panel"><h2>Current enrollments</h2><div id="profiles">No enrollments loaded.</div></section></section></div>
+<footer>Hearth / Optional local demo · Enrollment can be deleted at any time</footer></main>
+<script type="module" src="/assets/face-check-in.js"></script></body></html>
