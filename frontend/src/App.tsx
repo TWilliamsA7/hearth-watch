@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import type { Event } from './generated/contract';
 import { exampleEvent, exampleObservation, type Preview } from './demoData';
 import { sourceKey, visibleObservations, type SourceMode } from './feedState';
-import { acknowledgeAlert, simCommand } from './api';
+import { acknowledgeAlert } from './api';
+import { useLiveSimulation } from './useLiveSimulation';
+import LiveSimulationView from './LiveSimulationView';
 import { useRoomFeed } from './useRoomFeed';
 import RoomView from './RoomView';
 import SimulatorPanel from './SimulatorPanel';
@@ -19,13 +21,14 @@ export default function App() {
   const [exampleEvents, setExampleEvents] = useState<Event[]>([]);
   const [acknowledged, setAcknowledged] = useState(false);
   const [address, setAddress] = useState('http://127.0.0.1:8000');
-  const [base, setBase] = useState<string | null>(null);
-  const [mode, setMode] = useState<SourceMode>('edge');
+  const [base, setBase] = useState<string | null>('http://127.0.0.1:8000');
+  const [mode, setMode] = useState<SourceMode>('simulation');
   const [selectedSource, setSelectedSource] = useState('');
   const [error, setError] = useState('');
   const [pending, setPending] = useState<string | null>(null);
   const [previewStarted, setPreviewStarted] = useState<number | null>(null);
   const feed = useRoomFeed(base, mode);
+  const simulation = useLiveSimulation(base && mode === 'simulation' ? base : null);
   const allObservations = base ? visibleObservations(feed.state, feed.now, feed.connected).filter(item => item.source_type === mode) : preview === 'offline' ? [] : [example];
   const keys = [...new Set([...Object.keys(feed.state.sources), ...Object.values(feed.state.observations).map(item => sourceKey(item.data))])].filter(key => key.startsWith(`${mode}:`));
   const activeSource = keys.includes(selectedSource) ? selectedSource : keys[0];
@@ -60,15 +63,11 @@ export default function App() {
   }
   async function runFall() {
     if (!base) { choosePreview('alert'); return; }
-    setError('');
-    try { await simCommand(base, 'load', 'possible-fall-01'); await simCommand(base, 'play'); }
-    catch (e) { setError((e as Error).message); }
+    await simulation.command('fall');
   }
   async function resetDemo() {
     if (!base) { choosePreview('standing'); return; }
-    setError('');
-    try { await simCommand(base, 'reset'); }
-    catch (e) { setError((e as Error).message); }
+    await simulation.command('reset');
   }
   const sourceLabel = base ? sourceLabels[mode] : 'UI preview';
   const roomStatus = offline ? 'Observation unknown' : incidentCount ? 'Possible fall / help alert' : base ? 'Observations available' : 'Preview · no incident';
@@ -79,7 +78,7 @@ export default function App() {
     <a className="skip-link" href="#main-content">Skip to dashboard</a>
     <header className="page-header">
       <a className="brand" href="#overview"><span><h1 aria-label="HearthWatch">HearthWatc<span className="wordmark-tail" aria-hidden="true">h<svg className="heart-flourish" viewBox="0 0 36 36" fill="none"><path d="M 1 27 C 6 31 10 29 14 25 C 19 21 29 16 29 10 C 29 4 22 3 18 9 C 14 3 7 4 7 10 C 7 16 14 20 18 23" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg></span></h1></span></a>
-      <div className="header-actions"><div className="view-toggle" role="group" aria-label="Dashboard view"><button aria-pressed={view === 'caregiver'} className={view === 'caregiver' ? 'selected' : ''} onClick={() => setView('caregiver')}>Caregiver</button><button aria-pressed={view === 'resident'} className={view === 'resident' ? 'selected' : ''} onClick={() => setView('resident')}>Patient</button></div><span className={`status ${offline ? 'unknown' : incidentCount ? 'warning' : ''}`}><span className="tiny-dot" />{roomStatus}</span>{view === 'caregiver' && <><button className="go" disabled={!!base && mode !== 'simulation'} onClick={runFall}>Simulate fall</button><button disabled={!!base && mode !== 'simulation'} onClick={resetDemo}>Reset</button></>}<details className="connection-panel"><summary aria-label="Connection settings" title="Connection settings"><Icon name="settings" /></summary><form className="connection" onSubmit={event => { event.preventDefault(); if (!base) connect(); }}><label>Monitoring server address<input value={address} onChange={e => setAddress(e.target.value)} disabled={!!base} /></label><button type={base ? 'button' : 'submit'} onClick={base ? () => { setBase(null); setError(''); } : undefined}>{base ? 'Return to preview' : 'Connect to monitoring'}</button><div className="source-settings">          <details className="observation-help"><summary>Observation details & privacy</summary><dl className="facts"><div><dt>Person</dt><dd>{person}</dd></div><div><dt>Face detection</dt><dd>{face}</dd></div><div><dt>Source health</dt><dd>{!base ? 'Preview only' : !feed.connected ? 'Disconnected' : status?.online === false ? 'Offline' : status?.online ? 'Online' : 'Unknown'}</dd></div><div><dt>Posture</dt><dd>{!base ? preview === 'offline' ? 'Unknown' : preview === 'alert' ? 'Floor-level example' : 'Standing example' : offline ? 'Unknown' : status && 'posture' in status ? status.posture : 'Not reported'}</dd></div></dl><p className="small">Coordinates describe the camera image, not a floor map. The preview furniture is decorative. No camera video is displayed here. Dashed joints have unknown confidence.</p></details>{base ? <div className="source-tabs" role="group" aria-label="Observation source type">{(['edge','simulation','replay'] as const).map(value => <button type="button" key={value} className={mode === value ? 'selected' : ''} aria-pressed={mode === value} onClick={() => { setMode(value); setSelectedSource(''); }}>{sourceLabels[value]}</button>)}</div> : <div className="source-tabs" role="group" aria-label="UI preview examples">{(['standing','alert','offline'] as const).map(value => <button type="button" key={value} className={preview === value ? 'selected' : ''} aria-pressed={preview === value} onClick={() => choosePreview(value)}>{value === 'standing' ? 'Standing example' : value === 'alert' ? 'Possible-fall example' : 'Offline example'}</button>)}</div>}</div><p className="small">Use the server address provided during setup.</p></form></details>      <details className="demo-tools"><summary aria-label="Scenario controls and evaluation" title="Scenario controls and evaluation"><Icon name="play" /></summary><div className="lower-layout"><SimulatorPanel base={base && mode === 'simulation' ? base : null} /></div></details></div>
+      <div className="header-actions"><div className="view-toggle" role="group" aria-label="Dashboard view"><button aria-pressed={view === 'caregiver'} className={view === 'caregiver' ? 'selected' : ''} onClick={() => setView('caregiver')}>Caregiver</button><button aria-pressed={view === 'resident'} className={view === 'resident' ? 'selected' : ''} onClick={() => setView('resident')}>Patient</button></div><span className={`status ${offline ? 'unknown' : incidentCount ? 'warning' : ''}`}><span className="tiny-dot" />{roomStatus}</span>{view === 'caregiver' && <><button className="go" disabled={!!base && (mode !== 'simulation' || !simulation.ready || simulation.busy)} onClick={runFall}>Simulate fall</button><button disabled={!!base && (mode !== 'simulation' || !simulation.ready || simulation.busy)} onClick={resetDemo}>Reset</button></>}<details className="connection-panel"><summary aria-label="Connection settings" title="Connection settings"><Icon name="settings" /></summary><form className="connection" onSubmit={event => { event.preventDefault(); if (!base) connect(); }}><label>Monitoring server address<input value={address} onChange={e => setAddress(e.target.value)} disabled={!!base} /></label><button type="button" onClick={base ? () => { setBase(null); setError(''); } : connect}>{base ? 'Return to preview' : 'Connect to monitoring'}</button><div className="source-settings">          <details className="observation-help"><summary>Observation details & privacy</summary><dl className="facts"><div><dt>Person</dt><dd>{person}</dd></div><div><dt>Face detection</dt><dd>{face}</dd></div><div><dt>Source health</dt><dd>{!base ? 'Preview only' : !feed.connected ? 'Disconnected' : status?.online === false ? 'Offline' : status?.online ? 'Online' : 'Unknown'}</dd></div><div><dt>Posture</dt><dd>{!base ? preview === 'offline' ? 'Unknown' : preview === 'alert' ? 'Floor-level example' : 'Standing example' : offline ? 'Unknown' : status && 'posture' in status ? status.posture : 'Not reported'}</dd></div></dl><p className="small">Coordinates describe the camera image, not a floor map. The preview furniture is decorative. No camera video is displayed here. Dashed joints have unknown confidence.</p></details>{base ? <div className="source-tabs" role="group" aria-label="Observation source type">{(['edge','simulation','replay'] as const).map(value => <button type="button" key={value} className={mode === value ? 'selected' : ''} aria-pressed={mode === value} onClick={() => { setMode(value); setSelectedSource(''); }}>{sourceLabels[value]}</button>)}</div> : <div className="source-tabs" role="group" aria-label="UI preview examples">{(['standing','alert','offline'] as const).map(value => <button type="button" key={value} className={preview === value ? 'selected' : ''} aria-pressed={preview === value} onClick={() => choosePreview(value)}>{value === 'standing' ? 'Standing example' : value === 'alert' ? 'Possible-fall example' : 'Offline example'}</button>)}</div>}</div><p className="small">Use the server address provided during setup.</p></form></details>      <details className="demo-tools"><summary aria-label="Scenario controls and evaluation" title="Scenario controls and evaluation"><Icon name="play" /></summary><div className="lower-layout"><SimulatorPanel base={base && mode === 'simulation' ? base : null} /></div></details></div>
     </header>
 
     {(error || feed.error) && <p role="alert" className="error">{error || feed.error}</p>}
@@ -87,9 +86,12 @@ export default function App() {
     <div className="resident-mount" hidden={view !== 'resident'}><ResidentPanel key={base ?? 'preview'} base={base} connected={feed.connected} alerts={feed.state.alerts} /></div>
     {view === 'caregiver' && <>
       <div className="monitor-grid">
-        <section className="card main-feed"><div className="section-heading"><h2>Main feed · {sourceLabel}</h2><span className="feed-mode">{base ? feed.connected ? 'Connected' : 'Disconnected' : 'Example data'}</span></div>
+        <section className="card main-feed"><div className="section-heading"><h2>Main feed · {sourceLabel}</h2><span className="feed-mode">{base ? (mode === 'simulation' ? simulation.client?.connected : feed.connected) ? 'Connected' : 'Disconnected' : 'Example data'}</span></div>
           {base && keys.length > 1 && <label>Observation source<select value={activeSource} onChange={e => setSelectedSource(e.target.value)}>{keys.map(key => <option key={key}>{key}</option>)}</select></label>}
-          <div className="room-stage"><RoomView observations={observations} illustrated={!base} /></div>
+          <div className="room-stage">{base && mode === 'simulation'
+            ? <LiveSimulationView simulation={simulation} alertPersonIds={alerts.flatMap(alert => 'person_id' in alert && typeof alert.person_id === 'string' ? [alert.person_id] : [])} />
+            : <RoomView observations={observations} illustrated={!base} />}</div>
+          {base && mode === 'simulation' && <div className="simulation-controls"><button disabled={!simulation.ready || simulation.busy} onClick={() => simulation.command('toggle')}>{simulation.state === 'playing' ? 'Pause' : 'Play'}</button><span className="small">Simulated world view · monitoring panels show camera observations</span></div>}
 
 
         </section>

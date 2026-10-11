@@ -1,7 +1,7 @@
 # Hearth dashboard
 
-React + TypeScript dashboard for Room 01. Starts in a clearly labeled UI preview.
-Use **Connect to backend** to receive real monitoring messages. Choose **Live
+React + TypeScript dashboard for Room 01. Starts in Simulation mode connected to http://127.0.0.1:8000, using the existing live 3D room from `room-view`.
+Use Connection settings to choose a different server or return to the static UI preview. Choose **Live
 camera**, **Simulation**, or **Recorded replay** to keep source types separate.
 
 ## Start
@@ -95,43 +95,19 @@ and `pyyaml` in a Python environment, then run
 into temporary directories and regenerates synthetic API fixtures. It does not
 test physical camera inference or merge branches.
 
-## Demo backend in this checkout
+## Live 3D simulation
 
-The normal backend app still lacks simulator routes. The separate demo entry point
-connects the team's existing services without editing their owned folders.
-
-For this laptop, open a terminal in the repository root and run:
-
-```powershell
-$env:PYTHONPATH="$PWD\frontend\.compat-python"
-& "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" frontend/scripts/demo_backend.py
-```
-
-This uses the existing local Python dependencies (plus the installed server
-packages). For a teammate with a configured Python environment instead:
+Start the standard monitoring backend from the repository root in a configured Python environment:
 
 ```powershell
 python -m pip install -e shared/python -e backend
-python frontend/scripts/demo_backend.py
+python -m uvicorn hearth.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-In a second terminal, run the frontend:
+In another terminal, run `npm.cmd install` then `npm.cmd run dev -- --strictPort` from `frontend`. Open http://127.0.0.1:5173. The dashboard automatically connects to the live simulation. When no room exists, it generates six residents in a furnished room and starts playback. An existing run is reused without changing its paused/playing state.
 
-```powershell
-cd frontend
-$env:PATH="C:\Program Files\nodejs;" + $env:PATH
-npm.cmd run dev -- --strictPort
-```
+Click a resident to select them, drag to orbit, and scroll to zoom. **Simulate fall** triggers a fall for the selected resident, or lets the engine choose; recovery occurs after 30 seconds on the floor. **Reset** resets the same room and resumes playback. **Play/Pause** controls the live engine.
 
-Node 22 is installed here but was missing from this session's PATH; the line above
-makes it available in that terminal. Dependencies already exist, so another install
-is unnecessary unless packages change. Open http://127.0.0.1:5173, use **Connection
-settings → Connect to monitoring**, then select **Simulation**. Choose **Fall while
-walking, stays on the floor**, **Load**, and **Play**. The report appears at the end.
-Use **Patient → SOS**, then **Caregiver** to review and acknowledge it.
-These actions create local demo records, not messages to an outside care service.
+The main feed shows simulated world positions. The skeleton, measurements, events, and incident alerts still come from the monitoring feed and may differ from ground truth. Live camera and Recorded replay retain their observation views. Scripted scenario controls remain separate: playing a scripted scenario pauses the live room, and its Play button resumes it.
 
-Keep both terminals open. Ctrl+C stops each server. Data and completed reports
-are held in memory; restarting the backend clears them. Port conflicts usually
-mean an earlier server is still running. See COMPATIBILITY.md for verified behavior
-and the remaining team-owned integration work.
+The backend must remain running. If it is unavailable, the main feed shows a disconnected state and reconnects automatically. Use **Retry connection** after a request failure. WebGL 2 and browser hardware acceleration are required for the 3D view. The mannequin asset and its license are bundled locally in `room-view/assets/models`.

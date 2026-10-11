@@ -62,6 +62,12 @@ h1 { font-family:Georgia,"Times New Roman",serif; font-size:26px; margin:0; lett
 .main-feed { overflow:hidden; }
 .room-stage { flex:1; min-height:0; border-radius:10px; background:var(--room); position:relative; overflow:hidden; }
 .room-stage > svg { position:absolute; inset:0; width:100%; height:100%; }
+.live-simulation { position:absolute; inset:0; }
+.simulation-badge,.simulation-hint { position:absolute; left:10px; pointer-events:none; background:var(--card); color:var(--text); padding:5px 9px; border-radius:6px; font-size:12px; }
+.simulation-badge { top:10px; font-weight:700; }
+.simulation-hint { bottom:10px; max-width:calc(100% - 20px); }
+.simulation-message { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:36px 20px; text-align:center; background:var(--room); }
+.simulation-controls { display:flex; align-items:center; gap:10px; padding-top:8px; flex-wrap:wrap; }
 .monitor-side { display:flex; flex-direction:column; gap:10px; min-height:0; }
 .skeleton-card { flex:1; }
 .skeleton-card > svg { width:100%; height:0; min-height:0; flex:1; display:block; border-radius:10px; background:var(--room); }

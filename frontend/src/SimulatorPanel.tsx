@@ -51,14 +51,14 @@ export default function SimulatorPanel({ base }: { base: string | null }) {
   const delays = report && 'detection_delays' in report ? report.detection_delays : [];
   const delay = report && 'delay_median' in report ? report.delay_median : delays.length ? delays.reduce((a,b) => a+b,0) / delays.length : null;
   return <>
-    <section className="card scenario-card" id="simulation"><div className="section-heading"><div><p className="eyebrow">Simulation</p><h2>Scenario controls</h2></div><span className="status neutral">Simulated data</span></div>
+    <section className="card scenario-card" id="simulation"><div className="section-heading"><div><p className="eyebrow">Simulation</p><h2>Scripted scenario controls</h2></div><span className="status neutral">Scripted simulation</span></div>
       {!base ? <div className="empty-state compact"><span className="empty-icon"><Icon name="play" /></span><h3>Choose a scenario to practice</h3><p>Connect in Connection settings, then choose Simulation to run a scenario.</p></div> : <>
         <label>Scenario<select value={selected} onChange={e => setSelected(e.target.value)} disabled={busy || !catalog.length}>{catalog.map(item => <option key={item.scenario_id} value={item.scenario_id}>{item.title}</option>)}</select></label>
         <p>{catalog.find(item => item.scenario_id === selected)?.description}</p>
         <div className="buttons"><button disabled={busy || !selected} onClick={() => command('load')}>Load</button><button disabled={busy || !loaded || status?.state === 'playing'} onClick={() => command('play')}>Play</button><button disabled={busy || status?.state !== 'playing'} onClick={() => command('pause')}>Pause</button><button disabled={busy || !loaded} onClick={() => command('reset')}>Reset</button><button disabled={busy || !loaded} onClick={() => command('replay')}>Run again</button></div>
         <p aria-live="polite">{status ? `${status.state} · ${status.t.toFixed(1)} / ${status.duration?.toFixed(1) ?? '—'} seconds` : 'Simulator unavailable'}</p>
         {status?.duration != null && <progress className="scenario-progress" value={status.t} max={status.duration || 1} aria-label="Scenario progress" />}
-        <p className="small">Run again resets the same seeded simulation. It is not a recorded-camera replay.</p>
+        <p className="small">Playing a scripted scenario pauses the live 3D room. Its Play button resumes the live room. Run again resets the same seeded simulation. It is not a recorded-camera replay.</p>
         {error && <p role="alert" className="error">{error}</p>}
       </>}
     </section>
