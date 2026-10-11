@@ -63,6 +63,11 @@ TRACK_KEEP_S = 1.0
 TRACK_MAX_DIST = 0.25
 TRACK_DROPOUT_S = 0.3
 
+# Report everyone in view (hearth_edge/people.py): one observation per person per sent frame,
+# each with an anonymous person_id ("p1", ...). False (or --single-person): only the followed
+# person, with no person_id, as before.
+MULTI_PERSON = True
+
 # Bridge brief keypoint dropouts (features.KeypointHold): a joint missing for up to this long
 # is filled in from its last position, moved with the body, for the posture numbers only.
 # Observations still carry only the keypoints poseNet actually reported. 0 = off.

@@ -157,3 +157,32 @@ def test_backend_alerts_and_recovers_on_our_model(model_file):
                                          posture_prediction=pred)
         events += [e.event_type for e in det.process(hs.Observation.model_validate(obs))]
     assert events.count("possible_fall") == 1 and events.count("recovered") == 1
+
+
+def test_person_prediction_is_what_backend_prediction_sends_for_one_person(model_file):
+    m = pm.PostureMLP(model_file)
+    up = {"label": "upright", "confidence": 0.9, "probabilities": {}}
+    pose = _pose(STANDING)
+    assert m.person_prediction(pose, up, 640, 480) == m.backend_prediction([(pose, True, up)], 640, 480)
+
+
+def test_backend_watches_each_person_separately(model_file):
+    """Two people from one camera, each with their own person_id and our model's call: only the
+    one on the floor raises possible_fall, and that event carries their person_id."""
+    detector = pytest.importorskip("hearth.monitor.detector")
+    hs = pytest.importorskip("hearth_schema")
+    from hearth.monitor.config import MonitorConfig
+    from hearth_edge import contract
+    det = detector.FallDetector(MonitorConfig.load())
+    m = pm.PostureMLP(model_file)
+    ids, events, t0 = contract.ObservationIds("jetson-01", start=1791700000), [], 1791700000.0
+    up = {"label": "upright", "confidence": 0.9, "probabilities": {}}
+    down = {"label": "floor", "confidence": 0.9, "probabilities": {}}
+    for i in range(40):                                    # 10 Hz for 4 s
+        t = t0 + i * 0.1
+        for person_id, pose, result in (("p1", _pose(STANDING), up), ("p2", _pose(lying()), down)):
+            obs = contract.build_observation(ids.next(), t, "jetson-01", "room-01", person_detected=True,
+                                             posture_prediction=m.person_prediction(pose, result, 640, 480),
+                                             person_id=person_id)
+            events += [(e.event_type, e.person_id) for e in det.process(hs.Observation.model_validate(obs))]
+    assert [e for e in events if e[0] == "possible_fall"] == [("possible_fall", "p2")]

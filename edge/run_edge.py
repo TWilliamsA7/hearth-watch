@@ -16,6 +16,9 @@ other observation carries face_present = null ("did not run"). --no-face turns i
 Our posture model (hearth_edge/posture_mlp.py, on by default; --no-posture-mlp turns it off)
 judges everyone in view each frame; its posture_prediction goes on every observation and is
 what the team backend's alerts use (see edge/POSTURE_MODEL.md).
+Everyone in view is followed (hearth_edge/people.py) and gets their own observations, each with
+an anonymous person_id ("p1", "p2", ...) and that person's own posture_prediction, so the backend
+watches each person separately. --single-person sends only the followed person, as before.
 """
 
 import argparse
@@ -83,6 +86,10 @@ def parse_args(argv=None):
                          "(sent keypoints are never filled in); 0 = off (default %(default)s)")
     ap.add_argument("--camera-fps", type=int, default=config.CAMERA_FPS,
                     help="frames per second requested from the camera (default %(default)s)")
+    ap.add_argument("--single-person", dest="multi_person", action="store_false",
+                    default=config.MULTI_PERSON,
+                    help="send only the followed person (no person_id), instead of one observation "
+                         "per person in view")
     return ap.parse_args(argv)
 
 
@@ -167,6 +174,37 @@ def observation_for_frame(ids, frame, pose, feats, source, room_id, face_present
                                       person_detected=True, keypoints=keypoints, features=feats,
                                       face_present=face_present, face_confidence=face_confidence,
                                       posture_prediction=posture_prediction)
+
+
+def observations_for_people(ids, frame, people, ended, source, room_id, face_present=None,
+                            face_confidence=None, briefly_missing=False,
+                            confidence=config.KEYPOINT_CONFIDENCE):
+    """Observations for one sent frame when everyone in view is reported separately.
+
+    people: [(person_id, pose, feats, posture_prediction or None, is_tracked)]. Each gets its own
+    observation with its person_id; the face check (aimed at the followed person) goes on the
+    followed person's only. ended: person_ids that just left view; each gets one "not detected"
+    observation so the backend knows they're gone. With nobody in view, one observation without
+    a person_id says so (it keeps the camera's health fresh) - unless someone is only briefly
+    missing, when that is skipped, as for a single followed person.
+    """
+    out = []
+    for person_id, pose, feats, prediction, is_tracked in people:
+        keypoints = contract.normalize_keypoints(pose["keypoints"], frame["width"], frame["height"],
+                                                 confidence)
+        out.append(contract.build_observation(
+            ids.next(), frame["t"], source, room_id, person_detected=True, keypoints=keypoints,
+            features=feats, face_present=face_present if is_tracked else None,
+            face_confidence=face_confidence if is_tracked else None,
+            posture_prediction=prediction, person_id=person_id))
+    for person_id in ended:
+        out.append(contract.build_observation(ids.next(), frame["t"], source, room_id,
+                                              person_detected=False, person_id=person_id))
+    if not people and not briefly_missing:
+        out.append(contract.build_observation(ids.next(), frame["t"], source, room_id,
+                                              person_detected=False, face_present=face_present,
+                                              face_confidence=face_confidence))
+    return out
 
 
 def others_in_view(tracked, poses, max_dist):
@@ -285,6 +323,15 @@ def main(argv=None):
     mlp_people = []         # its call on every person in view, left to right
     mlp_backend = None      # its PosturePrediction for the backend (every observation)
     others_rot = pose_rotate.OthersRotation()   # rotated poses for people other than the tracked one
+    crowd = None            # PeopleTracker: everyone in view, each with their own person_id
+    crowd_now = []          # (person_id, pose, feats, posture_prediction, is_tracked) this frame
+    if args.multi_person:
+        from hearth_edge.people import PeopleTracker
+        crowd = PeopleTracker(config.TRACK_MAX_DIST * args.width, config.TRACK_KEEP_S,
+                              alpha=config.HIP_EMA_ALPHA, reset_gap_s=config.VELOCITY_RESET_GAP_S,
+                              hold_s=args.keypoint_hold)
+        log("everyone in view: one observation per person, each with its own person_id "
+            "(--single-person to send only the followed person)")
     last_plain = None       # (plain-pass poses, time): reused on frames where that pass is skipped
     if args.posture_mlp:
         from hearth_edge.posture_mlp import PostureMLP
@@ -439,10 +486,11 @@ def main(argv=None):
                                                   frame["width"], frame["height"],
                                                   velocity, frame["t"])
 
-            if mlp is not None:
-                # Our own model on EVERY person in view (0.6 ms each), on poseNet's raw keypoints
-                # like the field test, so someone on the floor is seen even while the edge tracks
-                # someone else. Panel only; the tracked person still drives the observations.
+            people = []
+            if mlp is not None or crowd is not None:
+                # Everyone in view, for our own model (0.6 ms each, on poseNet's raw keypoints like
+                # the field test, so someone on the floor is seen even while the edge tracks
+                # someone else) and for per-person observations.
                 # Someone else lying down gets rotated poses too (OthersRotation): reused from the
                 # tracked person's passes, plus one extra pass at most every 0.5-1 s.
                 if frame.get("pose_skipped") and last_plain and frame["t"] - last_plain[1] <= 0.5:
@@ -460,6 +508,7 @@ def main(argv=None):
                 others_rot.remember(rotated_seen, frame["t"])
                 others = others_rot.merge(pose, others, frame["t"])
                 people = order_people(pose, others)
+            if mlp is not None:
                 mlp_people = [mlp.predict(p["keypoints"], frame["width"], frame["height"])
                               for p, _ in people]
                 mlp_backend = mlp.backend_prediction(
@@ -470,9 +519,23 @@ def main(argv=None):
                     mlp_counts[key] = mlp_counts.get(key, 0) + 1
                 if any(r is not None and r["label"] == "floor" for r in mlp_people):
                     mlp_counts["SOMEONE ON FLOOR (frames)"] = mlp_counts.get("SOMEONE ON FLOOR (frames)", 0) + 1
+            if crowd is not None:
+                # Each person's posture numbers come from their own history (velocity, held joints).
+                crowd_now = []
+                calls = mlp_people if mlp is not None else [None] * len(people)
+                for (person, p), (_, is_tracked), r in zip(
+                        crowd.assign([p for p, _ in people], frame["t"]), people, calls):
+                    merged, _ = person.hold.update(p["keypoints"], frame["t"])
+                    f = features.compute_features({"keypoints": merged, "bbox": p["bbox"]},
+                                                  frame["width"], frame["height"],
+                                                  person.velocity, frame["t"])
+                    prediction = (mlp.person_prediction(p, r, frame["width"], frame["height"])
+                                  if mlp is not None else None)
+                    crowd_now.append((person.person_id, p, f, prediction, is_tracked))
 
             # A brief dropout of the followed person is not sent as "no person" (see PersonTrack).
-            emit = limiter.ready(frame["t"]) and not dropout
+            # With everyone reported, each person's own brief dropouts are skipped instead.
+            emit = limiter.ready(frame["t"]) and (crowd is not None or not dropout)
             face_present = face_confidence = None
             inference_ms = frame["inference_ms"] + rotation_ms
             if face is not None:
@@ -554,23 +617,32 @@ def main(argv=None):
             cam.render(frame)
 
             if emit:
-                obs = observation_for_frame(ids, frame, pose, feats, args.source, args.room,
-                                            face_present, face_confidence,
-                                            posture_prediction=mlp_backend if mlp is not None
-                                            else fall_now)
-                emitted += 1
-                if rec["timer"] is not None and rec["timer"].recording(frame["t"]):
-                    rec["recorder"].write(obs)
-                if args.dry_run:
-                    json_out.write(json.dumps(obs) + "\n")
-                    json_out.flush()
+                if crowd is not None:
+                    batch = observations_for_people(
+                        ids, frame, crowd_now, [p.person_id for p in crowd.ended(frame["t"])],
+                        args.source, args.room, face_present, face_confidence,
+                        briefly_missing=bool(crowd.missing(frame["t"])))
                 else:
-                    client.submit(obs)
+                    batch = [observation_for_frame(ids, frame, pose, feats, args.source, args.room,
+                                                   face_present, face_confidence,
+                                                   posture_prediction=mlp_backend if mlp is not None
+                                                   else fall_now)]
+                emitted += 1
+                for obs in batch:
+                    if rec["timer"] is not None and rec["timer"].recording(frame["t"]):
+                        rec["recorder"].write(obs)
+                    if args.dry_run:
+                        json_out.write(json.dumps(obs) + "\n")
+                        json_out.flush()
+                    else:
+                        client.submit(obs)
 
             if frame["t"] - last_status >= args.status_every:
                 snap = stats.snapshot() or {}
                 line = "fps %.1f | person in %d%% of frames | observations %d" % (
                     snap.get("fps") or 0.0, 100 * with_person // max(frames, 1), emitted)
+                if crowd is not None:
+                    line += " | people in view %d" % len(crowd_now)
                 if face is None:
                     line += " | face off"
                 else:
