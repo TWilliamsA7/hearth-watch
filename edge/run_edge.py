@@ -19,6 +19,10 @@ what the team backend's alerts use (see edge/POSTURE_MODEL.md).
 Everyone in view is followed (hearth_edge/people.py) and gets their own observations, each with
 an anonymous person_id ("p1", "p2", ...) and that person's own posture_prediction, so the backend
 watches each person separately. --single-person sends only the followed person, as before.
+--face-id (off by default, needs everyone-in-view and res10) also names opted-in people on the
+laptop: the face check takes each person's head box in turn, and only when it finds a face there
+does SFace run and that person's face template (never the frame) go to the laptop
+(hearth_edge/face_id.py).
 """
 
 import argparse
@@ -90,6 +94,17 @@ def parse_args(argv=None):
                     default=config.MULTI_PERSON,
                     help="send only the followed person (no person_id), instead of one observation "
                          "per person in view")
+    ap.add_argument("--face-id", action="store_true",
+                    help="send opted-in face templates (never frames) so the laptop can name people "
+                         "on their alerts; needs res10 face checks, everyone in view, and "
+                         "edge/tools/get_face_id_model.sh run once")
+    ap.add_argument("--face-id-engine", default=None,
+                    help="SFace TensorRT engine (default models/face-id/sface_fp16.engine)")
+    ap.add_argument("--face-id-token-file", default=None,
+                    help="file holding the laptop's HEARTH_EDGE_FACE_TOKEN (default: that "
+                         "environment variable)")
+    ap.add_argument("--face-id-min-eye", type=float, default=config.FACE_ID_MIN_EYE_PX,
+                    help="smallest eye distance in pixels to make a template (default %(default)s)")
     return ap.parse_args(argv)
 
 
@@ -207,6 +222,23 @@ def observations_for_people(ids, frame, people, ended, source, room_id, face_pre
     return out
 
 
+def face_id_job(people, turns, frame, head_box):
+    """The next face check with templates: one person's head box, keypoints and id, taking
+    people in turn. people: crowd_now entries. With no head in view, the whole frame is checked
+    (face presence only, no template)."""
+    heads = []
+    kps = {}
+    for person_id, pose, _feats, _prediction, _tracked in people:
+        box = head_box(pose["keypoints"], frame["width"], frame["height"])
+        if box is not None:
+            heads.append((person_id, box))
+            kps[person_id] = pose["keypoints"]
+    choice = turns.pick(heads, frame["t"])
+    if choice is None:
+        return {"head": None, "kps": {}, "person_id": None, "t": frame["t"]}
+    return {"head": choice[1], "kps": kps[choice[0]], "person_id": choice[0], "t": frame["t"]}
+
+
 def others_in_view(tracked, poses, max_dist):
     """Plain-pass poses of everyone except the tracked person.
 
@@ -260,6 +292,44 @@ def reserve_stdout_for_json():
     return json_out
 
 
+def start_face_id(args, face, log):
+    """(FaceIdCheck, FaceTurns, TemplateSender or None) for --face-id, or (None, None, None) with
+    the reason logged: monitoring carries on without names whatever goes wrong here."""
+    from hearth_edge import face_id as fid
+    if face is None or face.model != "res10":
+        log("FACE ID OFF: it needs res10 face checks (drop --no-face, FACE_MODEL = res10)")
+    elif not args.multi_person:
+        log("FACE ID OFF: it names each person in view, so it needs everyone in view "
+            "(drop --single-person)")
+    else:
+        token = None
+        try:
+            if not args.dry_run:
+                token = fid.read_token(args.face_id_token_file)
+                if token is None:
+                    raise ValueError("no token: set HEARTH_EDGE_FACE_TOKEN or --face-id-token-file "
+                                     "to the laptop's value")
+            engine = fid.SFaceEngine(args.face_id_engine)
+        except Exception as e:
+            log("FACE ID UNAVAILABLE (%s): alerts stay unnamed" % e)
+            return None, None, None
+        if args.dry_run:
+            sender = None
+            def send(template):
+                log("face template for %s (dry run: not sent)" % template["person_id"])
+        else:
+            sender = fid.TemplateSender(args.backend, token)
+            sender.start()
+            send = sender.offer
+        check = fid.FaceIdCheck(face.detect_bgr, engine, send, args.source, args.room,
+                                args.face_id_min_eye)
+        log("face id on: %s, a template only when a face is in someone's head box; templates "
+            "(never frames) go to %s" % (engine.engine_path, "nowhere (dry run)" if args.dry_run
+                                         else sender.url))
+        return check, fid.FaceTurns(), sender
+    return None, None, None
+
+
 def main(argv=None):
     args = parse_args(argv)
     json_out = reserve_stdout_for_json()  # before the Jetson libraries load and start printing
@@ -288,7 +358,7 @@ def main(argv=None):
         try:
             face = FaceDetector(config.FACE_MODEL, args.face_threshold, draw=bool(args.stream))
             schedule = FaceSchedule(args.face_interval)
-            if face.model == "res10":
+            if face.model == "res10" and not args.face_id:
                 checker = face.start_background()
             log("face detection on: %s, one check every %.1f s, threshold %.2f, %s"
                 % (config.FACE_MODEL, args.face_interval, args.face_threshold,
@@ -300,6 +370,15 @@ def main(argv=None):
         log("face detection off (--no-face): face_present stays null")
     face_checks = faces_seen = 0
     face_ms_total = 0.0
+
+    face_id = face_turns = face_sender = None
+    if args.face_id:
+        face_id, face_turns, face_sender = start_face_id(args, face, log)
+        if face_id is not None:
+            from hearth_edge.face import AsyncFaceChecker
+            checker = AsyncFaceChecker(face_id, face.frame_to_bgr)
+        elif face is not None and face.model == "res10":
+            checker = face.start_background()   # face presence as usual, without templates
 
     fall_model = fall_runner = fall_schedule = None
     latest_fall = None      # (posture_prediction, time of the frame it checked)
@@ -544,7 +623,8 @@ def main(argv=None):
                 if checker is not None:
                     # Background (res10): start a check when idle and due; collect finished ones.
                     if checker.idle() and schedule.due(frame["t"]):
-                        checker.submit(frame, roi)
+                        checker.submit(frame, roi if face_id is None else
+                                       face_id_job(crowd_now, face_turns, frame, head_box))
                     result = checker.poll()
                     if result is not None:
                         _t, boxes, face_ms = result
@@ -649,6 +729,13 @@ def main(argv=None):
                     line += " | face seen in %d of %d checks" % (faces_seen, face_checks)
                     if face_checks:
                         line += " (%.0f ms each)" % (face_ms_total / face_checks)
+                if face_id is not None:
+                    line += " | face templates %d" % face_id.templates
+                    if face_id.templates:
+                        line += " (%.0f ms each)" % (face_id.template_ms / face_id.templates)
+                    if face_sender is not None:
+                        line += " sent %(sent)d failed %(failed)d" % face_sender.counts
+                    face_id.templates, face_id.template_ms = 0, 0.0
                 if fall_runner is not None:
                     line += " | fall model %d checks" % fall_checks
                     if fall_checks:
@@ -670,6 +757,10 @@ def main(argv=None):
         log("stopping")
         if checker is not None:
             checker.stop()
+        if face_sender is not None:
+            face_sender.stop()
+        if face_id is not None:
+            face_id.engine.close()
         if fall_runner is not None:
             fall_runner.stop()
             fall_model.close()

@@ -33,6 +33,10 @@ KEYPOINT_CONFIDENCE = None
 FACE_MODEL = "res10"   # or "facenet"; res10 found faces in 100% of probe frames, facenet 0%
 FACE_THRESHOLD = 0.5
 FACE_INTERVAL_S = 0.5
+# Face templates for opted-in names (face_id.py, --face-id): SFace runs only on a face res10 found
+# inside a person's head box, aligned with poseNet's eyes and nose, which must be at least this far
+# apart (closer than this the face is too small to tell people apart).
+FACE_ID_MIN_EYE_PX = 20.0
 
 # Observation rate sent to the backend (frames beyond this are processed but not sent).
 OBS_HZ = 10.0
