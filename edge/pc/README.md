@@ -503,3 +503,29 @@ same cut-off, so the comparison stays fair):
 Time check: after this, stop iterating and decide. Still ahead: the locked test, the Jetson, the
 demo. If neither run gives a clean win, `model_3class.pt` is a solid choice; its one known
 weakness (close-up framing) is handled by placing the camera so it sees the whole body.
+
+## Decision: `model_3class.pt`, cut-off 0.50 (2026-10-10)
+
+Run 5 (`--floor-penalty 5 --min-conf 0.4 --floor-tolerance 0.5`) kept nothing: floor caught fell to
+91.8% in epoch 1 again and never recovered (close-ups -> unknown reached 77%). The dip is identical
+whatever the penalty or cut-off, so it isn't low confidence. Run 2 (upper-body crops only)
+recovered to 93.2%; every run with head-only crops stayed at 91.8%. Head-only crops teach "just a
+face -> unsure", but some real falls look exactly like that (OCCU: only the head visible past the
+bed). One frame can't tell a face behind furniture from a close-up: a limit of single-frame
+models, not of tuning. A model that watches motion over several frames would be the real fix.
+
+The two models that passed the safety rule, on our real recordings:
+
+| | `model_3class.pt` | `model_closeup.pt` (run 2) |
+|---|---|---|
+| validation: right / floor caught | 94.4% / 93.1% | 94.8% / 93.2% |
+| field: false "floor" on standing clips | 86 frames (head-only close-up) | 104 (head-only close-up + legs-only walk) |
+| field: floor caught | 96% | 97% |
+
+Chosen: `model_3class.pt` at 0.50. Simpler, fewer false alarms in our room; close-up framing is
+handled by placing the camera so it sees the whole body. Next: freeze it and run the locked test
+once:
+
+```powershell
+.\.venv-pc\Scripts\python.exe edge\pc\06_train.py --final-test --out D:\hearth-data\model_3class.pt --min-conf 0.5
+```
