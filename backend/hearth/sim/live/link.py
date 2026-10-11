@@ -1,11 +1,11 @@
 """The live camera link: real people, seen by a live camera, played out in the simulated room.
 
-Every tick of the live controller (playing or paused), the link reads the monitoring core's
-latest observation for each person on the linked source (the Jetson, "jetson-01", or a replay),
-lifts their keypoints into the room (hearth.sim.live.lift) using the posture the real monitor
-concluded for that person, and places them there (World.set_external). A camera that reports
-several people tags each with an anonymous person_id ("p1", ...); each becomes their own live
-person in the room ("live-jetson-01-p1"). One without person_ids gives one ("live-jetson-01").
+Accepted observations from the linked source (the Jetson, "jetson-01", or a replay) confirm
+each person over 1.5 seconds before admission, with at most three admitted by default.
+Every controller tick lifts admitted people's keypoints into the room (hearth.sim.live.lift)
+using the real monitor's posture and places them there (World.set_external). A camera that
+reports several people tags each with an anonymous person_id ("p1", ...); each confirmed
+track gets an avatar ("live-jetson-01-p1"). A feed without person_ids gives one ("live-jetson-01").
 The camera's own posture model call on each person goes along for display. When the monitor
 raises a possible fall for someone, the nearest resident comes to help them.
 
@@ -27,7 +27,7 @@ from fastapi import APIRouter, HTTPException
 from hearth_schema.models import Event, Observation
 from pydantic import BaseModel, ConfigDict, Field
 
-from hearth.monitor.detector import track_key
+from hearth.monitor.detector import source_key, track_key
 from hearth.sim.live.actor import external_id
 from hearth.sim.live.controller import LiveController
 from hearth.sim.live.avatar import LiveAvatar
@@ -38,9 +38,9 @@ from hearth.sim.live.models import LiveModelCall
 # No fresh frame for this long: the person is shown as gone. The Jetson pauses for a few
 # seconds now and then (camera stalls); holding the last pose that long avoids flicker.
 STALE_S = 4.0
-# One person's latest frame this far behind the camera's newest: they're not in view any more
-# (the camera still sees others). The edge keeps someone's id through gaps up to 1 s.
-PERSON_GAP_S = 1.0
+CONFIRM_S = 1.5
+CONFIRM_OBSERVATIONS = 5
+CANDIDATE_GAP_S = 0.5
 
 log = logging.getLogger("uvicorn.error")  # shows in the backend's console
 
@@ -61,6 +61,8 @@ class LinkRequest(BaseModel):
     enabled: bool
     source: str = Field(default="jetson-01", description="Camera source to follow, e.g. jetson-01 or replay-01.")
     height: float = Field(default=1.7, ge=1.2, le=2.1, description="The person's height in metres (sets depth).")
+    max_people: int | None = Field(default=None, ge=1, le=10, strict=True,
+                                   description="Maximum confirmed live people; omitted preserves the setting (initially 3).")
 
 
 class CameraInfo(BaseModel):
@@ -110,6 +112,7 @@ class LivePersonStatus(BaseModel):
 class LinkStatus(BaseModel):
     enabled: bool
     source: str
+    max_people: int = 3
     state: Literal["off", "waiting", "live", "stale", "outside"]
     person_id: str = Field(description="Room id of the first live person (live-<source> when nobody is tracked).")
     last_seen: datetime | None = None
@@ -117,22 +120,23 @@ class LinkStatus(BaseModel):
     label: str | None = None
     alert_open: bool = Field(default=False, description="True when the monitor has a possible fall open for anyone.")
     camera: CameraInfo | None = None
-    people: list[LivePersonStatus] = Field(default_factory=list, description="Everyone the camera is tracking.")
+    people: list[LivePersonStatus] = Field(default_factory=list, description="Confirmed people admitted to the room.")
 
 
 class LiveTrack:
     """One real person on the linked camera: their smoothed body in the room, and what the
     monitor (posture) and the camera's own model say about them."""
 
-    def __init__(self, track_id: str | None, height: float) -> None:
-        self.track_id = track_id  # the camera's person_id; None for a one-person camera
+    def __init__(self, obs: Observation, height: float, received_at: float) -> None:
+        self.track_id = obs.person_id  # None for a one-person camera
         self.avatar = LiveAvatar(height)
         self.posture, self.label = "standing", "standing"
         self.recognized, self.name = False, None  # from the monitor's face matching, if any
         self.model: LiveModelCall | None = None
         self.present = False  # in the room right now
-        self.seen_at: float | None = None  # monitor clock when they were last made out
+        self.seen_at = received_at  # monitor clock when a valid observation arrived
         self.last_obs_id: str | None = None
+        self.observation = obs
 
     def state(self) -> Literal["live", "stale", "outside"]:
         return "outside" if self.avatar.outside else "live" if self.present else "stale"
@@ -143,15 +147,29 @@ def model_call(obs: Observation) -> LiveModelCall | None:
     return None if p is None else LiveModelCall(model_id=p.model_id, label=p.label, confidence=p.confidence)
 
 
+class Candidate:
+    def __init__(self, obs: Observation, now: float) -> None:
+        self.first_timestamp = obs.timestamp
+        self.observation = obs
+        self.received_at = now
+        self.count = 1
+        self.confirmed_at: datetime | None = None
+
+
 class LiveLink:
     def __init__(self, monitor, controller: LiveController) -> None:  # monitor: MonitorService
         self.monitor, self.controller = monitor, controller
         self.enabled, self.source, self.height = False, "jetson-01", 1.7
+        self.max_people = 3
+        self.candidates: dict[str | None, Candidate] = {}
+        self._world = controller.world
+        self._stream = None
         self.tracks: dict[str | None, LiveTrack] = {}  # by the camera's person_id
         self.alerts: set[str | None] = set()  # person_ids with a possible fall open
         self._last_seen: datetime | None = None
         controller.tick_hooks.append(self.update)
         monitor.event_listeners.append(self._on_event)
+        monitor.observation_listeners.append(self._on_observation)
 
     @property
     def alert_open(self) -> bool:
@@ -161,11 +179,12 @@ class LiveLink:
         return external_id(self.source, track_id)
 
     def configure(self, req: LinkRequest) -> LinkStatus:
+        self._sync_world()
         w = self.controller.world
         if w is not None and (not req.enabled or req.source != self.source):
             w.remove_external(self.source)
         if req.source != self.source or not req.enabled:
-            self.tracks = {}
+            self._clear()
         if req.height != self.height:
             for track in self.tracks.values():
                 track.avatar = LiveAvatar(req.height)
@@ -173,11 +192,19 @@ class LiveLink:
             self._last_seen = None
             self.alerts = set()
         self.enabled, self.source, self.height = req.enabled, req.source, req.height
+        if req.max_people is not None:
+            self.max_people = req.max_people
+        # Dict insertion order is admission order: keep the established people.
+        for pid in list(self.tracks)[self.max_people:]:
+            if w is not None:
+                w.forget_external(self.source, pid)
+            del self.tracks[pid]
         if self.enabled:
             self.controller.keep_running()
         return self.status()
 
     def status(self) -> LinkStatus:
+        self._sync_world()
         people = [LivePersonStatus(person_id=self.person_id(t.track_id), track_id=t.track_id, state=t.state(),
                                    posture=t.posture if t.present else None, label=t.label if t.present else None,
                                    model=t.model, alert_open=t.track_id in self.alerts,
@@ -186,13 +213,13 @@ class LiveLink:
         state: Literal["off", "waiting", "live", "stale", "outside"]
         if not self.enabled:
             state = "off"
-        elif self._last_seen is None:
+        elif self._last_seen is None or (not self.tracks and self.candidates):
             state = "waiting"
         else:
             states = {p.state for p in people}
             state = "live" if "live" in states else "outside" if "outside" in states else "stale"
         first = next((p for p in people if p.state == "live"), people[0] if people else None)
-        return LinkStatus(enabled=self.enabled, source=self.source, state=state,
+        return LinkStatus(enabled=self.enabled, source=self.source, max_people=self.max_people, state=state,
                           person_id=first.person_id if first else self.person_id(), last_seen=self._last_seen,
                           posture=first.posture if first else None, label=first.label if first else None,
                           alert_open=self.alert_open, camera=self._camera(), people=people)  # fmt: skip
@@ -277,26 +304,83 @@ class LiveLink:
         state = self.monitor.detector.states.get(track_key(obs))
         return POSTURES.get(state.posture if state else "", (track.posture, track.label))
 
+    def _clear(self) -> None:
+        self.tracks.clear()
+        self.candidates.clear()
+        self.alerts.clear()
+        self._last_seen = None
+        self._stream = None
+
+    def _sync_world(self) -> None:
+        if self._world is not self.controller.world:
+            self._clear()
+            self._world = self.controller.world
+
+    def _expire(self, now: float, *, source_progress: bool = False) -> None:
+        for pid, track in list(self.tracks.items()):
+            if now - track.seen_at >= STALE_S:
+                self.controller.world.forget_external(self.source, pid)
+                del self.tracks[pid]
+        for pid, candidate in list(self.candidates.items()):
+            if (now - candidate.received_at > CANDIDATE_GAP_S or (source_progress and
+                    (self._last_seen - candidate.observation.timestamp).total_seconds() > CANDIDATE_GAP_S)):
+                del self.candidates[pid]
+
+    def _on_observation(self, obs: Observation) -> None:
+        """Count accepted camera observations, never repeated render ticks or cached frames."""
+        self._sync_world()
+        if not self.enabled or self.controller.world is None or obs.source != self.source:
+            return
+        stream = source_key(obs)
+        if self._stream is not None and stream != self._stream:
+            for pid in self.tracks:
+                self.controller.world.forget_external(self.source, pid)
+            self._clear()
+        self._stream = stream
+        now = self.monitor.clock()
+        # Source-time expiry happens on ticks, after the complete batch is ingested.
+        self._expire(now)
+        self._last_seen = max(self._last_seen or obs.timestamp, obs.timestamp)
+        pid = obs.person_id
+        if not obs.person_detected or not obs.keypoints:
+            if pid is None and not obs.person_detected:
+                self.candidates.clear()
+            else:
+                self.candidates.pop(pid, None)
+            return
+        track = self.tracks.get(pid)
+        previous = track.observation if track else None
+        candidate = self.candidates.get(pid)
+        if candidate is not None:
+            previous = candidate.observation
+        if previous is not None and (obs.obs_id == previous.obs_id or obs.timestamp <= previous.timestamp):
+            return
+        if track is not None:
+            track.seen_at, track.observation = now, obs
+            return
+        if candidate is None or (obs.timestamp - candidate.observation.timestamp).total_seconds() > CANDIDATE_GAP_S:
+            self.candidates[pid] = Candidate(obs, now)
+            return
+        candidate.observation, candidate.received_at = obs, now
+        candidate.count += 1
+        if (candidate.confirmed_at is None and candidate.count >= CONFIRM_OBSERVATIONS and
+                (obs.timestamp - candidate.first_timestamp).total_seconds() >= CONFIRM_S):
+            candidate.confirmed_at = obs.timestamp
+
     def update(self) -> None:
+        self._sync_world()
         w = self.controller.world
         if not self.enabled or w is None:
             return
-        latest = self._latest_by_person()
-        if latest:
-            self._last_seen = max(o.timestamp for o in latest.values())
-        now, fresh = self.monitor.clock(), self._fresh()
-        # A camera reporting several people sends one person_id-less "nobody in view" record
-        # when it sees no one; that record isn't a person.
-        several = any(pid is not None for pid in latest)
-        for pid, obs in latest.items():
-            if (pid is None and several) or not (fresh and obs.person_detected and obs.keypoints):
-                continue
-            if self._last_seen is not None and (self._last_seen - obs.timestamp).total_seconds() > PERSON_GAP_S:
-                continue
-            track = self.tracks.get(pid)
-            if track is None:
-                track = self.tracks[pid] = LiveTrack(pid, self.height)
-            track.seen_at = now
+        now = self.monitor.clock()
+        self._expire(now, source_progress=True)
+        ready = [(pid, c) for pid, c in self.candidates.items() if c.confirmed_at is not None]
+        ready.sort(key=lambda item: (item[1].confirmed_at, _order(item[0])))
+        for pid, candidate in ready[:max(0, self.max_people - len(self.tracks))]:
+            self.tracks[pid] = LiveTrack(candidate.observation, self.height, candidate.received_at)
+            del self.candidates[pid]
+        for track in self.tracks.values():
+            obs = track.observation
             posture, track.label = self._monitor_posture(obs, track)
             track.model = model_call(obs)
             identity = self.monitor.identity_of(obs) if self.monitor.identity_of else {}
@@ -304,15 +388,6 @@ class LiveLink:
             new = obs.obs_id != track.last_obs_id
             track.last_obs_id = obs.obs_id
             self._place(w, track, now, [(k.name, k.x, k.y) for k in obs.keypoints] if new else None, posture)
-        for pid, track in list(self.tracks.items()):
-            if track.seen_at == now:
-                continue
-            # poseNet misses people for a frame or two; only call them gone after STALE_S.
-            if track.seen_at is None or now - track.seen_at > STALE_S:
-                w.forget_external(self.source, pid)
-                del self.tracks[pid]
-            elif track.present:
-                self._place(w, track, now, None)  # keep any posture change animating
 
     def _place(self, w, track: LiveTrack, now: float, keypoints, posture: str | None = None) -> None:
         a = track.avatar

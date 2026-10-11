@@ -66,7 +66,7 @@ def test_a_recognized_live_participant_is_named_in_the_live_room(hearth):
     client.post("/sim/live/link", json={"enabled": True, "source": SOURCE})
     world = sim.live.world
     results = []
-    for _ in range(4):  # three matching face checks confirm a name
+    for _ in range(6):  # confirm both the face and 1.5 s of person detections
         now = datetime.now(timezone.utc)
         batch = sorted(jetson_frames(world, "p1", -1.2, -3.0, now) + jetson_frames(world, "p2", 1.4, -3.5, now),
                        key=lambda o: o["timestamp"])  # in time order, as the Jetson sends them
@@ -89,7 +89,7 @@ def test_unenrolled_people_stay_anonymous(hearth):
     client.post("/sim/live/new", json={"spec": SPEC, "seed": 1})
     client.post("/sim/live/link", json={"enabled": True, "source": SOURCE})
     stranger = [0., 0., 1.] + [0.] * 125
-    for _ in range(4):
+    for _ in range(6):
         now = datetime.now(timezone.utc)
         client.post("/ingest/observations", json={"observations": jetson_frames(sim.live.world, "p1", -1.2, -3.0, now)})
         assert client.post("/face-demo/edge-embeddings", headers=AUTH, json=template("p1", stranger, now)).json()["status"] == "unknown"

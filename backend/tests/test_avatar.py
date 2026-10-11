@@ -4,7 +4,7 @@ import math
 import random
 
 import pytest
-from hearth.sim.live.avatar import BLEND_S, POSTURE_HOLD_S, LiveAvatar
+from hearth.sim.live.avatar import BLEND_S, MAX_SPEED_M_S, MAX_TURN_RAD_S, POSTURE_HOLD_S, LiveAvatar
 from hearth.sim.live.camera import Camera
 from hearth.sim.live.room import generate_room
 from hearth.sim.live.spec import CameraSpec, RoomSpec
@@ -77,7 +77,7 @@ def test_the_skeleton_never_stretches():
 def test_follows_someone_walking():
     a = LiveAvatar(H)
     t = run(a, [frame(-0.5, -3.0)] * 10)
-    walk = [frame(-0.5 + 0.1 * i, -3.0) for i in range(1, 11)]  # 1 m in 1 s
+    walk = [frame(-0.5 + 0.04 * i, -3.0) for i in range(1, 26)]  # controlled walking: 0.4 m/s
     t = run(a, walk, t0=t)
     t = run(a, [frame(0.5, -3.0)] * 5, t0=t)  # 0.5 s after they stop
     assert math.dist(a.root, (0.5, -3.0)) < 0.15
@@ -95,8 +95,84 @@ def test_one_wild_frame_is_ignored():
 def test_a_real_move_is_taken_after_it_persists():
     a = LiveAvatar(H)
     t = run(a, [frame(-1.5, -3.0)] * 15)
-    run(a, [frame(1.5, -3.0)] * 10, t0=t)  # they really are over there now
+    for _ in range(100):  # follow a persistent 3 m move slowly, without teleporting
+        before = a.root
+        a.update(frame(1.5, -3.0), "standing", CAMERA, ROOM, t)
+        assert math.dist(a.root, before) <= MAX_SPEED_M_S * DT + 1e-9
+        t += DT
     assert math.dist(a.root, (1.5, -3.0)) < 0.2
+
+
+def test_inconsistent_far_detections_never_confirm_a_move(monkeypatch):
+    a = LiveAvatar(H)
+    target = [(0.0, -3.0)]
+    monkeypatch.setattr(a, "_measure_root", lambda *args: target[0])
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 0)
+    for i in range(1, 50):
+        target[0] = (2.0 if i % 2 else -2.0, -3.0)
+        a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, i * DT)
+        assert a.root == (0.0, -3.0)
+
+
+def test_fast_walking_keeps_following_at_the_limited_pace(monkeypatch):
+    a = LiveAvatar(H)
+    target = [(0.0, -3.0)]
+    monkeypatch.setattr(a, "_measure_root", lambda *args: target[0])
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 0)
+    for i in range(1, 51):
+        before = a.root
+        target[0] = (i * 0.1, -3.0)  # person walks at 1 m/s, faster than the avatar
+        a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, i * DT)
+        assert math.dist(a.root, before) <= MAX_SPEED_M_S * DT + 1e-9
+    assert a.root[0] > 1.5  # coherent motion still follows; it isn't permanently rejected
+
+
+def test_posture_and_anchor_changes_cannot_reset_position(monkeypatch):
+    a = LiveAvatar(H)
+    target = [(0.0, -3.0)]
+
+    def measure(*args):
+        a._anchor = "floor_hips" if a.posture == "floor" else "hips"
+        return target[0]
+
+    monkeypatch.setattr(a, "_measure_root", measure)
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 0)
+    target[0] = (0.7, -3.0)
+    for i in range(1, 30):
+        before = a.root
+        a._anchor = None  # new depth anchors used to bypass all smoothing
+        a.update(frame(0.0, -3.0), "floor", CAMERA, ROOM, i * DT)
+        assert math.dist(a.root, before) <= MAX_SPEED_M_S * DT + 1e-9
+    assert a.posture == "floor" and a.root[0] > 0.4
+
+
+def test_stall_does_not_accumulate_motion_or_outlier_confirmation(monkeypatch):
+    a = LiveAvatar(H)
+    target = [(0.0, -3.0)]
+    monkeypatch.setattr(a, "_measure_root", lambda *args: target[0])
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 0)
+    target[0] = (2.0, -3.0)
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 0.1)
+    a.update(None, "standing", CAMERA, ROOM, 5.0)
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 5.1)
+    assert a.root == (0.0, -3.0)
+    target[0] = (0.7, -3.0)
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 10.0)
+    assert math.dist(a.root, (0.0, -3.0)) <= MAX_SPEED_M_S * 0.2 + 1e-9
+
+
+def test_small_position_noise_is_held_and_turning_is_bounded(monkeypatch):
+    a = LiveAvatar(H)
+    target = [(0.0, -3.0)]
+    monkeypatch.setattr(a, "_measure_root", lambda *args: target[0])
+    monkeypatch.setattr(a, "_measure_heading", lambda *args: math.pi)
+    a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, 0)
+    for i in range(1, 30):
+        before = a.heading
+        target[0] = (0.03 if i % 2 else -0.03, -3.0)
+        a.update(frame(0.0, -3.0), "standing", CAMERA, ROOM, i * DT)
+        assert a.root == (0.0, -3.0)
+        assert abs(math.remainder(a.heading - before, 2 * math.pi)) <= MAX_TURN_RAD_S * DT + 1e-9
 
 
 def test_posture_changes_wait_then_blend():

@@ -21,10 +21,10 @@ export function useLiveLink(base: string | null) {
   const post = <T,>(path: string, body: unknown, timeout = 5000) => request<T>(base!, path, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }, timeout);
-  async function setLinked(enabled: boolean, source: string, height: number) {
+  async function setLinked(enabled: boolean, source: string, height: number, maxPeople?: number) {
     if (!base || busy) return;
     setBusy(true); setError('');
-    try { setLink(await post<LinkStatus>('/sim/live/link', { enabled, source, height })); }
+    try { setLink(await post<LinkStatus>('/sim/live/link', { enabled, source, height, max_people: maxPeople })); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }

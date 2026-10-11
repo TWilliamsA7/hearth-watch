@@ -25,6 +25,7 @@ export interface LivePersonStatus {
 export interface LinkStatus {
   enabled: boolean;
   source: string;
+  max_people: number;
   state: "off" | "waiting" | "live" | "stale" | "outside";
   person_id: string;
   last_seen: string | null;
@@ -83,7 +84,7 @@ export function calibrationText(r: CalibrateResult): string {
 export function linkStateText(link: LinkStatus): string {
   return link.state === "live" ? `In the room: ${link.people.filter((q) => q.state === "live").map((q) =>
       `${link.people.length > 1 || q.name ? `${livePersonName(q, link.source)} ` : ""}${q.label ?? q.posture}${q.alert_open ? " (ALERT OPEN)" : ""}`).join(" · ")}`
-    : link.state === "waiting" ? `Waiting for ${link.source}: start run_edge.py or edge/tools/replay.py`
+    : link.state === "waiting" ? `Waiting for consistent detections from ${link.source}`
     : link.state === "outside" ? "Outside the tracked area: step back inside the tape"
     : link.state === "off" ? "Not linked"
     : `No fresh frames from ${link.source}`;

@@ -8,6 +8,7 @@ export default function LiveLinkPanel({ live, sources }: { live: LiveLink; sourc
   const choices = [...new Set([...LIVE_SOURCES, ...sources])];
   const [source, setSource] = useState(LIVE_SOURCES[0]);
   const [height, setHeight] = useState(1.7);
+  const maxPeople = link?.max_people ?? 3;
   // Follow the server: the link may already be on (another tab, or the Sim Studio).
   useEffect(() => { if (link?.enabled) setSource(link.source); }, [link?.enabled, link?.source]);
   const relink = (nextSource: string, nextHeight: number) => { if (link?.enabled) void live.setLinked(true, nextSource, nextHeight); };
@@ -19,6 +20,12 @@ export default function LiveLinkPanel({ live, sources }: { live: LiveLink; sourc
     </select></label>
     <label>Their height · {height.toFixed(2)} m<input type="range" min={1.4} max={2} step={0.01} value={height}
       onChange={e => { const value = Number(e.target.value); setHeight(value); relink(source, value); }} /></label>
+    <label>Maximum live people<select value={maxPeople} disabled={live.busy || !link} onChange={e => {
+      void live.setLinked(!!link?.enabled, source, height, Number(e.target.value));
+    }}>
+      {Array.from({ length: 10 }, (_, i) => i + 1).map(value => <option key={value} value={value}>{value}</option>)}
+    </select></label>
+    <p className="small">People appear after 1.5 seconds of consistent detection. Avatars follow walking at a controlled pace.</p>
     <div className="buttons">
       <button className={link?.enabled ? '' : 'go'} disabled={live.busy || !link} onClick={() => void live.setLinked(!link?.enabled, source, height)}>
         {link?.enabled ? 'Unlink' : 'Link into this room'}

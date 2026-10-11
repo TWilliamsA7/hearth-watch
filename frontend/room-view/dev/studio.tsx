@@ -148,6 +148,7 @@ function Studio() {
   const [link, setLink] = useState<LinkStatus | null>(null);
   const [linkSource, setLinkSource] = useState(LIVE_SOURCES[0]);
   const [liveHeight, setLiveHeight] = useState(1.7);
+  const maxPeople = link?.max_people ?? 3;
   const [showReal, setShowReal] = useState(false);
   const [calibrating, setCalibrating] = useState<"walk" | "centre" | null>(null);
   // The tracked area: a rectangle taped on the real floor, with the camera above a front corner.
@@ -261,8 +262,8 @@ function Studio() {
         setCalibrating(null);
       }
     });
-  const setLinkEnabled = (enabled: boolean, source = linkSource, height = liveHeight) =>
-    run(() => api<LinkStatus>("/sim/live/link", { enabled, source, height }).then(setLink));
+  const setLinkEnabled = (enabled: boolean, source = linkSource, height = liveHeight, max_people?: number) =>
+    run(() => api<LinkStatus>("/sim/live/link", { enabled, source, height, max_people }).then(setLink));
   // Live only: the simulated room is the tracked area, empty, seen by the corner camera.
   const liveOnly = () =>
     run(async () => {
@@ -401,6 +402,15 @@ function Studio() {
           </div>
           <Slider label="Their height" value={liveHeight} min={1.4} max={2.0} step={0.01} fmt={(v) => `${v.toFixed(2)} m`}
             onChange={(v) => { setLiveHeight(v); if (link?.enabled) setLinkEnabled(true, linkSource, v); }} />
+          <div className="row">
+            <label htmlFor="max-live-people">Maximum live people</label>
+            <select id="max-live-people" value={maxPeople} disabled={!link} onChange={e => {
+              setLinkEnabled(!!link?.enabled, linkSource, liveHeight, Number(e.target.value));
+            }}>
+              {Array.from({ length: 10 }, (_, i) => i + 1).map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </div>
+          <p>People appear after 1.5 seconds of consistent detection. Avatars follow walking at a controlled pace.</p>
           <Slider label="Area width" value={areaW} min={2} max={10} step={0.1} onChange={setAreaW} fmt={(v) => `${v.toFixed(1)} m`} />
           <Slider label="Area depth" value={areaD} min={2} max={9} step={0.1} onChange={setAreaD} fmt={(v) => `${v.toFixed(1)} m`} />
           <div className="row">

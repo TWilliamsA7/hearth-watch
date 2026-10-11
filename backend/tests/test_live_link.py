@@ -147,7 +147,7 @@ def test_someone_who_leaves_is_taken_out_and_the_others_stay():
         c.post("/sim/live/link", json={"enabled": True, "source": SOURCE})
         world = sim.live.world
         c.post("/ingest/observations", json={"observations": people_frames(
-            world, [("p1", "standing", -1.2, -3.0), ("p2", "standing", 1.4, -3.5)], 0, 1)})
+            world, [("p1", "standing", -1.2, -3.0), ("p2", "standing", 1.4, -3.5)], 0, 2)})
         for _ in range(12):
             now[0] += 0.05
             sim.link.update()
@@ -160,7 +160,7 @@ def test_someone_who_leaves_is_taken_out_and_the_others_stay():
                   "posture_prediction": None}
         nobody.pop("person_id")
         c.post("/ingest/observations", json={"observations": [nobody] + people_frames(
-            world, [("p2", "standing", 1.4, -3.5)], 5.1, 1)})
+            world, [("p2", "standing", 1.4, -3.5)], 5.1, 2)})
         for _ in range(12):
             now[0] += 0.05
             sim.link.update()
