@@ -16,6 +16,10 @@ export async function request<T>(base: string, path: string, options?: RequestIn
 export async function acknowledgeAlert(base: string, id: string): Promise<Alert> {
   return validateApi('monitoring#/$defs/Alert', await request(base, `/alerts/${encodeURIComponent(id)}/ack`, { method: 'POST' }));
 }
+// An acknowledged alert is resolved once someone has checked on the person; an open one cannot be.
+export async function resolveAlert(base: string, id: string): Promise<Alert> {
+  return validateApi('monitoring#/$defs/Alert', await request(base, `/alerts/${encodeURIComponent(id)}/resolve`, { method: 'POST' }));
+}
 export async function requestHelp(base: string, requestId: string, room = DEFAULT_ROOM): Promise<Alert> {
   return validateApi('monitoring#/$defs/Alert', await request(base, '/help-requests', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

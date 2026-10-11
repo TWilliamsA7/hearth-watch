@@ -20,3 +20,7 @@ export type {
   ActorCommand, ActorDetail, EngineSpec, IncidentRecord, IncidentSpec, LiveActorInfo, LiveFrame, LivePerson, LiveSlot, LiveStatus,
   LiveWorld,
 } from "./generated/sim";
+export {
+  LIVE_SOURCES, calibrationText, isLivePerson, linkStateText, liveName, modelText,
+  type CalibrateResult, type LinkStatus, type LivePersonStatus, type ModelCall,
+} from "./link";

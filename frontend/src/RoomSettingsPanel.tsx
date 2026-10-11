@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DEFAULT_ROOM_SETTINGS, roomSettings, type RoomSettings } from './liveSimulation';
 import type { useLiveSimulation } from './useLiveSimulation';
+import Popover from './Popover';
 
 export default function RoomSettingsPanel({ simulation }: { simulation: ReturnType<typeof useLiveSimulation> }) {
   const [settings, setSettings] = useState<RoomSettings>(DEFAULT_ROOM_SETTINGS);
@@ -14,12 +15,11 @@ export default function RoomSettingsPanel({ simulation }: { simulation: ReturnTy
   function number(label: string, key: keyof Pick<RoomSettings, 'actors' | 'width' | 'depth' | 'furniture' | 'cameraHeight' | 'tilt' | 'fov' | 'activity' | 'social'>, min: number, max: number, step: number) {
     return <label>{label}<input type="number" required min={min} max={max} step={step} value={settings[key]} onChange={e => set(key, Number(e.target.value))} /></label>;
   }
-  return <details className="room-settings">
-    <summary>Room settings</summary>
+  return <Popover label="Room settings" title="Generate a simulated room" align="up" className="room-settings">{close =>
     <form className="room-settings-panel" onSubmit={event => {
       event.preventDefault();
       const button = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-      void simulation.generate(settings, button?.value !== 'paused');
+      void simulation.generate(settings, button?.value !== 'paused').then(done => { if (done) close(); });
     }}>
       <h3>Generate a simulated room</h3>
       <p className="small">Change these settings, then generate a new room. This replaces the current simulation.</p>
@@ -52,6 +52,6 @@ export default function RoomSettingsPanel({ simulation }: { simulation: ReturnTy
       </fieldset>
       {!simulation.client?.connected && <p className="small">Connect to the simulation server to generate a room.</p>}
       {simulation.error && <p role="alert" className="error">{simulation.error}</p>}
-    </form>
-  </details>;
+    </form>}
+  </Popover>;
 }

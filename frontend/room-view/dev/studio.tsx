@@ -25,6 +25,7 @@ import {
   type Pick,
   type ServerMessage,
   type StudioSettings,
+  LIVE_SOURCES, liveName, modelText, type CalibrateResult, type LinkStatus,
 } from "../src";
 
 type FallMotion = "trip" | "faint" | "collapse" | "sit_miss" | "stand_up";
@@ -82,63 +83,11 @@ interface LogLine {
   live: boolean;
 }
 
-interface ModelCall {
-  model_id: string;
-  label: string;
-  confidence: number | null;
-}
-
-/** One real person the linked camera tracks (person_id is their id in the room). */
-interface LivePersonStatus {
-  person_id: string;
-  track_id: string | null;
-  state: "live" | "stale" | "outside";
-  posture: string | null;
-  label: string | null;
-  model: ModelCall | null;
-  alert_open: boolean;
-}
-
-interface LinkStatus {
-  enabled: boolean;
-  source: string;
-  state: "off" | "waiting" | "live" | "stale" | "outside";
-  person_id: string;
-  last_seen: string | null;
-  posture: string | null;
-  label: string | null;
-  alert_open: boolean;
-  camera: { preset: string; height: number; tilt: number; fov: number; corner: string; pan: number } | null;
-  people: LivePersonStatus[];
-}
-
-interface CalibrateResult {
-  ok: boolean;
-  step: "walk" | "centre";
-  pan: number | null;
-  off_by: number | null;
-  frames: number;
-  height: number | null;
-  tilt: number | null;
-  rms: number | null;
-  reason: string;
-}
-
-// Sources that send keypoints (the fall model sends none, so it can't be placed in the room).
-const LIVE_SOURCES = ["jetson-01", "replay-01"];
 
 /** A live person's id in the room: the camera's track id ("p2") is added when it reports several people. */
 const liveId = (source: string, trackId?: string | null) => (trackId ? `live-${source}-${trackId}` : `live-${source}`);
 
-/** "LIVE P2" for live-jetson-01-p2, "LIVE" for a one-person camera. */
-const liveName = (personId: string | null | undefined, source: string | undefined) => {
-  const track = personId && source && personId.startsWith(`live-${source}-`) ? personId.slice(`live-${source}-`.length) : "";
-  return track ? `LIVE ${track.toUpperCase()}` : "LIVE";
-};
 
-/** "sitting 93%": what the camera's own posture model says. */
-const modelText = (m: ModelCall | null | undefined) =>
-  m ? `${m.label}${m.confidence != null ? ` ${Math.round(m.confidence * 100)}%` : ""}` : "—";
 
 function useMonitorFeed(liveSource: string | null) {
   const feed = useMemo(() => websocketFeed(wsUrl(`/ws/room/${ROOM_ID}`)), []);

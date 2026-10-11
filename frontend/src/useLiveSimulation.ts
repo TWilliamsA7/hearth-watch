@@ -70,17 +70,18 @@ export function useLiveSimulation(base: string | null, room?: string) {
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
-  async function generate(settings: RoomSettings, play: boolean) {
-    if (!base || !client?.connected || busy) return;
+  async function generate(settings: RoomSettings, play: boolean): Promise<boolean> {
+    if (!base || !client?.connected || busy) return false;
     setBusy(true); setError('');
     try {
       const spec = client.world?.spec;
       await generateLiveRoom(base, settings, play, spec && room ? { ...spec, room_id: room } : spec);
       setSelected(null);
-    } catch (e) { setError((e as Error).message); }
+      return true;
+    } catch (e) { setError((e as Error).message); return false; }
     finally { setBusy(false); }
   }
   const speed = client?.latest?.speed ?? 1;
   const room_id = client?.world?.spec.room_id ?? null;
-  return { client, ready, state, speed, room_id, error, busy, selected: actor, setSelected, command, setSpeed, generate, retry: () => setRetry(value => value + 1) };
+  return { client, ready, state, speed, room_id, error, busy, selected: actor, picked: selected, setSelected, command, setSpeed, generate, retry: () => setRetry(value => value + 1) };
 }
