@@ -16,7 +16,8 @@
           "enum": [
             "possible_fall",
             "help_requested",
-            "source_offline"
+            "source_offline",
+            "appointment_overdue"
           ],
           "title": "Kind",
           "type": "string"
@@ -287,7 +288,8 @@
             "source_online",
             "alert_acknowledged",
             "alert_resolved",
-            "help_requested"
+            "help_requested",
+            "appointment_overdue"
           ],
           "title": "Event Type",
           "type": "string"
@@ -718,11 +720,12 @@
             "enum": [
               "possible_fall",
               "help_requested",
-              "source_offline"
+              "source_offline",
+              "appointment_overdue"
             ],
             "type": "string"
           },
-          "maxItems": 3,
+          "maxItems": 4,
           "minItems": 1,
           "title": "Alert Kinds",
           "type": "array"
@@ -765,11 +768,12 @@
             "enum": [
               "possible_fall",
               "help_requested",
-              "source_offline"
+              "source_offline",
+              "appointment_overdue"
             ],
             "type": "string"
           },
-          "maxItems": 3,
+          "maxItems": 4,
           "minItems": 1,
           "title": "Alert Kinds",
           "type": "array"

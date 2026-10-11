@@ -116,3 +116,21 @@ The backend must remain running. If it is unavailable, the main feed shows a dis
 ### Wrong-server error (404)
 
 A 404 on `/sim/live/status` means the connected server does not expose the live simulation API. Connect to the standard `hearth.api.app:app` backend rather than an older running demo server. If port 8000 is already occupied, run the standard backend with `--port 8001`, then set **Connection settings → Return to preview → Monitoring server address** to `http://127.0.0.1:8001` and choose **Connect to monitoring**. The dashboard remembers the last connected address across reloads.
+
+## Integrated dashboard: open port 5173
+
+The existing React dashboard is the main UI. Its layout and CSS are unchanged. Vite forwards API and WebSocket routes to the internal Python API on 8002, so the browser uses **http://127.0.0.1:5173/** for schedules, alerts, simulation, and optional recognition setup. Old backend `/nurses` and `/room` routes redirect to the main dashboard. Previously saved test-server addresses are no longer used on startup.
+
+After installing repository Python dependencies and running `npm.cmd install` in `frontend`, stop old development servers and run from the repository root:
+
+```powershell
+.\scripts\dashboard.ps1
+```
+
+Keep this terminal running. Ctrl+C stops Vite and the API process launched by the script. An API process already running is left alone. Restart that process after backend code changes. Port 5173 is strict: Vite fails if occupied rather than silently moving to another port. This launcher binds locally for laptop testing; Jetson transport needs a separately configured backend listener.
+
+The caregiver appointment card shows today's room-01 schedule and arrival/overdue counts. In Patient view, select the intended appointment and press check in. A reminder is generated after the configured grace period (default 15 minutes); unconfirmed arrival is not proof of harm. Recognition-confirmed arrival updates on the next five-second poll.
+
+Use `http://127.0.0.1:5173/face-check-in` for optional enrollment. Recognition remains disabled unless `HEARTH_FACE_DEMO=1`, a persistent `HEARTH_FACE_KEY`, optional dependencies and models are configured in the API process. Install with `.\.venv\Scripts\python.exe -m pip install -e "backend[face-demo]"`; download/check models with `.\.venv\Scripts\python.exe -m hearth.perception.face_demo --download --check`. Keep the original encryption key private and stable; changing it prevents existing enrollment records from being read. Enrollment and incident naming require separate opt-ins. Run the local camera client with `--patient-recognition --hand-gestures --backend http://127.0.0.1:5173`; ordinary fall detection still works without identity. Physical camera accuracy must be tested separately from API integration.
+
+The Vite proxy preserves Host and Origin and remains loopback-bound, so recognition's local-only and same-origin checks are retained. Do not expose this development proxy publicly.

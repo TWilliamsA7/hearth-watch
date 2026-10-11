@@ -14,7 +14,7 @@ export function sourceKey(data: { source_type: string; source: string }): string
 export function reduceFeed(state: FeedState, message: FeedMessage, now: number, mode: SourceMode): FeedState {
   if (message.type === 'nurse_snapshot') return state;
   const data = message.data;
-  const manualIncident = data.source_type === 'manual' && (message.type === 'alert' || message.type === 'event');
+  const manualIncident = (data.source_type === 'manual' || data.source === 'appointments' || (message.type === 'alert' && message.data.kind === 'help_requested') || (message.type === 'event' && message.data.event_type === 'help_requested')) && (message.type === 'alert' || message.type === 'event');
   if (data.room_id !== 'room-01' || (data.source_type !== mode && !manualIncident)) return state;
   const key = sourceKey(data);
   switch (message.type) {

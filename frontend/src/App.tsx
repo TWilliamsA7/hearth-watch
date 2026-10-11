@@ -1,8 +1,11 @@
+import CareResponsePanel from './CareResponsePanel';
+import { useNurseSession } from './useNurseSession';
+import NurseControls from './NurseControls';
+import { useAppointments } from './useAppointments';
 import { useMemo, useState } from 'react';
 import type { Event } from './generated/contract';
 import { exampleEvent, exampleObservation, type Preview } from './demoData';
 import { sourceKey, visibleObservations, type SourceMode } from './feedState';
-import { acknowledgeAlert } from './api';
 import { useLiveSimulation } from './useLiveSimulation';
 import LiveSimulationView from './LiveSimulationView';
 import RoomSettingsPanel from './RoomSettingsPanel';
@@ -16,19 +19,12 @@ import FeatureSpark from './FeatureSpark';
 
 const sourceLabels = { edge: 'Live camera', simulation: 'Simulation', replay: 'Recorded replay', manual: 'Manual request' };
 function savedBackendAddress() {
-  try {
-    const saved = localStorage.getItem('hearth-monitoring-address');
-    if (saved) {
-      const url = new URL(saved);
-      if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) return url.origin;
-    }
-  } catch { /* Storage may be unavailable; use the standard local backend. */ }
-  return 'http://127.0.0.1:8000';
+  return window.location.origin;
 }
 export default function App() {
   const [preview, setPreview] = useState<Preview>('standing');
   const example = useMemo(() => exampleObservation(preview), [preview]);
-  const [view, setView] = useState<'caregiver' | 'resident'>('caregiver');
+  const [view, setView] = useState<'caregiver' | 'resident'>(() => window.location.pathname === '/room' ? 'resident':'caregiver');
   const [exampleEvents, setExampleEvents] = useState<Event[]>([]);
   const [acknowledged, setAcknowledged] = useState(false);
   const [address, setAddress] = useState(savedBackendAddress);
@@ -36,9 +32,10 @@ export default function App() {
   const [mode, setMode] = useState<SourceMode>('simulation');
   const [selectedSource, setSelectedSource] = useState('');
   const [error, setError] = useState('');
-  const [pending, setPending] = useState<string | null>(null);
   const [previewStarted, setPreviewStarted] = useState<number | null>(null);
   const feed = useRoomFeed(base, mode);
+  const appointments = useAppointments(base);
+  const nurseSession = useNurseSession(base);
   const simulation = useLiveSimulation(base && mode === 'simulation' ? base : null);
   const allObservations = base ? visibleObservations(feed.state, feed.now, feed.connected).filter(item => item.source_type === mode) : preview === 'offline' ? [] : [example];
   const keys = [...new Set([...Object.keys(feed.state.sources), ...Object.values(feed.state.observations).map(item => sourceKey(item.data))])].filter(key => key.startsWith(`${mode}:`));
@@ -46,14 +43,12 @@ export default function App() {
   const observations = base ? allObservations.filter(item => sourceKey(item) === activeSource) : allObservations;
   const status = feed.state.sources[activeSource];
   const offline = !observations.length;
-  const events = base ? feed.state.events.filter(event => event.source_type === mode || event.source_type === 'manual') : exampleEvents;
-  const alerts = Object.values(feed.state.alerts).filter(alert => (alert.source_type === mode || alert.source_type === 'manual') && alert.status !== 'resolved');
+  const events = base ? nurseSession.events : exampleEvents;
+  const alerts = Object.values(nurseSession.alerts).filter(alert => alert.status !== 'resolved');
   const incidentCount = base ? alerts.length : preview === 'alert' ? 1 : 0;
   const person = offline ? 'Unknown' : observations.some(o => o.person_detected) ? 'Visible' : 'Not visible';
   const face = offline ? 'Unknown' : observations.some(o => o.face_present === true) ? 'Visible' : observations.some(o => o.face_present === false) ? 'Not visible' : 'Not run';
   const features = observations.find(o => o.person_detected)?.features;
-  const fall = alerts.find(alert => alert.kind === 'possible_fall');
-  const fallAge = fall?.source_type === 'edge' ? Math.max(0, Math.floor((feed.now - Date.parse(fall.opened_at)) / 1000)) : null;
   function choosePreview(next: Preview) {
     setPreview(next); setAcknowledged(false);
     setPreviewStarted(next === 'alert' ? Date.now() : null);
@@ -67,12 +62,6 @@ export default function App() {
       try { localStorage.setItem('hearth-monitoring-address', url.origin); } catch { /* Connection still works without storage. */ }
     } catch { setError('Enter an HTTP or HTTPS monitoring address, such as http://127.0.0.1:8000.'); }
   }
-  async function acknowledge(id: string) {
-    if (!base) return;
-    setPending(id); setError('');
-    try { await acknowledgeAlert(base,id); } catch (e) { setError((e as Error).message); }
-    finally { setPending(null); }
-  }
   async function runFall() {
     if (!base) { choosePreview('alert'); return; }
     await simulation.command('fall');
@@ -84,8 +73,6 @@ export default function App() {
   const sourceLabel = base ? sourceLabels[mode] : 'UI preview';
   const roomStatus = offline ? 'Observation unknown' : incidentCount ? 'Possible fall / help alert' : base ? 'Observations available' : 'Preview · no incident';
   const sampleId = observations.find(o => o.person_detected)?.obs_id ?? 'unknown';
-  const previewAge = previewStarted ? Math.max(0, Math.floor((feed.now - previewStarted) / 1000)) : 0;
-  const displayAge = base ? fallAge : previewAge;
   return <main className="dashboard" id="overview">
     <a className="skip-link" href="#main-content">Skip to dashboard</a>
     <header className="page-header">
@@ -95,7 +82,7 @@ export default function App() {
 
     {(error || feed.error) && <p role="alert" className="error">{error || feed.error}</p>}
     <div id="main-content">
-    <div className="resident-mount" hidden={view !== 'resident'}><ResidentPanel key={base ?? 'preview'} base={base} connected={feed.connected} alerts={feed.state.alerts} /></div>
+    <div className="resident-mount" hidden={view !== 'resident'}><ResidentPanel key={base ?? 'preview'} base={base} connected={feed.connected} alerts={feed.state.alerts} appointments={appointments} /></div>
     {view === 'caregiver' && <>
       <div className="monitor-grid">
         <section className="card main-feed"><div className="section-heading"><h2>Main feed · {sourceLabel}</h2><span className="feed-mode">{base ? (mode === 'simulation' ? simulation.client?.connected : feed.connected) ? 'Connected' : 'Disconnected' : 'Example data'}</span></div>
@@ -109,17 +96,17 @@ export default function App() {
         </section>
         <aside className="monitor-side">
           <section className="card skeleton-card"><div className="section-heading"><h2>Skeleton feed</h2><span className="small">pose estimation</span></div><RoomView observations={observations} skeleton /></section>
-          <section className="card timeline-card">          <details className="alerts-card" id="alerts"><summary>Incident alerts · {incidentCount}</summary><div className="section-heading"><h2>Incident alerts</h2><span className="count-chip">{incidentCount}</span></div><div aria-live="polite">
-            {!base && preview === 'alert' ? <div className="alert"><span className="alert-label">Example incident</span><h3>Possible fall</h3><p>Example posture and alert for interface testing.</p><button disabled={acknowledged} onClick={() => { setAcknowledged(true); setExampleEvents(previous => [exampleEvent('alert_acknowledged'),...previous]); }}>{acknowledged ? 'Acknowledged in preview' : 'Acknowledge example'}</button></div> : base && alerts.length ? alerts.map(alert => <div className="alert" key={alert.alert_id}><span className="alert-label">{alert.status}</span><h3>{alert.kind.replaceAll('_',' ')}</h3><p>{sourceLabels[alert.source_type]} · {alert.source}</p><p className="small">Opened {new Date(alert.opened_at).toLocaleTimeString()}</p>{alert.recovered_at && <p>Recovery reported; review still needed.</p>}<button disabled={!feed.connected || alert.status !== 'open' || pending === alert.alert_id} onClick={() => acknowledge(alert.alert_id)}>{alert.status === 'acknowledged' ? 'Acknowledged' : pending === alert.alert_id ? 'Acknowledging…' : 'Acknowledge'}</button></div>) : <p className="empty">{offline ? 'Observations unavailable. Room safety is unknown.' : 'No active alerts in this view.'}</p>}
-            <p className="small">Acknowledging means the incident was seen. It does not resolve it.</p>
+          <section className="card timeline-card"><NurseControls base={base} session={nurseSession} />          <details className="alerts-card" id="alerts"><summary>Incident alerts · {incidentCount}</summary><div className="section-heading"><h2>Incident alerts</h2><span className="count-chip">{incidentCount}</span></div><div aria-live="polite">
+            {!base && preview === 'alert' ? <div className="alert"><span className="alert-label">Example incident</span><h3>Possible fall</h3><p>Example posture and alert for interface testing.</p><button disabled={acknowledged} onClick={() => { setAcknowledged(true); setExampleEvents(previous => [exampleEvent('alert_acknowledged'),...previous]); }}>{acknowledged ? 'Acknowledged in preview' : 'Acknowledge example'}</button></div> : base && alerts.length ? alerts.map(alert => <div className="alert" key={alert.alert_id}><span className="alert-label">{alert.kind === 'help_requested' ? alert.metadata.method === 'button' ? 'BUTTON REQUEST' : 'GESTURE REQUEST' : alert.status}</span><h3>{alert.kind.replaceAll('_',' ')}{alert.source_type === 'edge' && alert.metadata.identity_demo === true && typeof alert.metadata.resident_label === 'string' ? ` · ${alert.metadata.resident_label}` : ''}</h3><p>{sourceLabels[alert.source_type]} · {alert.source}</p><p className="small">Opened {new Date(alert.opened_at).toLocaleTimeString()}</p>{alert.recovered_at && <p>Recovery reported; review still needed.</p>}<p>{alert.accepted_by_name ? `Accepted by ${alert.accepted_by_name}` : 'No nurse has accepted yet.'}</p><button disabled={!nurseSession.connected || nurseSession.pending || !!alert.accepted_by && alert.accepted_by !== nurseSession.nurse?.nurse_id || !alert.accepted_by && !nurseSession.nurse?.on_duty} onClick={() => void nurseSession.action(alert.alert_id, alert.accepted_by === nurseSession.nurse?.nurse_id ? 'resolve':'accept')}>{alert.accepted_by === nurseSession.nurse?.nurse_id ? 'Resolve' : alert.accepted_by ? 'Assigned' : 'Accept request'}</button></div>) : <p className="empty">{offline ? 'Observations unavailable. Room safety is unknown.' : nurseSession.nurse ? 'No matching requests need attention.' : 'Start a nurse session to receive requests.'}</p>}
+            <p className="small">Accepting assigns the request to you. Resolve it after checking on the patient.</p>
           </div></details><div className="section-heading"><h2>Event log</h2><Icon name="clock" /></div>{!events.length ? <p className="empty">No events yet.</p> : <ol className="timeline">{events.slice(0,30).map(event => <li key={event.event_id}><time>{new Date(event.timestamp).toLocaleTimeString()}</time><strong>{event.event_type.replaceAll('_',' ')}</strong><span>{base ? `${sourceLabels[event.source_type]} · ${event.source}` : 'UI example'}</span></li>)}</ol>}</section>
         </aside>
       </div>
       <section className="posture-metrics" aria-label="Observation measurements">
         <div className="card"><h2 className="metric-heading"><span>Torso angle</span>{!base && <span className="metric-caption">red line = 60° alert · preview</span>}</h2><strong className="measurement">{features?.torso_angle_deg == null ? '—' : `${features.torso_angle_deg.toFixed(0)}°`}</strong><div className="bar"><i style={{ width: features?.torso_angle_deg == null ? '0%' : `${Math.min(100, features.torso_angle_deg / (!base ? 90 : 180) * 100)}%` }} />{!base && <b aria-label="60 degree preview alert marker" />}</div><FeatureSpark key={`${base}:${mode}:${activeSource}`} value={features?.torso_angle_deg ?? null} sampleId={sampleId} max={180} preview={!base} /><p className="small">{base ? 'Reported posture feature' : 'Example measurement'} · 0° is upright</p></div>
         <div className="card"><h2 className="metric-heading"><span>Hip position</span><span className="metric-caption">height from floor · unavailable</span></h2><strong className="measurement">{features?.hip_y == null ? '—' : features.hip_y.toFixed(2)}</strong><FeatureSpark key={`${base}:${mode}:${activeSource}`} value={features?.hip_y ?? null} sampleId={sampleId} max={1} preview={!base} /><p className="small">Image coordinate: 0 top, 1 bottom. Not centimeters.</p></div>
-        <div className="card"><h2 className="metric-heading"><span>{base ? 'Incident age' : 'Time down'}</span><span className="metric-caption">{base ? 'since possible-fall alert' : 'since fall detected · preview'}</span></h2><strong className="measurement">{displayAge == null || !Number.isFinite(displayAge) ? '—' : `${String(Math.floor(displayAge / 60)).padStart(2, '0')}:${String(displayAge % 60).padStart(2, '0')}`}</strong><p className="small">{!base ? preview === 'offline' ? 'Unknown · preview observations unavailable.' : preview === 'alert' ? 'Possible fall · example timer.' : 'No fall detected · preview only.' : fall ? fall.source_type === 'edge' ? 'Since this live possible-fall alert opened; not time on the floor.' : 'Not shown for simulation/replay clocks.' : 'No connected possible-fall incident.'}</p></div>
-        <AppointmentPanel compact preview={!base} />
+        <CareResponsePanel session={nurseSession} />
+        <AppointmentPanel compact scheduling preview={!base} feed={appointments} alerts={feed.state.alerts} />
       </section>
 
 

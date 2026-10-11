@@ -146,7 +146,7 @@ def test_room_snapshot_isolated(clock):
 
 def test_nurse_api_websocket_and_static_pages(service):
     with TestClient(create_app(service=service)) as client:
-        for path in ('/nurses','/room','/assets/nurse.js','/assets/room.js','/assets/style.css'):
+        for path in ('/assets/nurse.js','/assets/room.js','/assets/style.css'):
             assert client.get(path).status_code==200
         profile=client.post('/nurse-sessions',json=dict(display_name="Sam",room_ids=["room-01"],alert_kinds=["help_requested"],on_duty=True)).json()
         nurse_id=profile['nurse_id']

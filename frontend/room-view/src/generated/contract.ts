@@ -40,7 +40,7 @@ export interface HearthContract {
 export interface Alert {
   alert_id: string;
   event_id: string;
-  kind: "possible_fall" | "help_requested" | "source_offline";
+  kind: "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue";
   source: string;
   source_type: "edge" | "simulation" | "replay" | "manual";
   room_id: string;
@@ -96,7 +96,8 @@ export interface Event {
     | "source_online"
     | "alert_acknowledged"
     | "alert_resolved"
-    | "help_requested";
+    | "help_requested"
+    | "appointment_overdue";
   confidence: number | null;
   metadata: {
     [k: string]: unknown;
@@ -236,15 +237,24 @@ export interface NursePreferences {
   room_ids: [string, ...string[]];
   /**
    * @minItems 1
-   * @maxItems 3
+   * @maxItems 4
    */
   alert_kinds:
-    | ["possible_fall" | "help_requested" | "source_offline"]
-    | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+    | ["possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"]
     | [
-        "possible_fall" | "help_requested" | "source_offline",
-        "possible_fall" | "help_requested" | "source_offline",
-        "possible_fall" | "help_requested" | "source_offline"
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+      ]
+    | [
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+      ]
+    | [
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
       ];
   on_duty: boolean;
 }
@@ -261,15 +271,24 @@ export interface NurseProfile {
   room_ids: [string, ...string[]];
   /**
    * @minItems 1
-   * @maxItems 3
+   * @maxItems 4
    */
   alert_kinds:
-    | ["possible_fall" | "help_requested" | "source_offline"]
-    | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+    | ["possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"]
     | [
-        "possible_fall" | "help_requested" | "source_offline",
-        "possible_fall" | "help_requested" | "source_offline",
-        "possible_fall" | "help_requested" | "source_offline"
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+      ]
+    | [
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+      ]
+    | [
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+        "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
       ];
   on_duty: boolean;
   nurse_id: string;

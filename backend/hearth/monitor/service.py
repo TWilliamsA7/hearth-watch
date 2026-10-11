@@ -193,7 +193,7 @@ class MonitorService:
             if changed:
                 self.publish(SourceStatusMessage(data=entry.status))
 
-    def ingest(self, batch: list[Observation]) -> dict[str, int]:
+    def ingest(self, batch: list[Observation], *, patient_labels=None) -> dict[str, int]:
         # Validate the complete batch before applying anything.
         for obs in batch:
             self.validate_room(obs.room_id)
@@ -225,11 +225,24 @@ class MonitorService:
             if len(self.seen) > self.config.dedupe_capacity:
                 self.seen.popitem(last=False)
             events = self.detector.process(obs) + self.gestures.process(obs)
+            if not obs.person_detected and obs.person_id is None:
+                for detector in (self.detector, self.gestures):
+                    for tracked in tuple(detector.states):
+                        if tracked[:5] == source_key(obs) and len(tracked) > 5 and tracked[5] is not None:
+                            detector.invalidate(tracked)
             self.touch(obs, observation=True)
             self.observations[key] = obs
             self.publish(ObservationMessage(data=obs))
             for event in events:
                 if event.event_type in {"possible_fall", "help_requested"}:
+                    # Only the local recognition route supplies these labels, bound
+                    # to this exact observation. Ordinary ingest cannot assert a name.
+                    if patient_labels and obs.obs_id in patient_labels:
+                        label = patient_labels[obs.obs_id].copy()
+                        hand_matches_body = label.pop("_hand_matches_body", False)
+                        if (event.event_type != "help_requested" or event.metadata.get("method") != "hand_gesture"
+                                or hand_matches_body):
+                            event.metadata.update(label)
                     self.open_alert(event)
                     continue
                 if event.event_type == "recovered":

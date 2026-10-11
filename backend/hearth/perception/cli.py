@@ -82,7 +82,15 @@ def main(argv=None):
                         help="Score below which to retry; match backend model_confidence_min")
     parser.add_argument("--help-gesture", choices=["fist", "palm", "call"], default="fist",
                         help="Preview guidance only; backend hand_help_label controls alerts")
+    parser.add_argument("--patient-recognition", action="store_true",
+                        help="Opt-in staged patient demo: match faces locally and name fall alerts")
     args = parser.parse_args(argv)
+    if args.patient_recognition and (args.camera is None or args.dry_run):
+        parser.error("--patient-recognition requires a live --camera and local backend")
+    patient_client = None
+    if args.patient_recognition:
+        from .patient_client import PatientClient
+        patient_client = PatientClient(args.backend, args.room)
     if not math.isfinite(args.max_fps) or args.max_fps <= 0:
         parser.error("--max-fps must be positive and finite")
     if args.max_frames is not None and args.max_frames < 1:
@@ -194,7 +202,21 @@ def main(argv=None):
                 print(observation.model_dump_json(), flush=True)
             else:
                 try:
-                    response = post(args.backend, "/ingest/observations", {"observations": [observation.model_dump(mode="json")]})
+                    response = None
+                    if patient_client:
+                        try:
+                            response = patient_client.observe(frame, observation)
+                            identity = response.get("identity", {})
+                            name = identity.get("profile", {}).get("alias", "Identity unconfirmed")
+                            patient_caption = name + (" (recent match)" if identity.get("status") == "tracked" else "")
+                            print(f"patient: {name} ({identity.get('status', 'unknown')})", flush=True)
+                        except (OSError, ValueError) as exc:
+                            patient_client.close()
+                            if time.monotonic()-last_warning >= 5:
+                                print(f"Recognition unavailable; sending unnamed observation: {exc}", file=sys.stderr)
+                                last_warning = time.monotonic()
+                    if response is None:
+                        response = post(args.backend, "/ingest/observations", {"observations": [observation.model_dump(mode="json")]})
                     if response.get("stale", 0) or response.get("future", 0):
                         if time.monotonic()-last_warning >= 5:
                             print(f"Backend dropped frame outside live timestamp limits: {response}. "
@@ -231,6 +253,8 @@ def main(argv=None):
     except KeyboardInterrupt:
         pass
     finally:
+        if patient_client:
+            patient_client.close()
         if recorder is not None:
             recorder.close()
             print(f"Recorded {processed} observations to {recorder.path}", file=sys.stderr)

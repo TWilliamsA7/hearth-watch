@@ -7,7 +7,7 @@
 
 export type AlertId = string;
 export type EventId = string;
-export type Kind = "possible_fall" | "help_requested" | "source_offline";
+export type Kind = "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue";
 export type Source = string;
 export type SourceType = "edge" | "simulation" | "replay" | "manual";
 export type RoomId = string;
@@ -44,7 +44,8 @@ export type EventType =
   | "source_online"
   | "alert_acknowledged"
   | "alert_resolved"
-  | "help_requested";
+  | "help_requested"
+  | "appointment_overdue";
 export type Confidence = number | null;
 export type SchemaVersion1 = "1";
 export type ScenarioId2 = string;
@@ -128,15 +129,24 @@ export type DisplayName = string;
 export type RoomIds = [string, ...string[]];
 /**
  * @minItems 1
- * @maxItems 3
+ * @maxItems 4
  */
 export type AlertKinds =
-  | ["possible_fall" | "help_requested" | "source_offline"]
-  | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+  | ["possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"]
   | [
-      "possible_fall" | "help_requested" | "source_offline",
-      "possible_fall" | "help_requested" | "source_offline",
-      "possible_fall" | "help_requested" | "source_offline"
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+    ]
+  | [
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+    ]
+  | [
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
     ];
 export type OnDuty = boolean;
 export type DisplayName1 = string;
@@ -147,15 +157,24 @@ export type DisplayName1 = string;
 export type RoomIds1 = [string, ...string[]];
 /**
  * @minItems 1
- * @maxItems 3
+ * @maxItems 4
  */
 export type AlertKinds1 =
-  | ["possible_fall" | "help_requested" | "source_offline"]
-  | ["possible_fall" | "help_requested" | "source_offline", "possible_fall" | "help_requested" | "source_offline"]
+  | ["possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"]
   | [
-      "possible_fall" | "help_requested" | "source_offline",
-      "possible_fall" | "help_requested" | "source_offline",
-      "possible_fall" | "help_requested" | "source_offline"
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+    ]
+  | [
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
+    ]
+  | [
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue",
+      "possible_fall" | "help_requested" | "source_offline" | "appointment_overdue"
     ];
 export type OnDuty1 = boolean;
 export type NurseId1 = string;

@@ -12,6 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+face-demo = ["opencv-python>=4.10,<5", "pillow>=10,<13", "cryptography>=43,<47"]
 dev = ["pytest>=8,<10", "httpx>=0.27,<1"]
 vision = ["ultralytics>=8.3,<9", "opencv-python>=4.10,<5"]
 
