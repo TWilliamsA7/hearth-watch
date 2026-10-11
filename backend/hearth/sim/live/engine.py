@@ -228,6 +228,8 @@ class World:
                 self._end_walk(a, act.path)
             if act.failed:
                 abandon(a, self)
+                if a.incident:
+                    self.incidents.abandoned(a)
                 self.social.release_engaged(self, a)
                 a.cooldowns[a.intent] = self.t + 5.0
             elif not a.plan and a.intent in COOLDOWN_S:

@@ -142,6 +142,13 @@ class IncidentManager:
         a.incident = None
         w.replace_plan(a, get_up(a, w) if a.posture == "floor" else [], "reset")
 
+    def abandoned(self, a: Actor) -> None:
+        """Their plan was dropped (a walk failed): whatever incident it was carrying out is over."""
+        for rec in self.active():
+            if rec.person_id == a.person_id:
+                self._finish(a, rec)
+        a.incident = None
+
     def _finish(self, a: Actor, rec: IncidentRecord) -> None:
         if rec.t_end is None:
             rec.t_end = round(self.w.t, 3)
