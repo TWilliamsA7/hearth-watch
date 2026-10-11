@@ -18,6 +18,7 @@ from hearth.sim.generator import Stance, blend_stance
 from hearth.sim.motion import Key, timeline
 from hearth.sim.pose import (
     F_AXIS,
+    HEAD_JOINTS,
     KEY_POSES,
     L_AXIS,
     V_AXIS,
@@ -26,6 +27,7 @@ from hearth.sim.pose import (
     gait_amount,
     hips_of,
     lean,
+    rotate,
     smoothstep,
     stride_length,
     turn_limb,
@@ -48,13 +50,16 @@ def heading_to(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.atan2(b[0] - a[0], b[1] - a[1])
 
 
-def gait(actor: Actor, speed: float, dt: float, *, stepping: float = 0.0) -> BodyPose:
+def gait(actor: Actor, speed: float, dt: float, *, stepping: float = 0.0, backwards: bool = False,
+         stride: float = 1.0) -> BodyPose:  # fmt: skip
     """A standing body walking at `speed` m/s. The cycle advances with distance covered,
-    so the planted foot keeps pace with the floor; `stepping` adds a little stepping on
-    the spot (turning in place)."""
+    so the planted foot keeps pace with the floor (and runs the other way when stepping
+    backwards); `stepping` adds a little stepping on the spot (turning in place). `stride`
+    scales the step length: under 1, shorter quicker steps (a shuffle)."""
     size = actor.size
-    stride = stride_length(speed, size)
-    actor.gait_phase = (actor.gait_phase + 2.0 * math.pi * (speed * dt / stride + stepping * dt * 0.9)) % (2 * math.pi)
+    stride = stride_length(speed, size) * stride
+    ahead = -1.0 if backwards else 1.0
+    actor.gait_phase = (actor.gait_phase + 2.0 * math.pi * (ahead * speed * dt / stride + stepping * dt * 0.9)) % (2 * math.pi)
     fade = min(1.0, max(speed / STILL_SPEED, stepping * 1.5))
     if fade <= 0.01:
         return dict(KEY_POSES["standing"])
@@ -86,7 +91,7 @@ def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0
     step = HEAD_TURN_RATE * dt
     actor.look_yaw += max(-step, min(step, want - actor.look_yaw))
     if abs(actor.look_yaw) > 1e-3 and actor.posture != "floor":
-        out = turn_limb(out, "neck", V_AXIS, actor.look_yaw)
+        out = turn_head(out, actor.look_yaw)
     # Talking: a forearm comes up now and then, as people gesture.
     target = 0.0
     if talking:
@@ -99,6 +104,13 @@ def idle(actor: Actor, pose: BodyPose, t: float, dt: float, *, sway: float = 1.0
         out = turn_limb(out, f"{side}_shoulder", L_AXIS, -math.radians(18) * g)
         out = turn_limb(out, f"{side}_elbow", L_AXIS, -math.radians(65) * g)
     return out
+
+
+def turn_head(pose: BodyPose, yaw: float) -> BodyPose:
+    """Turn the head on the neck (about the body's own up axis). Not turn_limb("neck"): that
+    swings the shoulders and arms round with it."""
+    neck = pose["neck"]
+    return {j: rotate(p, V_AXIS, yaw, neck) if j in HEAD_JOINTS else p for j, p in pose.items()}
 
 
 def stance(actor: Actor) -> Stance:

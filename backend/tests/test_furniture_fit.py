@@ -15,7 +15,7 @@ import math
 import pytest
 
 from hearth.sim.live.activities import Hold, Walk, get_up, lie_plan, lie_stance, release, reserve, seat_stance, sit_plan
-from hearth.sim.live.animate import world_pose
+from hearth.sim.live.animate import idle, world_pose
 from hearth.sim.live.engine import World
 from hearth.sim.live.fit import Overlap, penetration, seat_gap
 from hearth.sim.live.room import KINDS, Piece, Slot, _slots, generate_room
@@ -80,6 +80,25 @@ def test_fit_follows_the_piece_round(rotation: float) -> None:
             assert penetration(joints, piece, 1.69).depth <= TOL, f"{kind} turned {rotation:.2f}: {slot.slot_id}"
 
 
+@pytest.mark.parametrize("size", HEIGHTS)
+@pytest.mark.parametrize("kind", ("armchair", "couch", "loveseat"))
+def test_talking_and_swaying_while_seated_keep_clear_of_the_arms(kind: str, size: float) -> None:
+    w, a = _stage(kind, size)
+    for piece, slot in _stance_case(kind, "sit"):
+        st = seat_stance(slot, size)
+        a.pos, a.heading, a.base, a.posture, a.rest_pose = (st.x, st.z), st.heading, st.base, "sitting", st.body
+        a.slots = [slot.slot_id]
+        a.look_at = None
+        for phase in (0.5, 1.5):  # one arm, then the other
+            a.idle_phase, a.gesture = phase, 1.0
+            for k in range(200):
+                t = k * 0.1
+                a.body = idle(a, st.body, t, 0.1, sway=1.0, talking=True)
+                a.gesture = 1.0
+                o = penetration(world_pose(a), piece, size, 1.15)
+                assert o.depth <= TOL, f"{slot.slot_id} at t={t:.1f}: {o}"
+
+
 def test_the_measure_sees_a_body_inside_furniture() -> None:
     piece = Piece(0, KINDS["bed"], (0.0, -2.0), 0.0)
     joints = body(KEY_POSES["standing"], 0.0, piece.at[0], piece.at[1], 0.0, 1.69)  # standing in the bed
@@ -110,7 +129,9 @@ def _stage(kind: str, size: float) -> tuple[World, object]:
 
 def _run(w: World, a, plan: list, pieces: list[Piece], limit: float = 40.0) -> Overlap:
     """Carry out a plan; the worst overlap with `pieces` over every frame not spent walking."""
+    held = [w.room.slot(s) for s in a.slots]
     w.replace_plan(a, plan + [Hold(math.inf, "done")], "test")
+    reserve(a, w, *held)  # replace_plan frees seats the person isn't in yet; the planners' callers don't
     worst = Overlap(-1e9, "", "")
     t0 = w.t
     while not (isinstance(a.activity, Hold) and a.activity.name == "done"):
@@ -125,7 +146,6 @@ def _run(w: World, a, plan: list, pieces: list[Piece], limit: float = 40.0) -> O
     return worst
 
 
-@UNFITTED
 @pytest.mark.parametrize("size", HEIGHTS)
 @pytest.mark.parametrize("kind", SEATED)
 def test_sitting_down_and_standing_up_stay_out_of_the_furniture(kind: str, size: float) -> None:

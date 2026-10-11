@@ -323,14 +323,16 @@ def _length(points: list[Floor]) -> float:
 
 
 class Step(Activity):
-    """A short, straight, unhurried step (into a seat, through a door), ignoring furniture."""
+    """A short, straight, unhurried step (back to a seat, through a door), ignoring furniture.
+    face=False keeps the heading, stepping backwards if the step goes behind."""
 
     name = "stepping"
     label = "walking"
 
-    def __init__(self, to: Floor, *, speed: float = 0.45, name: str = "stepping", face: bool = True) -> None:
+    def __init__(self, to: Floor, *, speed: float = 0.45, name: str = "stepping", face: bool = True,
+                 stride: float = 1.0) -> None:  # fmt: skip
         super().__init__()
-        self.to, self.speed, self.name, self.face = to, speed, name, face
+        self.to, self.speed, self.name, self.face, self.stride = to, speed, name, face, stride
         self.waited = 0.0
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
@@ -359,7 +361,8 @@ class Step(Activity):
             turn = wrap(math.atan2(dx, dz) - a.heading)
             step = TURN_RATE * dt
             a.heading = wrap(a.heading + max(-step, min(step, turn)))
-        a.body = gait(a, sp, dt)
+        backwards = dx * math.sin(a.heading) + dz * math.cos(a.heading) < 0
+        a.body = gait(a, sp, dt, backwards=backwards, stride=self.stride)
         return self.tau > 8.0
 
 
@@ -391,11 +394,14 @@ class Transition(Activity):
 
     def __init__(self, pose: str | BodyPose, duration: float, *, name: str, label: str, posture: Posture,
                  root: Floor | None = None, heading: float | None = None, base: float | None = None,
-                 on_end: Callable[[Actor, World], None] | None = None) -> None:  # fmt: skip
+                 on_end: Callable[[Actor, World], None] | None = None, lag: float = 1.0) -> None:  # fmt: skip
+        """lag > 1: the root moves later than the body changes shape (lowering onto a seat
+        before settling back into it); lag < 1: sooner (weight forward over the feet before
+        rising)."""
         super().__init__()
         self.pose = KEY_POSES[pose] if isinstance(pose, str) else pose
         self.duration, self.name, self.label, self.posture = duration, name, label, posture
-        self.root, self.heading, self.base, self.on_end = root, heading, base, on_end
+        self.root, self.heading, self.base, self.on_end, self.lag = root, heading, base, on_end, lag
 
     def begin(self, a: Actor, w: World) -> None:
         st = stance(a)
@@ -406,7 +412,12 @@ class Transition(Activity):
         a.velocity = (0.0, 0.0)
 
     def tick(self, a: Actor, w: World, dt: float) -> bool:
-        apply(a, self.blend.at(self.tau))
+        st = self.blend.at(self.tau)
+        if self.lag != 1.0 and not self.blend.done(self.tau):
+            s, e = self.blend.start, self.blend.end
+            k = self.blend.ease((self.tau / self.duration) ** self.lag)
+            st = Stance(st.body, st.heading, s.x + (e.x - s.x) * k, s.z + (e.z - s.z) * k, st.base)
+        apply(a, st)
         if self.blend.done(self.tau):
             a.posture = self.posture
             return True
@@ -558,7 +569,7 @@ def get_up(a: Actor, w: World) -> list[Activity]:
         seat = _slot_of(a, w, "sit")
         root = seat.stand_point(a.size) if seat else None
         return [Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                           root=root, on_end=_releaser(a))]  # fmt: skip
+                           root=root, on_end=_releaser(a), lag=0.67)]  # fmt: skip
     if a.posture == "lying":
         lie = _slot_of(a, w, "lie")
         entry = w.room.slot(lie.entry) if lie and lie.entry and lie.entry in w.room._slot_index else None
@@ -569,7 +580,7 @@ def get_up(a: Actor, w: World) -> list[Activity]:
         if entry is not None and entry.slot_id not in a.slots:
             a.slots.append(entry.slot_id)
         stand = Transition("standing", 1.5 * pace, name="standing up", label="standing", posture="standing",
-                           root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a))  # fmt: skip
+                           root=entry.stand_point(a.size) if entry else None, on_end=_releaser(a), lag=0.67)  # fmt: skip
         return [sit_up, stand]
     if a.posture == "floor":
         return [PlayMotion("get_up", name="getting up", label="standing", posture="standing", pace=pace)]
@@ -594,7 +605,8 @@ def _to(st: Stance, duration: float, **kw) -> Transition:
 
 
 def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
-    """Walk to a seat, step in front of it, turn round and sit down (slot already reserved)."""
+    """Walk up to a seat, turn round on open floor, step back to it and sit down (slot already
+    reserved). Turning at the seat itself would sweep the feet through its front."""
     approach = w.room.approach(seat, a.size)
     if approach is None:
         return None
@@ -603,9 +615,9 @@ def sit_plan(a: Actor, w: World, seat: Slot) -> list[Activity] | None:
     ignore = frozenset({piece.index})
     return [
         Walk(approach, purpose="to a seat", ignore=ignore, stop_short_ok=False),
-        Step(seat.stand_point(a.size), speed=0.4, name="stepping up"),
         Turn(seat.heading),
-        _to(seat_stance(seat, a.size), 1.4 * pace, name="sitting down", label="sitting", posture="sitting"),
+        Step(seat.stand_point(a.size), speed=0.3, name="stepping back", face=False, stride=0.35),
+        _to(seat_stance(seat, a.size), 1.4 * pace, name="sitting down", label="sitting", posture="sitting", lag=1.5),
     ]
 
 
