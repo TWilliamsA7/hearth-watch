@@ -27,7 +27,6 @@ import {
   type StudioSettings,
 } from "../src";
 
-
 type FallMotion = "trip" | "faint" | "collapse" | "sit_miss" | "stand_up";
 
 const ROOM_ID = "room-01";
