@@ -247,9 +247,12 @@ class World:
         for p in r.pieces:
             sx, sz = p.size
             h = p.kind.h
-            objects.append(WorldObject(kind=LEGACY_KIND[p.kind.name], center=(p.at[0], round(h / 2, 3), p.at[1]),  # type: ignore[arg-type]
+            k = p.kind
+            objects.append(WorldObject(kind=LEGACY_KIND[k.name], center=(p.at[0], round(h / 2, 3), p.at[1]),  # type: ignore[arg-type]
                                        size=(round(sx, 3), round(h, 3), round(sz, 3)), rotation=round(p.rotation, 4),
-                                       variant=p.kind.name))  # fmt: skip
+                                       variant=k.name, seat_height=k.seat or None, surface_height=k.surface or None,
+                                       arm_width=k.arm or None, arm_height=k.arm_h or None,
+                                       back_depth=k.back or None))  # fmt: skip
         return WorldRoom(
             width_front=r.width, width_back=r.width, depth=r.depth, height=r.height,
             camera_position=_r3(cam.position), camera_target=_r3(cam.target), camera_fov=cam.fov,

@@ -22,6 +22,7 @@ const cache = new Map<string, THREE.Texture>();
 function canvasTexture(key: string, size: number, draw: (ctx: CanvasRenderingContext2D, size: number) => void): THREE.Texture {
   const hit = cache.get(key);
   if (hit) return hit;
+  if (typeof document === "undefined") return new THREE.Texture(); // no DOM (tests): untextured
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d")!;

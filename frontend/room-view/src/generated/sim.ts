@@ -651,6 +651,26 @@ export interface WorldObject {
    * The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind.
    */
   variant: string | null;
+  /**
+   * Metres: top of the seat. None = not for sitting, or unknown.
+   */
+  seat_height: number | null;
+  /**
+   * Metres: top of what someone lies on.
+   */
+  surface_height: number | null;
+  /**
+   * Metres: width of each arm (armchairs, couches).
+   */
+  arm_width: number | null;
+  /**
+   * Metres: top of the arms.
+   */
+  arm_height: number | null;
+  /**
+   * Metres the backrest (or a bed's headboard) comes forward from the back of the piece.
+   */
+  back_depth: number | null;
 }
 /**
  * This interface was referenced by `HearthSimApi`'s JSON-Schema

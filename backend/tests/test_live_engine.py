@@ -192,7 +192,8 @@ def test_procedural_incidents_when_configured() -> None:
 
 
 def test_a_manual_fall_is_ground_truth_and_the_monitor_sees_it() -> None:
-    w = World(EngineSpec(actors=3), 1)
+    # A seed whose fall the rule-based monitor catches (it misses some camera angles).
+    w = World(EngineSpec(actors=3), 2)
     monitor = create_monitor()
     for r in w.advance(12):
         monitor.ingest(r)

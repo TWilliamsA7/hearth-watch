@@ -2422,6 +2422,71 @@
           "default": null,
           "description": "The full kind for live rooms (armchair, table, bookshelf...); kind is the nearest ObjectKind.",
           "title": "Variant"
+        },
+        "seat_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: top of the seat. None = not for sitting, or unknown.",
+          "title": "Seat Height"
+        },
+        "surface_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: top of what someone lies on.",
+          "title": "Surface Height"
+        },
+        "arm_width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: width of each arm (armchairs, couches).",
+          "title": "Arm Width"
+        },
+        "arm_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres: top of the arms.",
+          "title": "Arm Height"
+        },
+        "back_depth": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metres the backrest (or a bed's headboard) comes forward from the back of the piece.",
+          "title": "Back Depth"
         }
       },
       "required": [
@@ -2429,7 +2494,12 @@
         "center",
         "size",
         "rotation",
-        "variant"
+        "variant",
+        "seat_height",
+        "surface_height",
+        "arm_width",
+        "arm_height",
+        "back_depth"
       ],
       "title": "WorldObject",
       "type": "object"

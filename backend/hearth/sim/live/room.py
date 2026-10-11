@@ -41,7 +41,13 @@ SIT_FEET_F = 0.20  # body units: how far in front of the root the feet are in po
 
 @dataclass(frozen=True)
 class Kind:
-    """A kind of furniture: size (local width x, depth z, height) and what it's for."""
+    """A kind of furniture: size (local width x, depth z, height) and what it's for.
+
+    The parts people touch are measured here, and only here: the 3D view draws them from
+    these numbers (WorldObject.seat_height...) and bodies are fitted to them, so what's
+    drawn and where people sit can't drift apart. Heights are metres above the floor;
+    depths are from the back of the piece.
+    """
 
     name: str
     w: float
@@ -49,16 +55,21 @@ class Kind:
     h: float
     walkable: bool = False  # a rug
     view_blocking: bool = False  # tall enough to hide people from the camera
+    seat: float = 0.0  # top of the seat (what someone sitting rests on); 0 = not for sitting
+    surface: float = 0.0  # top of what someone lies on; 0 = not for lying
+    arm: float = 0.0  # width of each arm
+    arm_h: float = 0.0  # top of the arms
+    back: float = 0.0  # how far the backrest (or headboard) comes forward from the back
 
 
 KINDS: dict[str, Kind] = {
     k.name: k
     for k in (
-        Kind("chair", 0.48, 0.5, 0.9),
-        Kind("armchair", 0.85, 0.85, 0.95),
-        Kind("couch", 2.0, 0.9, 0.85),
-        Kind("loveseat", 1.5, 0.88, 0.85),
-        Kind("bed", 1.05, 2.05, 0.55),
+        Kind("chair", 0.48, 0.5, 0.9, seat=0.485, back=0.05),
+        Kind("armchair", 0.92, 0.85, 0.95, seat=0.43, arm=0.09, arm_h=0.62, back=0.31),
+        Kind("couch", 2.0, 0.9, 0.85, seat=0.43, surface=0.43, arm=0.16, arm_h=0.62, back=0.31),
+        Kind("loveseat", 1.5, 0.88, 0.85, seat=0.43, surface=0.43, arm=0.16, arm_h=0.62, back=0.31),
+        Kind("bed", 1.05, 2.05, 0.55, seat=0.565, surface=0.565, back=0.06),
         Kind("table", 1.4, 0.85, 0.75),
         Kind("side_table", 0.5, 0.5, 0.55),
         Kind("cabinet", 1.4, 0.45, 0.65),
@@ -75,8 +86,45 @@ LEGACY_KIND: dict[str, str] = {
 }  # fmt: skip
 """The nearest of the scripted pipeline's ObjectKinds (WorldObject.kind); the full kind is WorldObject.variant."""
 
-SURFACE_M: dict[str, float] = {"bed": 0.56, "couch": 0.44, "loveseat": 0.44}
-"""Height of what someone lies on."""
+HEADBOARD_H_M = 0.95  # top of a bed's headboard
+
+
+@dataclass(frozen=True)
+class Box:
+    """A solid part of a piece, in its own axes: lx towards its left, lz towards its front, y up."""
+
+    part: str
+    lx: tuple[float, float]
+    y: tuple[float, float]
+    lz: tuple[float, float]
+
+    def depth(self, p: tuple[float, float, float]) -> float:
+        """How far a local point is inside (positive) or outside (negative)."""
+        return min(p[0] - self.lx[0], self.lx[1] - p[0], p[1] - self.y[0], self.y[1] - p[1],
+                   p[2] - self.lz[0], self.lz[1] - p[2])  # fmt: skip
+
+
+def collision_boxes(piece: Piece) -> list[Box]:
+    """The solid parts of a piece that bodies must stay out of, from the same Kind numbers the
+    3D view draws. Soft parts (cushion tops, pillows, blankets) are the boxes' tops."""
+    k = piece.kind
+    w, d = k.w / 2, k.d / 2
+    if k.walkable:
+        return []
+    if k.name == "chair":
+        return [Box("seat", (-w, w), (0.0, k.seat), (-d, d)), Box("back", (-w, w), (k.seat, k.h), (-d, -d + k.back))]
+    if k.name in ("armchair", "couch", "loveseat"):
+        inner = w - k.arm
+        return [
+            Box("seat", (-inner, inner), (0.0, k.seat), (-d, d)),
+            Box("back", (-inner, inner), (k.seat, k.h), (-d, -d + k.back)),
+            Box("arm", (-w, -inner), (0.0, k.arm_h), (-d, d)),
+            Box("arm", (inner, w), (0.0, k.arm_h), (-d, d)),
+        ]
+    if k.name == "bed":
+        return [Box("mattress", (-w, w), (0.0, k.surface), (-d, d)),
+                Box("headboard", (-w, w), (k.surface, HEADBOARD_H_M), (-d, -d + k.back))]  # fmt: skip
+    return [Box("body", (-w, w), (0.0, k.h), (-d, d))]
 
 
 def forward(heading: float) -> Floor:
@@ -115,6 +163,12 @@ class Piece:
         fx, fz = forward(self.rotation)
         rx, rz = fz, -fx  # the piece's own left, as world.body's "l" axis
         return (self.at[0] + rx * lx + fx * lz, self.at[1] + rz * lx + fz * lz)
+
+    def to_local(self, p: tuple[float, float, float]) -> tuple[float, float, float]:
+        """A world point (x, y, z) in the piece's own axes (lx, y, lz), as Box uses."""
+        fx, fz = forward(self.rotation)
+        dx, dz = p[0] - self.at[0], p[2] - self.at[1]
+        return (dx * fz - dz * fx, p[1], dx * fx + dz * fz)
 
 
 @dataclass
@@ -483,13 +537,13 @@ def _slots(pieces: list[Piece]) -> list[Slot]:
                 out.append(Slot(f"{g}-sit{i + 1}", p.index, "sit", _r(p.local(lx, 0.12)), rot, 0.0, g))
             # Lying along it, head on the first seat's arm.
             out.append(Slot(f"{g}-lie", p.index, "lie", _r(p.local(0.0, 0.05)), rot + math.pi / 2,
-                            SURFACE_M[name], g, entry=f"{g}-sit1"))  # fmt: skip
+                            k.surface, g, entry=f"{g}-sit1"))  # fmt: skip
         elif name == "bed":
             # Sit on the long side away from the nearer wall, then lie with the head at the headboard.
             for side, sign in (("a", 1.0), ("b", -1.0)):
                 at = p.local(sign * (k.w / 2 - 0.2), 0.15)
                 out.append(Slot(f"{g}-sit{side}", p.index, "sit", _r(at), rot + sign * math.pi / 2, 0.0, g))
-            out.append(Slot(f"{g}-lie", p.index, "lie", _r(p.local(0.0, 0.05)), rot, SURFACE_M["bed"], g,
+            out.append(Slot(f"{g}-lie", p.index, "lie", _r(p.local(0.0, 0.05)), rot, k.surface, g,
                             entry=f"{g}-sita"))  # fmt: skip
     return out
 
