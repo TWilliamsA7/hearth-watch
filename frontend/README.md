@@ -111,3 +111,6 @@ Click a resident to select them, drag to orbit, and scroll to zoom. **Simulate f
 The main feed shows simulated world positions. The skeleton, measurements, events, and incident alerts still come from the monitoring feed and may differ from ground truth. Live camera and Recorded replay retain their observation views. Scripted scenario controls remain separate: playing a scripted scenario pauses the live room, and its Play button resumes it.
 
 The backend must remain running. If it is unavailable, the main feed shows a disconnected state and reconnects automatically. Use **Retry connection** after a request failure. WebGL 2 and browser hardware acceleration are required for the 3D view. The mannequin asset and its license are bundled locally in `room-view/assets/models`.
+### Wrong-server error (404)
+
+A 404 on `/sim/live/status` means the connected server does not expose the live simulation API. Connect to the standard `hearth.api.app:app` backend rather than an older running demo server. If port 8000 is already occupied, run the standard backend with `--port 8001`, then set **Connection settings → Return to preview → Monitoring server address** to `http://127.0.0.1:8001` and choose **Connect to monitoring**. The dashboard remembers the last connected address across reloads.

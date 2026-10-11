@@ -19,7 +19,14 @@ export function ensureLiveRoom(base: string): Promise<void> {
   const pending = starting.get(base);
   if (pending) return pending;
   const task = (async () => {
-    const status = await request<LiveStatus>(base, '/sim/live/status');
+    let status: LiveStatus;
+    try { status = await request<LiveStatus>(base, '/sim/live/status'); }
+    catch (e) {
+      if ((e as Error).message.includes('(404)')) {
+        throw new Error('This server does not support the live 3D simulation. In Connection settings, connect to the standard monitoring backend. If it is running on port 8001, use http://127.0.0.1:8001.');
+      }
+      throw e;
+    }
     if (status.state !== 'idle') return;
     await liveCommand<LiveWorld>(base, 'new', {
       seed: 7, play: true,

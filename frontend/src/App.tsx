@@ -14,14 +14,24 @@ import AppointmentPanel from './AppointmentPanel';
 import FeatureSpark from './FeatureSpark';
 
 const sourceLabels = { edge: 'Live camera', simulation: 'Simulation', replay: 'Recorded replay', manual: 'Manual request' };
+function savedBackendAddress() {
+  try {
+    const saved = localStorage.getItem('hearth-monitoring-address');
+    if (saved) {
+      const url = new URL(saved);
+      if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) return url.origin;
+    }
+  } catch { /* Storage may be unavailable; use the standard local backend. */ }
+  return 'http://127.0.0.1:8000';
+}
 export default function App() {
   const [preview, setPreview] = useState<Preview>('standing');
   const example = useMemo(() => exampleObservation(preview), [preview]);
   const [view, setView] = useState<'caregiver' | 'resident'>('caregiver');
   const [exampleEvents, setExampleEvents] = useState<Event[]>([]);
   const [acknowledged, setAcknowledged] = useState(false);
-  const [address, setAddress] = useState('http://127.0.0.1:8000');
-  const [base, setBase] = useState<string | null>('http://127.0.0.1:8000');
+  const [address, setAddress] = useState(savedBackendAddress);
+  const [base, setBase] = useState<string | null>(savedBackendAddress);
   const [mode, setMode] = useState<SourceMode>('simulation');
   const [selectedSource, setSelectedSource] = useState('');
   const [error, setError] = useState('');
@@ -53,6 +63,7 @@ export default function App() {
       const url = new URL(address);
       if (!['http:','https:'].includes(url.protocol) || url.username || url.password) throw new Error();
       setBase(url.origin); setError('');
+      try { localStorage.setItem('hearth-monitoring-address', url.origin); } catch { /* Connection still works without storage. */ }
     } catch { setError('Enter an HTTP or HTTPS monitoring address, such as http://127.0.0.1:8000.'); }
   }
   async function acknowledge(id: string) {

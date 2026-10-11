@@ -33,7 +33,7 @@ test('failed startup can be retried and commands report backend errors', async (
   const original = globalThis.fetch;
   globalThis.fetch = async () => new Response('', { status: 404 });
   try {
-    await assert.rejects(ensureLiveRoom('http://127.0.0.1:8000'), /404/);
+    await assert.rejects(ensureLiveRoom('http://127.0.0.1:8000'), /does not support the live 3D simulation/);
     await assert.rejects(liveCommand('http://127.0.0.1:8000', 'incidents', { kind: 'fall' }), /404/);
     globalThis.fetch = async () => new Response(JSON.stringify({ state: 'playing' }));
     await ensureLiveRoom('http://127.0.0.1:8000');
