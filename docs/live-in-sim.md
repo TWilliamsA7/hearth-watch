@@ -25,22 +25,76 @@ Jetson (run_edge.py, poseNet) ──POST /ingest/observations──▶ MonitorSe
 - **What the engine never does with them:** they get no ground truth, no behaviour and no incidents. The simulated camera never reports them, because their own camera does.
 - **Pausing.** The live person keeps moving while the simulation is paused.
 
-## Set up the tracked area (do this once)
+## Calibration, step by step
 
-The real room is larger than one camera can track well. Track part of it:
+Calibration makes the simulated camera match the real one. The avatar is placed by casting
+rays from the simulated camera, so any mismatch shows up as the avatar standing in the wrong place.
 
-1. **Tape a rectangle on the floor**, for example 5 m wide and 4 m deep, and put an **X at its centre**.
-2. **Mount the camera high above one front corner**, 2.2–2.5 m up, aimed at the X and tilted 30–35° down.
-   - Why: from a camera at head height, looking level, the floor only comes into view about 4 m away. Feet and knees drop out of frame, and depth has to be guessed from body proportions. From a high corner, your feet stay in view across the area, and position errors roughly halve.
-3. In the Studio's **Live camera** panel:
-   - set the area's width and depth, and which corner the camera is in;
-   - press **Live: tracked area**. The simulated room becomes the taped area, empty, seen from that corner.
-4. **Calibrate:**
-   - **1 · Walk:** for 12 s, walk slowly all over the area (near, far, left, right), upright. This solves the camera's height and tilt.
-   - **2 · Stand on X:** for 3 s, stand still on the centre mark. This solves which way the camera points.
-5. **Check coverage.** Turn on the **Camera FOV** overlay. The shaded floor is what the camera sees. Then walk to each corner of the tape and to the X: the avatar should be within about 20 cm of the same spot.
+### What you need
 
-When you step outside the tape, the avatar leaves the room, and the link reports `outside`.
+| Item | Why | How exact |
+|---|---|---|
+| The camera mounted **2.2–2.5 m up**, above a front corner of the space, aimed at its middle and tilted **30–35° down** | Keeps your feet in view across the area. From head height, the floor only appears about 4 m out | Roughly; calibration measures the real height and tilt |
+| The area's **width and depth**, and **which corner** (left or right) the camera is above | Sets the simulated room and where "outside the area" begins | ±30 cm is fine; measure, pace or estimate |
+| A **marker at the centre** of the area (a coin, a sticky note, a tile joint) | Step 2 works out which way the camera points | Within about 10–20 cm of the true centre |
+| **Your height** | Every measurement is scaled by it | ±3 cm; a wrong height scales the camera height by the same proportion |
+| Tape at the edges (optional) | Shows you the boundary; makes the final check easy | — |
+
+Before you start:
+- Jetson connected: `ping 192.168.55.1` replies, with the network fixes in place (fixed IP on the Jetson adapter, its NCM adapter disabled).
+- `run_edge.py` running on the Jetson.
+- Backend and Studio running.
+- Good, even lighting; no other people in view.
+- Plain clothes help poseNet find your joints.
+
+### Step 0 · Set up the room in the Studio (1 minute)
+1. Open the Studio. In **Live camera**, set **Source** `jetson-01`, **Their height**, **Area width / depth**, and **Camera at** (left or right corner).
+2. Press **Live: tracked area**. The simulated room becomes the area, seen from that corner. The link turns **live** when you're in view.
+3. Turn on the **Camera FOV** overlay. The shaded floor is roughly what the camera sees; it gets accurate after calibration.
+4. Quick check: stand in the middle. The skeleton should show your **head and at least your hips or knees** (switch the bottom panel's **Real camera** chip on to see the Jetson's 2D skeleton). If your head is cut off, tilt the camera less. If only your head shows, move further away or tilt more.
+
+### Step 1 · Walk (12 s): finds height and tilt
+1. Stand inside the area, upright, facing roughly towards the camera.
+2. Press **1 · Calibrate: walk**, then for 12 seconds **walk slowly all over the area**: near and far, left and right. Keep upright: no bending, crouching or sitting.
+3. On success it shows: *Camera set: 2.31 m up, tilted 31.4° (fit ±5 px, 64 frames). Now step 2.*
+   - A fit under about 8 px is good, and 8–12 px is usable. The result is applied straight away.
+
+What it checks, and what to do when it fails:
+
+| Message | Meaning | Fix |
+|---|---|---|
+| *only N usable frames (need 10)* | Fewer than 10 frames showed your head **and** a hip or knee | Stay in view and upright. Step back if you're too close. Check lighting |
+| *you stayed in one place* | Your position in the image didn't change enough (less than 15% of the width or 5% of the height) | Walk further: corner to corner, and front to back |
+| *the fit is poor* | The frames don't agree on one camera (fit worse than 12 px) | Stay upright the whole time, check **Their height**, and make sure nobody else is in view |
+| *no camera height and tilt fits* | Nothing between 1.0–3.0 m and 15° up to 60° down explains what it saw | The camera is outside that range, or the lens isn't the C270 (43°) |
+
+### Step 2 · Stand on the centre marker (3 s): finds which way the camera points
+1. Stand **on the centre marker**, upright and still, facing the camera.
+2. Press **2 · Calibrate: stand on X**. It shows: *Direction set: turned 4.2° (you stood 9 cm from where the X should be).*
+3. If "you stood … from the X" is more than about 30 cm, either the area size or camera corner in Step 0 doesn't match reality, or Step 1's height is off. Fix that and redo both steps.
+
+| Message | Fix |
+|---|---|
+| *only N usable frames* | Head and hips or knees in view; hold still for the full 3 s |
+| *couldn't place you on the floor* | Run Step 1 first |
+| *the camera seems turned more than 60°* | Aim the camera at the centre and redo it |
+
+You can skip Step 2 if the camera is aimed carefully at the centre; the software then assumes it points dead centre.
+
+### Step 3 · Check (2 minutes)
+1. Walk to each **corner of the area** and to the **centre**. Each time, check the avatar is at the same spot in the simulated room, within about **20 cm**.
+2. Stand still for 5 s: the avatar should stay put, not drift.
+3. Step **outside** the area: after about 1 s the panel says *Outside the tracked area* and the avatar leaves.
+4. Raise an arm, then sit on a chair in the area: the arm and the seated posture should show on the avatar.
+
+If a corner is badly off, redo Step 1 and walk more evenly across the whole area, and to that corner in particular.
+
+### Redo calibration when…
+- the camera moves or is bumped, or its angle changes;
+- you change the area size or corner;
+- someone of a different height uses it: set **Their height** first.
+
+It isn't saved yet. After a backend restart, run Steps 0–2 again; it takes about a minute.
 
 ## Run it
 
