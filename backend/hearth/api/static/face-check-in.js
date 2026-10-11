@@ -42,12 +42,12 @@ async function refresh() {
     const remove = document.createElement('button'); remove.textContent = 'Withdraw & delete'; remove.className = 'secondary';
     remove.onclick = async () => { try { await stop(); await api(`/face-demo/profiles/${profile.profile_id}`, 'DELETE'); await refresh(); say('Enrollment deleted. Recognition has stopped.'); } catch (error) { say(error.message); } };
     const link = document.createElement('button'); link.textContent = 'Link selected appointment'; link.className = 'secondary';
-    link.onclick = async () => { try { const id = $('appointment').value; if (!id) throw new Error('Select an open demo appointment first.'); await api(`/face-demo/profiles/${profile.profile_id}/appointments/${id}`, 'POST'); say(`Appointment linked to ${profile.alias}. No new face enrollment needed.`); } catch (error) { say(error.message); } };
+    link.onclick = async () => { try { const id = $('appointment').value; if (!id) throw new Error('Select an open appointment first.'); await api(`/face-demo/profiles/${profile.profile_id}/appointments/${id}`, 'POST'); say(`Appointment linked to ${profile.alias}. No new face enrollment needed.`); } catch (error) { say(error.message); } };
     row.append(label, link, remove);
     for (const appointmentId of profile.appointment_ids || []) {
       const appointment = appointments.find(item => item.appointment_id === appointmentId);
       const unlink = document.createElement('button'); unlink.className = 'secondary';
-      unlink.textContent = appointment ? `Unlink ${appointment.room_id} � ${new Date(appointment.scheduled_at).toLocaleString()}` : 'Remove appointment link';
+      unlink.textContent = appointment ? `Unlink ${appointment.room_id} · ${new Date(appointment.scheduled_at).toLocaleString()}` : 'Remove appointment link';
       unlink.onclick = async () => { try { await api(`/face-demo/profiles/${profile.profile_id}/appointments/${appointmentId}`, 'DELETE'); await refresh(); say('Recognition check-in link removed. The appointment and face enrollment remain.'); } catch (error) { say(error.message); } };
       row.append(unlink);
     }
@@ -55,7 +55,7 @@ async function refresh() {
   }
   const current = $('appointment').value;
   $('appointment').replaceChildren(new Option('Recognition only', ''));
-  for (const item of appointments.filter(a => a.demo && a.room_id === $('room').value && ['scheduled','overdue'].includes(a.status))) {
+  for (const item of appointments.filter(a => a.room_id === $('room').value && ['scheduled','overdue'].includes(a.status))) {
     $('appointment').add(new Option(`${item.resident_label} · ${new Date(item.scheduled_at).toLocaleTimeString()}`, item.appointment_id));
   }
   if ([...$('appointment').options].some(option => option.value === current)) $('appointment').value = current;
@@ -74,7 +74,7 @@ $('open').onclick = async () => {
 };
 $('enroll').onclick = async () => {
   const alias = $('alias').value.trim();
-  if (!alias || !$('consent').checked) { say('Enter a demo alias and confirm your consent.'); return; }
+  if (!alias || !$('consent').checked) { say('Enter your preferred name and confirm your consent.'); return; }
   busy = true; controls(); const active = ++generation;
   const frames = [];
   try {
@@ -86,7 +86,7 @@ $('enroll').onclick = async () => {
     await api('/face-demo/enroll', 'POST', {alias, consent:$('consent').checked, identify_alerts:$('identify-alerts').checked, frames,
       appointment_id:$('appointment').value || null});
     $('consent').checked = false; $('identify-alerts').checked = false;
-    await refresh(); say(`${alias} enrolled. Start recognition to test the check-in.`);
+    await refresh(); say(`${alias} enrolled. You can now check in using recognition.`);
   } catch (error) { say(error.message); }
   finally { frames.length = 0; if (active === generation) { busy = false; controls(); } }
 };
@@ -102,7 +102,7 @@ $('recognize').onclick = async () => {
         const result = await api('/face-demo/recognize', 'POST', {session_id:ownSession, frame:frame()});
         if (active !== generation) break;
         if (result.status === 'recognized') {
-          say(`${result.profile.alias} recognized.${result.checked_in ? ' Demo appointment checked in.' : ' Recognition confirmed.'}`);
+          say(`${result.profile.alias} recognized.${result.checked_in ? ' Appointment checked in.' : ' Recognition confirmed.'}`);
           await refresh(); break;
         }
         say(result.status === 'confirming' ? `Confirming match: ${result.matches}/3` : 'No confirmed match. Face the camera in good light.');
@@ -118,11 +118,11 @@ $('recognize').onclick = async () => {
 };
 $('create-appointment').onclick = async () => {
   try {
-    const alias = $('alias').value.trim(); if (!alias) throw new Error('Enter a fictional demo alias first.');
+    const alias = $('alias').value.trim(); if (!alias) throw new Error('Enter your preferred name first.');
     const item = await api('/appointments', 'POST', {resident_label:alias, room_id:$('room').value,
-      scheduled_at:new Date(Date.now()+30000).toISOString(), grace_seconds:15, demo:true});
+      scheduled_at:new Date($('scheduled-at').value).toISOString(), grace_seconds:900, demo:false});
     await refresh(); $('appointment').value = item.appointment_id;
-    say('Demo appointment created. Enroll with it selected, then recognize to check in.');
+    say('Appointment scheduled. Select it when enrolling or link it to your existing enrollment.');
   } catch (error) { say(error.message); }
 };
 window.addEventListener('pagehide', stop);

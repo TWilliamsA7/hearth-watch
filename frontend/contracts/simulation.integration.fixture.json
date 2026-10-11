@@ -1,0 +1,335 @@
+{
+  "catalog": [
+    {
+      "scenario_id": "bend-pickup-01",
+      "title": "Bend down to pick something up",
+      "description": "Ordinary activity with a deep forward bend, a common false-positive risk for torso-angle rules. No alert expected.",
+      "duration": 21.5,
+      "seed": 11,
+      "residents": [],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "chair",
+            "x": 0.12,
+            "y": 0.66,
+            "w": 0.14,
+            "h": 0.26
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "camera-outage-01",
+      "title": "Camera stops sending mid-scenario",
+      "description": "The simulated camera goes silent for 8 seconds: no observations and no heartbeats. The room must be shown as offline / unknown, not as fine. No fall alert expected.",
+      "duration": 24.0,
+      "seed": 5,
+      "residents": [],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "chair",
+            "x": 0.66,
+            "y": 0.66,
+            "w": 0.14,
+            "h": 0.26
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "day-room-01",
+      "title": "Day room, one resident falls while others carry on",
+      "description": "Four residents in a shared day room. One reads in a chair, one walks along the back wall (passing behind the others), one walks in and falls near the middle of the room, and one gets up from the couch and bends down beside the fallen resident to help. Exactly one possible-fall alert is expected, for p3. The helper's bend is a false-alarm risk.",
+      "duration": 32.0,
+      "seed": 101,
+      "residents": [
+        "p1",
+        "p2",
+        "p3",
+        "p4"
+      ],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "couch",
+            "x": 0.62,
+            "y": 0.64,
+            "w": 0.3,
+            "h": 0.182
+          },
+          {
+            "kind": "chair",
+            "x": 0.1,
+            "y": 0.66,
+            "w": 0.12,
+            "h": 0.218
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "day-room-02",
+      "title": "Day room, ordinary activity that looks like a fall",
+      "description": "Three residents and no falls. One lies down on the couch for a rest, one bends twice to pick things up, and one sits down quickly in a chair. Each is a false-alarm risk for posture rules; no possible-fall alert is expected.",
+      "duration": 30.0,
+      "seed": 202,
+      "residents": [
+        "p1",
+        "p2",
+        "p3"
+      ],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "couch",
+            "x": 0.62,
+            "y": 0.64,
+            "w": 0.3,
+            "h": 0.182
+          },
+          {
+            "kind": "chair",
+            "x": 0.1,
+            "y": 0.66,
+            "w": 0.12,
+            "h": 0.218
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "lying-intentional-01",
+      "title": "Lie down on the mat on purpose",
+      "description": "The resident slowly lowers onto a floor mat, rests, then gets up. The final pose is close to a fall; only the slow, controlled descent differs. No alert expected.",
+      "duration": 35.0,
+      "seed": 23,
+      "residents": [],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "mat",
+            "x": 0.28,
+            "y": 0.88,
+            "w": 0.46,
+            "h": 0.06
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "occlusion-01",
+      "title": "Resident partly hidden behind furniture",
+      "description": "The resident stands behind a tall dresser so only the upper body is visible, then steps out. Tests how the monitor reports reduced visibility. No alert expected.",
+      "duration": 20.0,
+      "seed": 31,
+      "residents": [],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "occluder",
+            "x": 0.3,
+            "y": 0.45,
+            "w": 0.32,
+            "h": 0.47
+          }
+        ]
+      }
+    },
+    {
+      "scenario_id": "possible-fall-01",
+      "title": "Fall while walking, stays on the floor",
+      "description": "The resident walks in, pauses, then falls quickly and remains on the floor. A possible-fall alert is expected during the fall segment.",
+      "duration": 30.0,
+      "seed": 42,
+      "residents": [],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": []
+      }
+    },
+    {
+      "scenario_id": "walk-and-sit-01",
+      "title": "Walk to the chair, sit, get up, leave",
+      "description": "Ordinary activity. The resident enters from the left, sits in the chair for a while, stands up and walks out. No alert expected.",
+      "duration": 30.5,
+      "seed": 7,
+      "residents": [],
+      "scene": {
+        "floor_y": 0.92,
+        "person_height": 0.62,
+        "frame_aspect": 1.3333333333333333,
+        "depth_rise": 0.14,
+        "depth_shrink": 0.3,
+        "objects": [
+          {
+            "kind": "chair",
+            "x": 0.66,
+            "y": 0.66,
+            "w": 0.14,
+            "h": 0.26
+          }
+        ]
+      }
+    }
+  ],
+  "loaded": {
+    "state": "loaded",
+    "scenario_id": "possible-fall-01",
+    "seed": 42,
+    "run_id": "possible-fall-01-s42-live1",
+    "t": 0.0,
+    "duration": 31.519,
+    "speed": 1.0,
+    "scene": {
+      "floor_y": 0.92,
+      "person_height": 0.62,
+      "frame_aspect": 1.3333333333333333,
+      "depth_rise": 0.14,
+      "depth_shrink": 0.3,
+      "objects": []
+    },
+    "truth": [
+      {
+        "person_id": null,
+        "segment_id": "seg-01",
+        "truth_label": "walking",
+        "expects_alert": false
+      }
+    ]
+  },
+  "status": {
+    "state": "ended",
+    "scenario_id": "possible-fall-01",
+    "seed": 42,
+    "run_id": "possible-fall-01-s42-live1",
+    "t": 31.519,
+    "duration": 31.519,
+    "speed": 1.0,
+    "scene": {
+      "floor_y": 0.92,
+      "person_height": 0.62,
+      "frame_aspect": 1.3333333333333333,
+      "depth_rise": 0.14,
+      "depth_shrink": 0.3,
+      "objects": []
+    },
+    "truth": [
+      {
+        "person_id": null,
+        "segment_id": "seg-03",
+        "truth_label": "fall",
+        "expects_alert": true
+      }
+    ]
+  },
+  "report": {
+    "report_version": "1",
+    "run_id": "possible-fall-01-s42-live1",
+    "scenario_id": "possible-fall-01",
+    "seed": 42,
+    "source": "sim",
+    "start": "2026-01-01T00:00:00Z",
+    "duration": 31.519,
+    "people": [],
+    "alert_tolerance": 3.0,
+    "counts": {
+      "expected_alerts": 1,
+      "true_positives": 0,
+      "false_positives": 0,
+      "missed": 1,
+      "duplicates": 0
+    },
+    "detection_delays": [],
+    "segments": [
+      {
+        "segment_id": "seg-01",
+        "person_id": null,
+        "truth_label": "walking",
+        "t_start": 0.0,
+        "t_end": 5.907,
+        "expected_event": null,
+        "detected": null,
+        "delay": null,
+        "matched_event_id": null,
+        "false_alerts": 0
+      },
+      {
+        "segment_id": "seg-02",
+        "person_id": null,
+        "truth_label": "standing",
+        "t_start": 5.907,
+        "t_end": 12.102,
+        "expected_event": null,
+        "detected": null,
+        "delay": null,
+        "matched_event_id": null,
+        "false_alerts": 0
+      },
+      {
+        "segment_id": "seg-03",
+        "person_id": null,
+        "truth_label": "fall",
+        "t_start": 12.102,
+        "t_end": 31.519,
+        "expected_event": "possible_fall",
+        "detected": false,
+        "delay": null,
+        "matched_event_id": null,
+        "false_alerts": 0
+      }
+    ],
+    "alerts": [],
+    "timeline": []
+  },
+  "observation": {
+    "schema_version": "1",
+    "obs_id": "sim-possible-fall-01-s42-000000",
+    "timestamp": "2026-01-01T00:00:00Z",
+    "source": "sim",
+    "source_type": "simulation",
+    "room_id": "room-01",
+    "scenario_id": "possible-fall-01",
+    "person_id": null,
+    "person_detected": false,
+    "keypoints": null,
+    "features": null,
+    "face_present": false,
+    "face_confidence": null
+  }
+}

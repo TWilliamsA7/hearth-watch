@@ -45,7 +45,7 @@ def draw_status(frame, obs, *, posture_threshold=.65, help_label="fist"):
              (f"Input: {prediction.input_processing} | Lying is posture, not proof of a fall", (230,230,230))]
     if obs.hand_gesture_prediction:
         hand = obs.hand_gesture_prediction
-        lines.append((f"Hand: {hand.label} | Hold {help_label.upper()} to request help", (230,230,230)))
+        lines.append((f"Hand: {hand.label} ({hand.confidence or 0:.0%}) | Hold {help_label.upper()} to request help", (230,230,230)))
     scale = max(.35, min(.65, frame.shape[1] / 1000))
     for i, (text, color) in enumerate(lines):
         y = 26 + i * 24

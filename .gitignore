@@ -11,6 +11,9 @@ venv/
 
 # Node / frontend
 node_modules/
+.vite/
+frontend/.dependency-backup/
+frontend/.compat-python/
 frontend/dist/
 frontend/room-view/dev/dist/
 *.tsbuildinfo

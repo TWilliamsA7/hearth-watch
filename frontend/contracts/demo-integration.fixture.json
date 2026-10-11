@@ -1,0 +1,495 @@
+[
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "c1d8bff1-f572-4def-96ac-4735837b0fac",
+      "timestamp": "2026-10-10T00:00:31.700000Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "person_id": null,
+      "event_type": "source_online",
+      "confidence": null,
+      "metadata": {
+        "clock": "backend_receipt"
+      }
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "online": true,
+      "last_seen": "2026-10-10T00:00:31.700000Z",
+      "last_observation_at": null,
+      "observation_stale": true,
+      "posture": "unknown",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": 12.0,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "online": true,
+      "last_seen": "2026-10-10T00:00:32.700000Z",
+      "last_observation_at": "2026-10-10T00:00:31.700000Z",
+      "observation_stale": false,
+      "posture": "unknown",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": 12.0,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "sim-possible-fall-01-s42-000001",
+      "timestamp": "2026-10-10T20:39:56.064656Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "person_id": null,
+      "person_detected": false,
+      "keypoints": null,
+      "features": null,
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": false,
+      "face_confidence": null
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "951170c3-36d9-43a9-8bef-2591f181adf6",
+      "timestamp": "2026-10-10T20:39:55.981323Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "person_id": null,
+      "event_type": "person_not_visible",
+      "confidence": null,
+      "metadata": {}
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "7e214b72-f846-478f-8b38-3b188ddd19d9",
+      "timestamp": "2026-10-10T20:39:55.981323Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "person_id": null,
+      "event_type": "face_absent",
+      "confidence": null,
+      "metadata": {}
+    }
+  },
+  {
+    "type": "observation",
+    "data": {
+      "schema_version": "1",
+      "obs_id": "sim-possible-fall-01-s42-000378",
+      "timestamp": "2026-10-10T20:40:27.173928Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live1",
+      "person_id": null,
+      "person_detected": true,
+      "keypoints": [
+        {
+          "name": "nose",
+          "x": 0.6323,
+          "y": 0.8352,
+          "confidence": 0.686
+        },
+        {
+          "name": "left_eye",
+          "x": 0.6446,
+          "y": 0.8456,
+          "confidence": 0.714
+        },
+        {
+          "name": "right_eye",
+          "x": 0.6498,
+          "y": 0.8132,
+          "confidence": 0.643
+        },
+        {
+          "name": "left_ear",
+          "x": 0.6498,
+          "y": 0.8729,
+          "confidence": 0.73
+        },
+        {
+          "name": "right_ear",
+          "x": 0.6422,
+          "y": 0.7896,
+          "confidence": 0.661
+        },
+        {
+          "name": "left_shoulder",
+          "x": 0.5877,
+          "y": 0.8992,
+          "confidence": 0.745
+        },
+        {
+          "name": "right_shoulder",
+          "x": 0.5966,
+          "y": 0.7587,
+          "confidence": 0.625
+        },
+        {
+          "name": "left_elbow",
+          "x": 0.5424,
+          "y": 0.9135,
+          "confidence": 0.727
+        },
+        {
+          "name": "right_elbow",
+          "x": 0.5357,
+          "y": 0.7938,
+          "confidence": 0.631
+        },
+        {
+          "name": "left_wrist",
+          "x": 0.54,
+          "y": 0.9265,
+          "confidence": 0.651
+        },
+        {
+          "name": "right_wrist",
+          "x": 0.5434,
+          "y": 0.8105,
+          "confidence": 0.552
+        },
+        {
+          "name": "left_hip",
+          "x": 0.4616,
+          "y": 0.879,
+          "confidence": 0.672
+        },
+        {
+          "name": "right_hip",
+          "x": 0.4593,
+          "y": 0.7852,
+          "confidence": 0.662
+        },
+        {
+          "name": "left_knee",
+          "x": 0.3601,
+          "y": 0.8858,
+          "confidence": 0.762
+        },
+        {
+          "name": "right_knee",
+          "x": 0.3805,
+          "y": 0.8152,
+          "confidence": 0.759
+        },
+        {
+          "name": "left_ankle",
+          "x": 0.2495,
+          "y": 0.8886,
+          "confidence": 0.669
+        },
+        {
+          "name": "right_ankle",
+          "x": 0.2509,
+          "y": 0.8055,
+          "confidence": 0.728
+        },
+        {
+          "name": "neck",
+          "x": 0.6014,
+          "y": 0.8416,
+          "confidence": 0.72
+        }
+      ],
+      "features": {
+        "torso_angle_deg": 92.89,
+        "head_y": 0.8352,
+        "hip_y": 0.8321,
+        "bbox_aspect": 3.1808,
+        "vertical_velocity": -0.0228
+      },
+      "posture_prediction": null,
+      "hand_gesture_prediction": null,
+      "face_present": true,
+      "face_confidence": 0.852
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "abb77ca5-82cf-41a5-a1ab-559978723324",
+      "timestamp": "2026-10-10T20:39:57.590595Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live1",
+      "person_id": null,
+      "event_type": "person_visible",
+      "confidence": null,
+      "metadata": {}
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "d2a97a0d-89f4-44cf-87e2-24853b1a57a1",
+      "timestamp": "2026-10-10T20:40:27.173928Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live1",
+      "person_id": null,
+      "event_type": "face_present",
+      "confidence": null,
+      "metadata": {}
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "9c487a3a-df1f-4442-8ee9-454c3e8bc64c",
+      "timestamp": "2026-10-10T20:40:11.840595Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live1",
+      "person_id": null,
+      "event_type": "possible_fall",
+      "confidence": null,
+      "metadata": {
+        "posture": "floor_level",
+        "duration_seconds": 3.0,
+        "reason": "sustained_floor_level",
+        "severity": "warning"
+      }
+    }
+  },
+  {
+    "type": "alert",
+    "data": {
+      "alert_id": "168da8c4-c120-4e7e-8c94-fea9ff2339b7",
+      "event_id": "9c487a3a-df1f-4442-8ee9-454c3e8bc64c",
+      "kind": "possible_fall",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live1",
+      "status": "open",
+      "severity": "warning",
+      "opened_at": "2026-10-10T20:40:11.840595Z",
+      "acknowledged_at": null,
+      "resolved_at": null,
+      "recovered_at": null,
+      "accepted_by": null,
+      "accepted_by_name": null,
+      "metadata": {
+        "posture": "floor_level",
+        "duration_seconds": 3.0,
+        "reason": "sustained_floor_level",
+        "severity": "warning"
+      }
+    }
+  },
+  {
+    "type": "source_status",
+    "data": {
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "online": false,
+      "last_seen": "2026-10-10T00:00:32.700000Z",
+      "last_observation_at": "2026-10-10T00:00:31.700000Z",
+      "observation_stale": true,
+      "posture": "unknown",
+      "posture_confidence": null,
+      "posture_model": null,
+      "fps": 12.0,
+      "inference_ms": null,
+      "mem_used_mb": null
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "3c909ad8-37ac-42b2-8fe5-b3f523c825b9",
+      "timestamp": "2026-10-10T00:00:36.700000Z",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "person_id": null,
+      "event_type": "source_offline",
+      "confidence": null,
+      "metadata": {
+        "clock": "backend_receipt",
+        "reason": "source_silent"
+      }
+    }
+  },
+  {
+    "type": "alert",
+    "data": {
+      "alert_id": "0a6c7844-7122-4d2f-a7f6-f7eb86794d10",
+      "event_id": "3c909ad8-37ac-42b2-8fe5-b3f523c825b9",
+      "kind": "source_offline",
+      "source": "sim",
+      "source_type": "simulation",
+      "room_id": "room-01",
+      "scenario_id": "possible-fall-01",
+      "run_id": "possible-fall-01-s42-live2",
+      "status": "open",
+      "severity": "warning",
+      "opened_at": "2026-10-10T00:00:36.700000Z",
+      "acknowledged_at": null,
+      "resolved_at": null,
+      "recovered_at": null,
+      "accepted_by": null,
+      "accepted_by_name": null,
+      "metadata": {
+        "clock": "backend_receipt",
+        "reason": "source_silent"
+      }
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "144fee2c-e2c5-4629-b91e-4b10fc70f0c8",
+      "timestamp": "2026-10-10T00:00:36.700000Z",
+      "source": "room-panel",
+      "source_type": "manual",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_id": null,
+      "event_type": "help_requested",
+      "confidence": null,
+      "metadata": {
+        "method": "button",
+        "reason": "manual_help_request",
+        "clock": "backend_receipt"
+      }
+    }
+  },
+  {
+    "type": "alert",
+    "data": {
+      "alert_id": "22b3609e-13bb-4b1a-8781-9255cbf6ab03",
+      "event_id": "144fee2c-e2c5-4629-b91e-4b10fc70f0c8",
+      "kind": "help_requested",
+      "source": "room-panel",
+      "source_type": "manual",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "status": "open",
+      "severity": "warning",
+      "opened_at": "2026-10-10T00:00:36.700000Z",
+      "acknowledged_at": null,
+      "resolved_at": null,
+      "recovered_at": null,
+      "accepted_by": null,
+      "accepted_by_name": null,
+      "metadata": {
+        "method": "button",
+        "reason": "manual_help_request",
+        "clock": "backend_receipt"
+      }
+    }
+  },
+  {
+    "type": "event",
+    "data": {
+      "schema_version": "1",
+      "event_id": "3ee1bd00-8475-44f2-9136-a341277bef44",
+      "timestamp": "2026-10-10T00:00:36.700000Z",
+      "source": "room-panel",
+      "source_type": "manual",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "person_id": null,
+      "event_type": "alert_acknowledged",
+      "confidence": null,
+      "metadata": {
+        "alert_id": "22b3609e-13bb-4b1a-8781-9255cbf6ab03",
+        "incident_event_id": "144fee2c-e2c5-4629-b91e-4b10fc70f0c8",
+        "nurse_id": null,
+        "clock": "backend_receipt"
+      }
+    }
+  },
+  {
+    "type": "alert",
+    "data": {
+      "alert_id": "22b3609e-13bb-4b1a-8781-9255cbf6ab03",
+      "event_id": "144fee2c-e2c5-4629-b91e-4b10fc70f0c8",
+      "kind": "help_requested",
+      "source": "room-panel",
+      "source_type": "manual",
+      "room_id": "room-01",
+      "scenario_id": null,
+      "run_id": null,
+      "status": "acknowledged",
+      "severity": "warning",
+      "opened_at": "2026-10-10T00:00:36.700000Z",
+      "acknowledged_at": "2026-10-10T00:00:36.700000Z",
+      "resolved_at": null,
+      "recovered_at": null,
+      "accepted_by": null,
+      "accepted_by_name": null,
+      "metadata": {
+        "method": "button",
+        "reason": "manual_help_request",
+        "clock": "backend_receipt"
+      }
+    }
+  }
+]

@@ -21,6 +21,7 @@ from hearth.monitor.service import MonitorService
 from hearth.monitor.appointments import Appointments, Appointment, AppointmentInput, CheckIn
 from hearth.sim.mount import mount_simulation
 from hearth.api.face_demo import create_face_router
+from hearth.api.camera_preview import create_preview_router
 
 
 def create_app(config: MonitorConfig | None = None, *, service: MonitorService | None = None,
@@ -57,6 +58,7 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
     app = FastAPI(title="Hearth Monitoring Core", version="0.1.0", lifespan=lifespan)
     app.state.monitor = monitor
+    app.include_router(create_preview_router(monitor))
     app.state.appointments = appointments
     app.include_router(create_face_router(appointments, monitor))
 
@@ -112,15 +114,15 @@ def create_app(config: MonitorConfig | None = None, *, service: MonitorService |
 
     @app.get("/", include_in_schema=False)
     async def home():
-        return RedirectResponse("/nurses")
+        return RedirectResponse("http://127.0.0.1:5173/")
 
     @app.get("/nurses", include_in_schema=False)
     async def nurse_page():
-        return FileResponse(static / "nurse.html")
+        return RedirectResponse("http://127.0.0.1:5173/nurses")
 
     @app.get("/room", include_in_schema=False)
     async def room_page():
-        return FileResponse(static / "room.html")
+        return RedirectResponse("http://127.0.0.1:5173/room")
 
     @app.get("/rooms")
     async def rooms():

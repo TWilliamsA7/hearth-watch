@@ -53,6 +53,7 @@ def download(directory=DEFAULT_DIR):
 class FaceExtractor:
     def __init__(self, directory=DEFAULT_DIR):
         import cv2
+        cv2.setNumThreads(2)
         self.cv = cv2
         paths = []
         for relative, expected in MODELS.items():

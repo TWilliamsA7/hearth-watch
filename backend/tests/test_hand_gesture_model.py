@@ -7,6 +7,22 @@ from conftest import observation
 MODEL = "SuperSura/hand-gesture-yolo26n"
 
 
+def test_slow_cpu_frames_can_confirm_fist_but_missing_frame_resets(service):
+    service.config.hand_max_observation_gap_seconds = 2.5
+    service.ingest([frame(0), frame(1.3)])
+    assert not service.alerts
+    service.ingest([frame(2.6)])
+    assert next(iter(service.alerts.values())).kind == 'help_requested'
+
+
+def test_slow_fist_requires_three_matches_and_does_not_bridge_occlusion(service):
+    service.config.hand_max_observation_gap_seconds = 2.5
+    service.ingest([frame(0), frame(2.1)])
+    assert not service.alerts
+    service.ingest([frame(2.2, 'unknown', confidence=None, bbox=None, detection_count=0, uncertainty_reason='no_detection'), frame(3), frame(4.3)])
+    assert not service.alerts
+
+
 def frame(t, label="fist", **changes):
     prediction = dict(model_id=MODEL, model_revision="test", label=label, confidence=.9,
                       bbox=dict(x1=.1,y1=.1,x2=.3,y2=.4), detection_count=1)

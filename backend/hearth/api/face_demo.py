@@ -62,11 +62,11 @@ def create_face_router(appointments, monitor, demo=None, edge_token=None):
     def local_only(request: Request):
         if (request.client is None or request.client.host not in {"127.0.0.1", "::1"}
                 or request.url.hostname not in {"localhost", "127.0.0.1", "::1"}):
-            raise HTTPException(403, "Face demo is available only on the local laptop")
+            raise HTTPException(403, "Recognition is available only on the local care computer")
         if request.headers.get("origin") not in {None, str(request.base_url).rstrip("/")}:
-            raise HTTPException(403, "Use the same local page for the face demo")
+            raise HTTPException(403, "Use the same local page for recognition")
         if request.method != "GET" and request.headers.get("x-hearth-face-demo") != "1":
-            raise HTTPException(403, "Use the face demo controls")
+            raise HTTPException(403, "Use the recognition controls")
 
     def active():
         if demo is None:
@@ -105,7 +105,7 @@ def create_face_router(appointments, monitor, demo=None, edge_token=None):
 
     @router.get("/status")
     async def status():
-        return {"enabled": demo is not None, "message": "Ready for consenting demo patients" if demo else setup_error,
+        return {"enabled": demo is not None, "message": "Ready for patient enrollment" if demo else setup_error,
                 "body_detectors": ["yolo", "posenet"],
                 "transport": "loopback_only" + ("+edge_templates" if edge_token else ""),
                 "identity_ttl_seconds": PatientCamera.IDENTITY_TTL}
@@ -123,8 +123,8 @@ def create_face_router(appointments, monitor, demo=None, edge_token=None):
             raise HTTPException(413, "Enrollment frames are too large")
         if body.appointment_id:
             item = appointments.items.get(body.appointment_id)
-            if item is None or not item.demo or item.status not in {"scheduled", "overdue"}:
-                raise HTTPException(422, "Link an open fictional demo appointment only")
+            if item is None or item.status not in {"scheduled", "overdue"}:
+                raise HTTPException(422, "Link an open appointment only")
             token = item.check_in_token
         return await run_in_threadpool(action, lambda: service.enroll(body.alias, body.frames, body.consent, body.appointment_id, token, identify_alerts=body.identify_alerts))
 
@@ -155,7 +155,7 @@ def create_face_router(appointments, monitor, demo=None, edge_token=None):
         checked = []
         for appointment_id, token in links.items():
             item = appointments.items.get(appointment_id)
-            if (item and item.demo and item.check_in_token == token and item.room_id == result["room_id"]
+            if (item and item.check_in_token == token and item.room_id == result["room_id"]
                     and item.status in {"scheduled", "overdue"}
                     and monitor.utcnow() >= item.scheduled_at - timedelta(minutes=15)):
                 appointments.check_in(item.appointment_id, CheckIn(method="token", token=token), verified_demo_face=True)
@@ -167,8 +167,8 @@ def create_face_router(appointments, monitor, demo=None, edge_token=None):
     @router.post("/profiles/{profile_id}/appointments/{appointment_id}")
     async def link_appointment(profile_id: str, appointment_id: str):
         item = appointments.items.get(appointment_id)
-        if item is None or not item.demo or item.status not in {"scheduled", "overdue"}:
-            raise HTTPException(422, "Link an open demo appointment only")
+        if item is None or item.status not in {"scheduled", "overdue"}:
+            raise HTTPException(422, "Link an open appointment only")
         action(lambda: active().link_appointment(profile_id, appointment_id, item.check_in_token))
         return {"linked": True}
 

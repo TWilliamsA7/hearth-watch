@@ -91,7 +91,7 @@ def test_only_current_linked_demo_appointment_checks_in(demo, service, reschedul
         current = appointments.items[item.appointment_id]
         assert current.status == ("scheduled" if reschedule else "arrived")
         if not reschedule:
-            assert current.check_in_method == "face_recognition_demo"
+            assert current.check_in_method == "face_recognition"
     appointments.db.close()
 
 
@@ -108,7 +108,7 @@ def test_face_loss_and_long_gap_reset_evidence(demo):
     assert demo.recognize(session, "three")["matches"] == 1
 
 
-def test_non_demo_enrollment_and_remote_client_rejected(demo, service):
+def test_regular_appointment_enrollment_and_remote_client_rejected(demo, service):
     appointments = Appointments(service, ":memory:")
     item = appointments.create(AppointmentInput(resident_label="Fictional", room_id="room-01", scheduled_at=BASE))
     app = FastAPI()
@@ -116,8 +116,15 @@ def test_non_demo_enrollment_and_remote_client_rejected(demo, service):
     with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000)) as client:
         response = client.post("/face-demo/enroll", headers={"X-Hearth-Face-Demo":"1"}, json={
             "alias":"Alpha", "consent":True, "frames":["a","b","c"], "appointment_id":item.appointment_id})
-        assert response.status_code == 422
-        assert demo.profiles() == []
+        assert response.status_code == 200
+        assert len(demo.profiles()) == 1
+        session = client.post('/face-demo/sessions', headers={'X-Hearth-Face-Demo':'1'}, json={'room_id':'room-01'}).json()['session_id']
+        for frame in ('one', 'two', 'three'):
+            demo.test_time[0] += 1
+            result = client.post('/face-demo/recognize', headers={'X-Hearth-Face-Demo':'1'}, json={'session_id':session,'frame':frame})
+            assert result.status_code == 200
+        assert appointments.items[item.appointment_id].status == 'arrived'
+        assert appointments.items[item.appointment_id].check_in_method == 'face_recognition'
     with TestClient(app, base_url="http://localhost", client=("192.168.1.2", 50000)) as client:
         assert client.get("/face-demo/profiles").status_code == 403
     appointments.db.close()
