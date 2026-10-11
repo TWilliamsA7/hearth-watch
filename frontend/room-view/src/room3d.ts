@@ -163,6 +163,8 @@ export function buildRoom3D(room: WorldRoom, theme: Theme, lighting: Lighting = 
     furniture,
     update(camera: THREE.Camera) {
       camera.getWorldPosition(v);
+      // Seeing through the simulated camera: don't draw its body, whose lens would fill the view.
+      cam.body.visible = v.distanceTo(cam.body.position) > 0.3;
       for (const w of walls) {
         // Is the viewer on the outside of this wall (and above the floor)?
         const outsideIt = (v.x - w.at[0]) * w.normal[0] + (v.z - w.at[1]) * w.normal[1] < 0;
