@@ -16,6 +16,7 @@ monitor, and ground truth never reaches it.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Literal
 
@@ -32,6 +33,8 @@ from hearth.sim.live.lift import LiftedBody
 # No fresh frame for this long: the person is shown as gone. The Jetson pauses for a few
 # seconds now and then (camera stalls); holding the last pose that long avoids flicker.
 STALE_S = 4.0
+
+log = logging.getLogger("uvicorn.error")  # shows in the backend's console
 
 # The monitor's internal posture state -> (avatar posture, what to call it).
 POSTURES: dict[str, tuple[str, str]] = {
@@ -61,7 +64,7 @@ class CameraInfo(BaseModel):
 
 class CalibrateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    seconds: float = Field(default=8.0, ge=1.0, le=20.0,
+    seconds: float = Field(default=12.0, ge=1.0, le=30.0,
                            description="How long to watch the person walking about, upright, in view.")
     height: float = Field(default=1.7, ge=1.2, le=2.1, description="The person's height in metres.")
 
@@ -158,6 +161,9 @@ class LiveLink:
         result = await asyncio.to_thread(solve, frames, req.height, fov=C270_FOV)
         out = CalibrateResult(ok=result.ok, frames=result.frames, height=result.height, tilt=result.tilt,
                               fov=result.fov, rms=result.rms, reason=result.reason)  # fmt: skip
+        log.warning("calibration from %s: %d frames seen, %d usable -> %s", self.source, len(seen), result.frames,
+                    f"height {result.height} m, tilt {result.tilt} deg, fit {result.rms}" if result.ok
+                    else f"FAILED: {result.reason}")  # fmt: skip
         w = self.controller.world
         if result.ok and w is not None and result.height is not None and result.tilt is not None:
             spec = w.spec.camera.model_copy(update={"preset": "jetson", "height": result.height,

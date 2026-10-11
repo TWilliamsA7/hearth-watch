@@ -19,13 +19,14 @@ from dataclasses import dataclass
 
 
 C270_FOV = 43.0  # degrees, vertical (55 degrees diagonal at 4:3)
-MIN_FRAMES = 15
+MIN_FRAMES = 10  # each frame is a separate measurement; the fit drops the worst 20%
 # From one spot the camera's height and tilt trade off against each other (the answer can be
 # 0.6 m out); frames from around the room pin them down. Required spread of the low mark, in
 # image units, across and up/down the frame.
 MIN_SPREAD_U, MIN_SPREAD_V = 0.15, 0.05
 MAX_RMS = 0.025  # of the frame height (about 12 px at 480): a worse fit isn't trusted
 CAMERA_Z = -0.12  # the jetson preset's lens, just in front of the front wall
+MIN_TILT, MAX_TILT = -15.0, 60.0  # degrees down; a camera at head height may look level or up
 
 
 # Body points usable as calibration marks, lowest first / highest first, with their height as a
@@ -68,10 +69,13 @@ def frame_from(keypoints: list[tuple[str, float, float]]) -> CalibrationFrame | 
     pts = {n: (u, v) for n, u, v in keypoints}
 
     def first(marks):
+        # Either side of a pair will do: poseNet often sees one hip or one knee, not both,
+        # and both sit at the same height.
         for _, names in marks:
-            if all(n in pts for n in names):
-                uv = (sum(pts[n][0] for n in names) / len(names), sum(pts[n][1] for n in names) / len(names))
-                return uv, _mark_height(names)
+            seen = [n for n in names if n in pts]
+            if seen:
+                uv = (sum(pts[n][0] for n in seen) / len(seen), sum(pts[n][1] for n in seen) / len(seen))
+                return uv, _mark_height(tuple(seen))
         return None
 
     low, high = first(LOW_MARKS), first(HIGH_MARKS)
@@ -154,10 +158,10 @@ def solve(frames: list[CalibrationFrame], person_height: float, *, fov: float = 
         n = int(round((hi - lo) / step))
         return [lo + i * step for i in range(n + 1)]
 
-    e, h, t = search(steps(1.0, 3.0, 0.05), steps(0.0, 45.0, 1.0))
+    e, h, t = search(steps(1.0, 3.0, 0.05), steps(MIN_TILT, MAX_TILT, 1.0))  # tilt < 0: looking up
     if h is None or t is None:
         return Calibration(False, frames=len(frames), reason="no camera height and tilt fits these frames")
-    e, h, t = search(steps(max(1.0, h - 0.06), min(3.0, h + 0.06), 0.01), steps(max(0.0, t - 1.2), t + 1.2, 0.1))
+    e, h, t = search(steps(max(1.0, h - 0.06), min(3.0, h + 0.06), 0.01), steps(max(MIN_TILT, t - 1.2), min(MAX_TILT, t + 1.2), 0.1))
     rms = math.sqrt(e)
     if rms > MAX_RMS:
         return Calibration(False, round(h, 2), round(t, 1), fov, len(frames), round(rms, 4),

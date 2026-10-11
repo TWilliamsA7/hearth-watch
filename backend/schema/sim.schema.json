@@ -206,7 +206,7 @@
           "default": 12.0,
           "description": "Preset 'jetson': degrees the camera looks down (edge/DEMO.md: 10-15).",
           "maximum": 60.0,
-          "minimum": 0.0,
+          "minimum": -15.0,
           "title": "Tilt",
           "type": "number"
         },

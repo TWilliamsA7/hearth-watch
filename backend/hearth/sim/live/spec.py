@@ -35,7 +35,7 @@ class CameraSpec(_Model):
     fov: Annotated[float, Field(ge=30.0, le=110.0)] = Field(default=62.0, description="Vertical field of view, degrees.")
     aspect: Annotated[float, Field(gt=0.5, le=3.0)] = 4 / 3
     fps: Annotated[float, Field(gt=0.0, le=30.0)] = 10.0
-    tilt: Annotated[float, Field(ge=0.0, le=60.0)] = Field(
+    tilt: Annotated[float, Field(ge=-15.0, le=60.0)] = Field(
         default=12.0, description="Preset 'jetson': degrees the camera looks down (edge/DEMO.md: 10-15)."
     )
     reach: Annotated[float, Field(gt=0.5, le=12.0)] = Field(

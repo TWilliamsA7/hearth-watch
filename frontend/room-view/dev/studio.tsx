@@ -228,7 +228,7 @@ function Studio() {
       setCalibrating(true);
       setCalibration(null);
       try {
-        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { seconds: 8, height: liveHeight });
+        const r = await api<CalibrateResult>("/sim/live/link/calibrate", { seconds: 12, height: liveHeight });
         setCalibration(r);
         if (r.ok && r.height != null && r.tilt != null) {
           setPreset("jetson");
@@ -339,7 +339,7 @@ function Studio() {
           </div>
           <Slider label="Camera height" value={camHeight} min={1.0} max={3.2} step={0.05} onChange={setCamHeight} fmt={(v) => `${v.toFixed(2)} m`} />
           {preset === "jetson" && (
-            <Slider label="Tilt down" value={camTilt} min={0} max={45} step={1} onChange={setCamTilt} fmt={(v) => `${v}°`} />
+            <Slider label="Tilt down" value={camTilt} min={-15} max={60} step={1} onChange={setCamTilt} fmt={(v) => `${v}°`} />
           )}
           <Slider label="Field of view" value={camFov} min={30} max={110} step={1} onChange={setCamFov} fmt={(v) => `${v}°`} />
           <div className="row">
@@ -373,7 +373,7 @@ function Studio() {
             </button>
             <button onClick={liveOnly}>Live only (empty room)</button>
             <button disabled={!link?.enabled || calibrating} onClick={calibrate}
-              title="Walk slowly around for 8 s: left, right, nearer, further; upright, head and knees in view">
+              title="Walk slowly around for 12 s: left, right, nearer, further; upright, head and hips or knees in view">
               {calibrating ? "Calibrating… walk slowly around" : "Calibrate camera"}
             </button>
           </div>
